@@ -6,6 +6,9 @@ from scipy import stats
 
 from .utilities import chol2inv
 
+# Options for SDP solver
+OBJECTIVE_OPTIONS = ['abs', 'ccorr', 'pnorm', 'norm']
+
 
 def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
     """ Calculates the block diagonal matrix S using
@@ -31,12 +34,12 @@ def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
         # Fill in D
         D[full_inds] = sqrt_inv_group_sigma
         
-    min_d_eig = np.linalg.eig(D)[0].min()
+    min_d_eig = np.linalg.eigh(D)[0].min()
     print(f'D min eig val is: {min_d_eig}')
         
     # Find minimum eigenvalue
     DSigD = np.einsum('pk,kj,jl->pl', D, Sigma, D)
-    gamma = min(2 * np.linalg.eig(DSigD)[0].min(), 1)
+    gamma = min(2 * np.linalg.eigh(DSigD)[0].min(), 1)
     print(f'Gamma is: {gamma}')
     if np.imag(gamma) > tol:
         warnings.warn('The minimum eigenvalue is not real, is the cov matrix pos definite?')
@@ -58,10 +61,40 @@ def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
 
 
 
-def solve_group_SDP(Sigma, groups, verbose = False):
+def solve_group_SDP(Sigma, groups, sdp_verbose = False,
+                    objective = 'abs',
+                    norm_type = 2):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
-    Candes et al 2018 (MX Knockoffs)"""
+    Candes et al 2018 (MX Knockoffs)"
+    :param Sigma: true covariance (correlation) matrix, 
+    p by p numpy array.
+    :param groups: numpy array of length p with
+    integer values between 1 and m. 
+    :param verbose: if True, print progress of solver
+    :param objective: How to optimize the S matrix. 
+    There are several options:
+        - 'abs': minimize sum(abs(Sigma - S))
+        - 'ccorr': minimize sum of cannonical correlations
+        between groups and the group knockoffs.
+        - 'pnorm': minimize Lp-th matrix norm.
+        Equivalent to abs when p = 1.
+        - 'norm': minimize different type of matrix norm
+        (see norm_type below).
+    :param norm_type: Means different things depending on objective.
+        - When objective == 'pnorm', i.e. objective is Lp-th matrix norm, 
+          which p to use. Can be any float >= 1. 
+        - When objective == 'norm', can be 'fro', 'nuc', np.inf, or 1
+          (i.e. which other norm to use).
+    Defaults to 2.
+    """
+
+    # Check to make sure the objective is valid
+    objective = str(objective).lower()
+    if objective not in OBJECTIVE_OPTIONS:
+        raise ValueError(
+            f'Objective ({objective}) must be one of {OBJECTIVE_OPTIONS}'
+        )
     
     # Figure out sizes of groups
     p = Sigma.shape[0]
@@ -89,6 +122,7 @@ def solve_group_SDP(Sigma, groups, verbose = False):
     variables = []
     constraints = []
     S_rows = []
+    ccorr_blocks = [] # Stays empty unless objective == 'ccorr'
     shift = 0
     for j in range(m):
 
@@ -122,8 +156,15 @@ def solve_group_SDP(Sigma, groups, verbose = False):
         else:
             raise ValueError(f'shift ({shift}) and gj ({gj}) add up to more than p ({p})')  
         S_rows.append(rowj)
+ 
+        # Track blocks if we need to do ccorr analysis
+        if objective == 'ccorr':
+            sigma_block = sortedSigma[shift:shift+gj][:, shift:shift+gj]
+            ccorr_blocks.append([Sj, sigma_block])
 
+        # Incremenet shift
         shift += gj
+
 
     # Construct S and Grahm Matrix
     S = cp.vstack(S_rows)
@@ -134,15 +175,42 @@ def solve_group_SDP(Sigma, groups, verbose = False):
     )
     constraints += [G >> 0]
 
-    # Construct optimization constraint:
-    # This is equivalent to minimizing 
-    # the L1 norm of Sigma_m - S_m 
-    objective = cp.Minimize(cp.sum(cp.abs(sortedSigma - S)))
+    # Construct optimization objective
+    if objective == 'abs':
+        objective = cp.Minimize(cp.sum(cp.abs(sortedSigma - S)))
+    elif objective == 'pnorm':
+        objective = cp.Minimize(cp.pnorm(sortedSigma - S, norm_type))
+    elif objective == 'norm':
+        objective = cp.Minimize(cp.norm(sortedSigma - S, norm_type))
+    elif objective == 'ccorr':
+
+        # Compute canonical correlations (ccorr) for each block
+        ccorrs = []
+        for Sj, sigma_block in ccorr_blocks:
+
+            if sigma_block.shape == (1,1):
+                ccorrs.append(cp.abs(1 - Sj))
+            else:
+                # Invert and turn into params cp can understand
+                inv_sigma_block = chol2inv(sigma_block)
+                gj = inv_sigma_block.shape[0]
+                inv_sigma_block = cp.Constant(inv_sigma_block)
+
+                # Calculate ccorr matrix and ccorr
+                inv_sigma_Sj = cp.matmul(inv_sigma_block, Sj)
+                ccorr_matrix = cp.matmul(inv_sigma_Sj.T, inv_sigma_Sj)
+                ccorr_matrix -= 2*inv_sigma_Sj + cp.Constant(np.eye(gj))
+                ccorr = cp.sqrt(cp.lambda_max(ccorr_matrix))
+                ccorrs.append(ccorr)
+
+        # Sum over canonical correlations
+        objective = cp.Minimize(cp.sum(ccorrs))
+    # Note we already checked objective is one of these values earlier
+
+    # Conscturt, solve the problem    
     problem = cp.Problem(objective, constraints)
-    
-    # Solve the problem
-    problem.solve(verbose = verbose)
-    if verbose:
+    problem.solve(verbose = sdp_verbose)
+    if sdp_verbose:
         print('Finished solving SDP!')
         
     # Return unsorted S value
@@ -153,9 +221,11 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                              copies = 1, 
                              tol = 1e-5, 
                              method = 'sdp', 
+                             objective = 'abs',
                              return_S = False,
                              verbose = True,
-                             sdp_verbose = True):
+                             sdp_verbose = True,
+                             **kwargs):
     """ Constructs group Gaussian MX knockoffs:
     This is not particularly efficient yet...
     :param X: numpy array of dimension n x p 
@@ -164,9 +234,15 @@ def group_gaussian_knockoffs(X, Sigma, groups,
      the true Cov(X, tilde(X)), where tilde(X) is the knockoffs.
     :param groups: numpy array of length p, list of groups of X
     :param copies: integer number of knockoff copies of each observation to draw
+    :param method: How to constructe S matrix, either 'sdp' or 'equicorrelated'
+    :param objective: How to optimize the S matrix if using SDP.
+    There are several options:
+        - 'abs': minimize sum(abs(Sigma - S))
+        - 'ccorr': minimize sum of cannonical correlation
     :param tol: Minimum eigenvalue allowed for cov matrix of knockoffs
     :param bool verbose: If true, will print stuff as it goes
     :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
+    :param kwargs: other kwargs for either equicorrelated/SDP solvers.
     
     returns: copies x n x p numpy array of knockoffs"""
     
@@ -186,15 +262,17 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     if method == 'sdp':
         if verbose:
             print(f'Solving SDP for S with p = {p}')
-        S = solve_group_SDP(Sigma, groups)
+        S = solve_group_SDP(
+            Sigma, groups, objective = objective, sdp_verbose = sdp_verbose, **kwargs
+        )
     elif method == 'equicorrelated':
-        S = EquicorrelatedCovMatrix(Sigma, groups)
+        S = EquicorrelatedCovMatrix(Sigma, groups, **kwargs)
     else:
         raise ValueError(f'Method must be one of "equicorrelated" or "sdp", not {method}')
         
     # Check to make sure the methods worked
     #G = np.array([[Sigma, Sigma - S], [Sigma - S, Sigma]])
-    min_eig1 = np.linalg.eig(2*Sigma - S)[0].min()
+    min_eig1 = np.linalg.eigh(2*Sigma - S)[0].min()
     if verbose:
         print(f'Minimum eigenvalue of 2Sigma - S is {min_eig1}')
         
@@ -203,7 +281,7 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     V = 2*S - np.einsum('pk,kl,ls', S, invSigma, S)
     
     # Account for numerical errors
-    min_eig = np.linalg.eig(V)[0].min()
+    min_eig = np.linalg.eigh(V)[0].min()
     if verbose:
         print(f'Minimum eigenvalue of V is {min_eig}')
     if min_eig < tol:
