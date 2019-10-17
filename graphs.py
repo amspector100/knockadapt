@@ -140,8 +140,10 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     X = stats.multivariate_normal.rvs(mean = mu, cov = corr_matrix, size = n)
 
     # Create sparse coefficients and y
-    mask = stats.bernoulli.rvs(sparsity, size = p)
-    signs = 2 - stats.bernoulli.rvs(sparsity, size = p)
+    num_nonzero = int(np.floor(sparsity * p))
+    mask = np.array([0]*num_nonzero + [1]*(p-num_nonzero))
+    np.random.shuffle(mask)
+    signs = 1 - 2*stats.bernoulli.rvs(sparsity, size = p)
     beta = coeff_size * mask * signs
     y = np.einsum('np,p->n', X, beta) + np.random.standard_normal((n))
     

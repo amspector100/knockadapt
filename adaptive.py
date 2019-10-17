@@ -9,9 +9,8 @@ from .knockoff_stats import calc_group_LSM, calc_data_dependent_threshhold
 
 def evaluate_grouping(X, y, corr_matrix, groups, 
                       non_nulls = None,
-                      copies = 10, 
+                      copies = 20, 
                       q = 0.1,
-                      verbose = False,
                       **kwargs):
     """ Calculates empirical power, power, and FDP by
     running knockoffs. Does this "copies" times.
@@ -31,7 +30,7 @@ def evaluate_grouping(X, y, corr_matrix, groups,
     # Knockoff generation
     all_knockoffs, S = group_gaussian_knockoffs(
         X, corr_matrix, groups, copies = copies, tol = 1e-3, return_S = True, 
-        verbose = verbose, **kwargs
+        **kwargs
     )
     
     # For each knockoff, calculate FDP, empirical power, power
@@ -59,13 +58,6 @@ def evaluate_grouping(X, y, corr_matrix, groups,
             for j in range(m):
                 flag = np.abs(non_nulls[groups == j+1]).sum() > 0
                 true_selection[j] = flag
-
-            # print(1/group_sizes)
-            # print('---------------')
-            # print('hi', true_selection.sum())
-            # print([x for _,x in sorted(zip(np.abs(W), selected_flags))])
-            # print([x for _,x in sorted(zip(np.abs(W), true_selection))])
-            # print(sorted(W, key = lambda x: abs(x)))
 
             # True power
             power = np.einsum(
@@ -102,6 +94,9 @@ def select_highest_power(X, y, corr_matrix,
     agglomerative clustering step)
     :param non_nulls: p-length array where 0 indicates that that feature is null.
     Defaults to None.
+    :param kwargs: kwargs to evaluate_grouping, may contain kwargs to 
+    gaussian group knockoffs constructor.
+
     returns: If non_nulls is None, returns the list of cutoffs and associated
     empirical powers.
     If non_nulls is not None, returns cutoffs, associated empirical powers,
@@ -143,12 +138,3 @@ def select_highest_power(X, y, corr_matrix,
         return cutoffs, cutoff_hat_powers, Ms
     else:
         return cutoffs, cutoff_hat_powers, cutoff_fdps, cutoff_powers, Ms
-
-def test_proposed_method(n = 50,
-                         p = 50, 
-                         coeff_size = 10, 
-                         q = 0.25, 
-                         link_method = 'complete',
-                         ):
-
-    pass
