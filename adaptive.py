@@ -7,10 +7,11 @@ from .knockoffs import group_gaussian_knockoffs
 from .knockoff_stats import calc_group_LSM, calc_data_dependent_threshhold
 
 
-def evaluate_grouping(X, y, corr_matrix, groups, 
+def evaluate_grouping(X, y, 
+                      corr_matrix, groups, q, 
                       non_nulls = None,
                       copies = 20, 
-                      q = 0.1,
+                      feature_stat_fn = calc_group_LSM,
                       **kwargs):
     """ Calculates empirical power, power, and FDP by
     running knockoffs. Does this "copies" times.
@@ -21,6 +22,9 @@ def evaluate_grouping(X, y, corr_matrix, groups,
     :param groups: p-length array of the groups of each feature
     :param non_nulls: p-length array where 0's indicate null variables.
     :param q: Desiredd Type 1 error level.
+    :param feature_stat_fn: A function which creates the feature statistics (W)
+     given the design matrix X, the response y, the knockofs, and the groups.
+     Defaults to calc_group_LSM.
     :param verbose: Whether the knockoff constructor should give progress reports.
     :param kwargs: kwargs to the Gaussian Knockoffs constructor."""
     
@@ -41,7 +45,9 @@ def evaluate_grouping(X, y, corr_matrix, groups,
         knockoffs = all_knockoffs[:, :, j]
     
         # Statistics
-        W = calc_group_LSM(X, knockoffs, y, groups = groups)
+        W = feature_stat_fn(
+            X = X, knockoffs = knockoffs, y = y, groups = groups
+        )
 
         # Calculate data-dependent threshhold
         T = calc_data_dependent_threshhold(W, fdr = q)
@@ -77,23 +83,32 @@ def evaluate_grouping(X, y, corr_matrix, groups,
     
     # Return depending on whether we have oracle info
     if non_nulls is not None:
+        num_non_nulls = float(np.sum(non_nulls != 0))
+        hat_powers = np.array(hat_powers)/num_non_nulls
+        fdps = np.array(fdps)
+        powers = np.array(powers)/num_non_nulls
         return fdps, powers, hat_powers
     else:
-        return hat_powers
+        return np.array(hat_powers)
     
 def select_highest_power(X, y, corr_matrix, 
                          link, 
+                         cutoffs = None,
                          reduction = 10, 
                          non_nulls = None,
+                         S_matrices = None,
                          **kwargs):
     """
     :param link: Link object returned by scipy hierarchical cluster, 
-    or the create_correlation_tree function
+    or the create_correlation_tree function.
+    :param cutoffs: List of cutoffs to consider (makes link and reduction
+    parameters redundant). Defaults to None
     :param reduction: If reduction = 10, only look at every 10th cutoff 
     (i.e. only consider cutoffs which occur after each 10 steps in the 
     agglomerative clustering step)
     :param non_nulls: p-length array where 0 indicates that that feature is null.
     Defaults to None.
+    :param S_matrices: dictionary mapping cutoffs to S matrix for knockoffs
     :param kwargs: kwargs to evaluate_grouping, may contain kwargs to 
     gaussian group knockoffs constructor.
 
@@ -105,8 +120,15 @@ def select_highest_power(X, y, corr_matrix,
     
     # Create cutoffs and groups - for effieicny,
     # only currently going to look at every 10th cutoff
-    cutoffs = link[:, 2]
-    cutoffs = cutoffs[::reduction]
+    if cutoffs is not None:
+        cutoffs = link[:, 2]
+        cutoffs = cutoffs[::reduction]
+
+    # Possibly create S_matrices dictionary
+    # if not already supplied
+    if S_matrices is None:
+        S_matrices = {cutoff:None for cutoff in cutoffs}
+
     cutoff_hat_powers = []
     Ms = []
     if non_nulls is not None:
@@ -120,14 +142,23 @@ def select_highest_power(X, y, corr_matrix,
         # Create groups
         groups = hierarchy.fcluster(link, cutoff, criterion = "distance")
         Ms.append(np.unique(groups).shape[0])
+
+        # Get S matrix
+        S = S_matrices[cutoff]
+
+        # Possible just get empirical powers if there's no ground truth
         if non_nulls is None:
             hat_powers = evaluate_grouping(
-                X, y, corr_matrix, groups, non_nulls = non_nulls, **kwargs
+                X, y, corr_matrix, groups, non_nulls = non_nulls, 
+                S = S, **kwargs
             )
             cutoff_hat_powers.append(np.array(hat_powers).mean())
+
+        # Else, calculate it all!
         else:
             fdps, powers, hat_powers = evaluate_grouping(
-                X, y, corr_matrix, groups, non_nulls = non_nulls, **kwargs
+                X, y, corr_matrix, groups, non_nulls = non_nulls,
+                S = S, **kwargs
             )
             cutoff_hat_powers.append(np.array(hat_powers).mean())
             cutoff_fdps.append(np.array(fdps).mean())

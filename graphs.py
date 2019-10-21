@@ -104,6 +104,7 @@ def create_correlation_tree(corr_matrix, method = 'single'):
 
 def sample_data(p = 100, n = 50, coeff_size = 1, 
                 sparsity = 0.5, method = 'ErdosRenyi',
+                Q = None, corr_matrix = None, beta = None,
                **kwargs):
     """ Creates a random covariance matrix using method
     and then samples Gaussian data from it. It also creates
@@ -115,36 +116,48 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     response itself is standard normal).
     :param method: How to generate the covariance matrix.
     One of 'ErdosRenyi', 'AR1', 'identity'.
+    :param Q: p x p precision matrix. If supplied, will not generate
+    a new covariance matrix.
+    :param corr_matrix: p x p correlation matrix. If supplied, will 
+    not generate a new correlation matrix.
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
     """
     
     # Create Graph
-    method = str(method).lower()
-    if method == 'erdosrenyi':
-        Q = ErdosRenyi(p = p, **kwargs)
-        corr_matrix = cov2corr(chol2inv(Q))
-    elif method == 'ar1':
-        corr_matrix = AR1(p = p, **kwargs)
+    if Q is None and corr_matrix is None:
+        method = str(method).lower()
+        if method == 'erdosrenyi':
+            Q = ErdosRenyi(p = p, **kwargs)
+            corr_matrix = cov2corr(chol2inv(Q))
+        elif method == 'ar1':
+            corr_matrix = AR1(p = p, **kwargs)
+            Q = chol2inv(corr_matrix)
+        elif method == 'identity':
+            corr_matrix = 1e-3 * stats.norm.rvs(size = (p,p))
+            corr_matrix = np.dot(corr_matrix.T, corr_matrix)
+            corr_matrix -= np.diagflat(np.diag(corr_matrix))
+            corr_matrix += np.eye(p)
+            Q = corr_matrix
+        else:
+            raise ValueError("Other methods not implemented yet")
+    elif Q is None:
         Q = chol2inv(corr_matrix)
-    elif method == 'identity':
-        corr_matrix = 1e-3 * stats.norm.rvs(size = (p,p))
-        corr_matrix = np.dot(corr_matrix.T, corr_matrix)
-        corr_matrix -= np.diagflat(np.diag(corr_matrix))
-        corr_matrix += np.eye(p)
-        Q = corr_matrix
+    elif corr_matrix is None:
+        corr_matrix = cov2corr(chol2inv(Q))
     else:
-        raise ValueError("Other methods not implemented yet")
+        pass
 
     # Sample design matrix
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean = mu, cov = corr_matrix, size = n)
 
     # Create sparse coefficients and y
-    num_nonzero = int(np.floor(sparsity * p))
-    mask = np.array([0]*num_nonzero + [1]*(p-num_nonzero))
-    np.random.shuffle(mask)
-    signs = 1 - 2*stats.bernoulli.rvs(sparsity, size = p)
-    beta = coeff_size * mask * signs
+    if beta is None:
+        num_nonzero = int(np.floor(sparsity * p))
+        mask = np.array([0]*num_nonzero + [1]*(p-num_nonzero))
+        np.random.shuffle(mask)
+        signs = 1 - 2*stats.bernoulli.rvs(sparsity, size = p)
+        beta = coeff_size * mask * signs
     y = np.einsum('np,p->n', X, beta) + np.random.standard_normal((n))
     
     return X, y, beta, Q, corr_matrix

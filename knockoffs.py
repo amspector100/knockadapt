@@ -218,13 +218,16 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
 
 
 def group_gaussian_knockoffs(X, Sigma, groups, 
+                             invSigma = None,
                              copies = 1, 
                              tol = 1e-5, 
+                             S = None,
                              method = 'sdp', 
-                             objective = 'abs',
+                             objective = 'norm',
                              return_S = False,
                              verbose = True,
                              sdp_verbose = True,
+                             check = False,
                              **kwargs):
     """ Constructs group Gaussian MX knockoffs:
     This is not particularly efficient yet...
@@ -234,6 +237,8 @@ def group_gaussian_knockoffs(X, Sigma, groups,
      the true Cov(X, tilde(X)), where tilde(X) is the knockoffs.
     :param groups: numpy array of length p, list of groups of X
     :param copies: integer number of knockoff copies of each observation to draw
+    :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
+    and will be constructed by knockoff generator.
     :param method: How to constructe S matrix, either 'sdp' or 'equicorrelated'
     :param objective: How to optimize the S matrix if using SDP.
     There are several options:
@@ -242,6 +247,9 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     :param tol: Minimum eigenvalue allowed for cov matrix of knockoffs
     :param bool verbose: If true, will print stuff as it goes
     :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
+    :param bool check: If False, will not check to make sure S is valid for 
+    knockoff generation. This is useful for running simulations, but if you are
+    actually applying the package, it is highly recommended to set check = True.
     :param kwargs: other kwargs for either equicorrelated/SDP solvers.
     
     returns: copies x n x p numpy array of knockoffs"""
@@ -254,30 +262,38 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         raise ValueError(f'Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match')
         
     # Get precision matrix
-    invSigma = chol2inv(Sigma)
+    if invSigma is None:
+        invSigma = chol2inv(Sigma)
+    else:
+        product = np.dot(invSigma.T, Sigma)
+        if np.abs(product - np.eye(p)).sum() > tol:
+            raise ValueError('Inverse Sigma provided was not actually the inverse of Sigma')
         
     # Calculate group-block diagonal matrix S 
-    # using SDP, equicorrelated, or ASDP
+    # using SDP, equicorrelated, or (maybe) ASDP
     method = str(method).lower()
-    if method == 'sdp':
-        if verbose:
-            print(f'Solving SDP for S with p = {p}')
-        S = solve_group_SDP(
-            Sigma, groups, objective = objective, sdp_verbose = sdp_verbose, **kwargs
-        )
-    elif method == 'equicorrelated':
-        S = EquicorrelatedCovMatrix(Sigma, groups, **kwargs)
+    if S is None:
+        if method == 'sdp':
+            if verbose:
+                print(f'Solving SDP for S with p = {p}')
+            S = solve_group_SDP(
+                Sigma, groups, objective = objective, sdp_verbose = sdp_verbose, **kwargs
+            )
+        elif method == 'equicorrelated':
+            S = EquicorrelatedCovMatrix(Sigma, groups, **kwargs)
+        else:
+            raise ValueError(f'Method must be one of "equicorrelated" or "sdp", not {method}')
     else:
-        raise ValueError(f'Method must be one of "equicorrelated" or "sdp", not {method}')
+        pass
         
     # Check to make sure the methods worked
-    #G = np.array([[Sigma, Sigma - S], [Sigma - S, Sigma]])
-    min_eig1 = np.linalg.eigh(2*Sigma - S)[0].min()
-    if verbose:
-        print(f'Minimum eigenvalue of 2Sigma - S is {min_eig1}')
+    if check:
+        min_eig1 = np.linalg.eigh(2*Sigma - S)[0].min()
+        if verbose:
+            print(f'Minimum eigenvalue of 2Sigma - S is {min_eig1}')
         
     # Calculate MX knockoff moments...
-    mu = X - np.einsum('pk,kl,ls', X, invSigma, S)
+    mu = X - np.dot(np.dot(X, invSigma), S) # This is a bottleneck??
     V = 2*S - np.einsum('pk,kl,ls', S, invSigma, S)
     
     # Account for numerical errors
