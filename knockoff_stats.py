@@ -35,7 +35,33 @@ def calc_LCD(Z, groups):
 
     return W
 
-def calc_group_LSM(X, knockoffs, y, groups = None, **kwargs):
+def calc_LSM(Z, groups):
+    """
+    Calculates signed maximum statistics for knockoffs
+    :param Z: statistics for each feature (including knockoffs)
+    2p dimensional numpy array
+    :param groups: p dimensional numpy array of group membership
+    with m discrete values
+    :returns W: m dimensional array of knockoff LSM statistics
+    """
+
+    # Get dims, initialize output
+    p = groups.shape[0]
+    m = np.unique(groups).shape[0]
+
+    # Calculate signed maxes
+    inds = np.arange(0, p, 1)
+    W = np.maximum(Z[inds], Z[inds + p])
+    W = W * np.sign(np.abs(Z[inds]) - np.abs(Z[inds + p]))
+
+    # Combine them for each group
+    W_group = np.zeros(m)
+    for i in range(p):
+        W_group[groups[i]-1] += W[i]
+        
+    return W_group
+
+def calc_nongroup_LSM(X, knockoffs, y, groups = None, **kwargs):
     """ Calculates difference between average group Lasso signed maxs. 
     Does NOT use a group lasso regression class, unfortunately.
     :param X: n x p design matrix
@@ -67,78 +93,19 @@ def calc_group_LSM(X, knockoffs, y, groups = None, **kwargs):
         else:
             Z[i] = alphas[np.where(coefs[i] != 0)[0][0]]
 
-    # Calculate LSM for each feature
-    inds = np.arange(0, p, 1)
-    W = np.maximum(Z[inds], Z[inds + p])
-    W = W * np.sign(np.abs(Z[inds]) - np.abs(Z[inds + p]))
-
-    # Combine groups
-    W_group = np.zeros(m)
-    for i in range(p):
-        W_group[groups[i]-1] += W[i]
+    # Calculate group LSM
+    W_group = calc_LSM(Z, groups)
         
     return W_group
 
-def group_lasso_LCD(X, knockoffs, y, groups, **kwargs):
-    """ Calculates difference between average group Lasso signed maxs. 
-    Does NOT use a group lasso regression class, unfortunately.
+def fit_group_lasso(X, knockoffs, y, groups, **kwargs):
+    """ Fits a group lasso model.
     :param X: n x p design matrix
     :param knockoffs: n x p knockoff matrix
     :param groups: p length numpy array of groups
-    :param kwargs: kwargs for pyglmnet Lasso class
+    :param kwargs: kwargs for group-lasso GroupLasso class
     """
 
-    # Bind data
-    n = X.shape[0]
-    p = X.shape[1]
-    m = np.unique(groups).shape[0]
-    features = np.concatenate([X, knockoffs], axis = 1)
-    doubled_groups = np.concatenate([groups, groups], axis = 0)
-
-    # Fit the group lasso
-    glasso = GLMCV(distr='gaussian', tol=1e-2,
-                   group = doubled_groups,
-                   alpha = 1.0)
-
-    # Standardize
-    y_std = (y - y.mean())/y.std()
-    features = (features.copy() - features.mean())/features.std()
-    glasso.fit(features, y_std)
-
-    # Get coefficients, calculate LCD
-    Z = gl.beta_
-    W = calc_LCD(Z, groups)
-    return W
-
-
-def calc_simple_LCD(X, knockoffs, y, groups = None, **kwargs):
-    """ Calculates Lasso coefficient difference NOT using group lasso.
-    :param X: n x p design matrix
-    :param knockoffs: n x p knockoff matrix
-    :param groups: p length numpy array of groups
-    :params **kwargs: kwargs to Lasso method 
-    """
-
-    # Bind data
-    n = X.shape[0]
-    p = X.shape[1]
-    features = np.concatenate([X, knockoffs], axis = 1)
-
-    # Lasso
-    lasso = linear_model.Lasso(**kwargs)
-    lasso.fit(features, y) 
-    
-
-def calc_group_LCD(X, knockoffs, y, groups = None, **kwargs):
-    """ Calculates group Lasso coefficient difference. 
-    :param X: n x p design matrix
-    :param knockoffs: n x p knockoff matrix
-    :param groups: p length numpy array of groups
-    :params **kwargs: kwargs to GroupLasso method 
-    I.e. if features 2 and 3 are in the same group, 
-    we set W(X, knockoffs, y) = 
-    sum(abs coeff of X) - sum(abs coeff of knockoffs)
-    """
     warnings.filterwarnings("ignore")
 
     # Bind data
@@ -159,15 +126,49 @@ def calc_group_LCD(X, knockoffs, y, groups = None, **kwargs):
     # perm, inv_perm = random_permutation(2*p)
     # features = features.copy()[:, perm]
     # doubled_groups = doubled_groups.copy()[perm]
+
+    # Standardize
+    #features = (features - features.mean())/features.std()
+    #y = (y - y.mean())/y.std()
     
     # Fit model
     gl = GroupLasso(groups=doubled_groups, **kwargs)
     gl.fit(features, y.reshape(n, 1))
+    warnings.simplefilter("always")
+
+    return gl
+
+
+def group_lasso_LSM(X, knockoffs, y, groups, **kwargs):
+    """ Calculates mean group Lasso signed max. 
+    :param X: n x p design matrix
+    :param knockoffs: n x p knockoff matrix
+    :param groups: p length numpy array of groups
+    :param kwargs: kwargs for group-lasso GroupLasso class
+    """
+    gl = fit_group_lasso(X, knockoffs, y, groups = None, **kwargs)
+
+    # Create LSM statistics
     Z = gl.coef_
+    W = calc_LSM(Z, groups)
+    return W
+
+
+def group_lasso_LCD(X, knockoffs, y, groups = None, **kwargs):
+    """ Calculates group Lasso coefficient difference. 
+    :param X: n x p design matrix
+    :param knockoffs: n x p knockoff matrix
+    :param groups: p length numpy array of groups
+    :params **kwargs: kwargs to GroupLasso method 
+    I.e. if features 2 and 3 are in the same group, 
+    we set W(X, knockoffs, y) = 
+    sum(abs coeff of X) - sum(abs coeff of knockoffs)
+    """
+    gl = fit_group_lasso(X, knockoffs, y, groups = None, **kwargs)
 
     # Create LCD statistics
+    Z = gl.coef_
     W = calc_LCD(Z, groups)
-    warnings.simplefilter("always")
 
     return W
 

@@ -4,14 +4,14 @@ import scipy.cluster.hierarchy as hierarchy
 from . import utilities
 from .graphs import sample_data, create_correlation_tree
 from .knockoffs import group_gaussian_knockoffs
-from .knockoff_stats import calc_group_LSM, calc_data_dependent_threshhold
+from .knockoff_stats import calc_nongroup_LSM, calc_data_dependent_threshhold
 
 
 def evaluate_grouping(X, y, 
                       corr_matrix, groups, q, 
                       non_nulls = None,
                       copies = 20, 
-                      feature_stat_fn = calc_group_LSM,
+                      feature_stat_fn = calc_nongroup_LSM,
                       **kwargs):
     """ Calculates empirical power, power, and FDP by
     running knockoffs. Does this "copies" times.
@@ -24,7 +24,7 @@ def evaluate_grouping(X, y,
     :param q: Desiredd Type 1 error level.
     :param feature_stat_fn: A function which creates the feature statistics (W)
      given the design matrix X, the response y, the knockofs, and the groups.
-     Defaults to calc_group_LSM.
+     Defaults to calc_nongroup_LSM.
     :param verbose: Whether the knockoff constructor should give progress reports.
     :param kwargs: kwargs to the Gaussian Knockoffs constructor."""
     
