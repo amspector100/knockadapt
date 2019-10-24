@@ -79,25 +79,29 @@ def create_correlation_tree(corr_matrix, method = 'single'):
     """ Creates hierarchical clustering (correlation tree)
     from a correlation matrix
     :param corr_matrix: the correlation matrix
-    :param method: 'single', 'average', or 'complete
+    :param method: 'single', 'average', 'fro', or 'complete'
     
     returns: 'link' of the correlation tree, as in scipy"""
     
     p = corr_matrix.shape[0]
     
     # Distance matrix for tree method
-    dist_matrix = np.around(1-np.abs(corr_matrix), decimals = 10)
+    if method == 'fro':
+        dist_matrix = np.around(1-corr_matrix**2, decimals = 10)
+    else:
+        dist_matrix = np.around(1-np.abs(corr_matrix), decimals = 10)
+
     condensed_dist_matrix = ssd.squareform(dist_matrix)
 
     # Create linkage
     if method == 'single':
         link = hierarchy.single(condensed_dist_matrix)
-    elif method == 'average':
+    elif method == 'average' or method == 'fro':
         link = hierarchy.average(condensed_dist_matrix)
     elif method == 'complete':
         link = hierarchy.complete(condensed_dist_matrix)
     else:
-        raise ValueError('Only "single", "complete", "average" are valid methods')
+        raise ValueError(f'Only "single", "complete", "average" are valid methods, not {method}')
         
         
     return link
