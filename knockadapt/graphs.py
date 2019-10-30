@@ -87,9 +87,10 @@ def create_correlation_tree(corr_matrix, method = 'single'):
     
     # Distance matrix for tree method
     if method == 'fro':
-        dist_matrix = np.around(1-corr_matrix**2, decimals = 10)
+        dist_matrix = np.around(1-np.power(corr_matrix, 2), decimals = 7)
     else:
-        dist_matrix = np.around(1-np.abs(corr_matrix), decimals = 10)
+        dist_matrix = np.around(1-np.abs(corr_matrix), decimals = 7)
+    dist_matrix -= np.diagflat(np.diag(dist_matrix))
 
     condensed_dist_matrix = ssd.squareform(dist_matrix)
 
@@ -133,6 +134,8 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
         if method == 'erdosrenyi':
             Q = ErdosRenyi(p = p, **kwargs)
             corr_matrix = cov2corr(chol2inv(Q))
+            corr_matrix -= np.diagflat(np.diag(corr_matrix))
+            corr_matrix += np.eye(p)
         elif method == 'ar1':
             corr_matrix = AR1(p = p, **kwargs)
             Q = chol2inv(corr_matrix)
