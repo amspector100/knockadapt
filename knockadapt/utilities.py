@@ -46,17 +46,17 @@ def random_permutation(p):
     inv_permutation = inv_permutation.astype('int32')
     return permutation, inv_permutation
 
-def calc_ccorr(Q11, sigma12, Q22):
-    """ Calculates canonical correlation between
-    two sets of variables of dimensions p and q.
-    :param Q11: precision matrix of first set of variables.
-    p x p numpy array. 
-    :param sigma12: covariance matrix between sets. 
-    p x q numpy array.
-    :param Q22: precision matrix of second set of variables.
-    q x q numpy array.
+# def calc_ccorr(Q11, sigma12, Q22):
+#     """ Calculates canonical correlation between
+#     two sets of variables of dimensions p and q.
+#     :param Q11: precision matrix of first set of variables.
+#     p x p numpy array. 
+#     :param sigma12: covariance matrix between sets. 
+#     p x q numpy array.
+#     :param Q22: precision matrix of second set of variables.
+#     q x q numpy array.
 
-    returns: canonical correlation 
-    """
-
+#     returns: canonical correlation 
+#     """
+#     pass
     
