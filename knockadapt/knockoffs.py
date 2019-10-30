@@ -4,10 +4,18 @@ import cvxpy as cp
 import scipy as sp
 from scipy import stats
 
-from .utilities import chol2inv
+from .utilities import chol2inv, calc_group_sizes
 
 # Options for SDP solver
 OBJECTIVE_OPTIONS = ['abs', 'ccorr', 'pnorm', 'norm']
+
+
+def preprocess_groups(groups):
+    """ Turns a p-dimensional numpy array with m unique elements
+    into a lits of integers from 1 to m"""
+    unique_vals = np.unique(groups)
+    conversion = {unique_vals[i]:i for i in range(unique_vals.shape[0])}
+    return np.array([conversion[x] + 1 for x in groups])
 
 
 def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
@@ -217,6 +225,77 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
     return S.value[inv_inds][:, inv_inds]
 
 
+def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
+                     alpha = 2, verbose = True, **kwargs):
+    """
+    :param Sigma: covariance (correlation) matrix
+    :param groups: numpy array of length p with
+    integer values between 1 and m. 
+    :param Sigma_groups: dictionary mapping groups to
+    integers between 1 and l, with 1 < l: used to construct
+    an l-block approximation of Sigma. 
+    :param alpha: If Sigma_groups is none, combines sets 
+    of alpha groups to define the blocks used in the block
+    approximation of Sigma. E.g. if alpha = 2, will combine
+    pairs of groups in order to define blocks.
+    (How does it choose which pairs of groups to combine?
+    It's basically random right now.)
+    """
+
+    # Shape of Sigma
+    p = Sigma.shape[0]
+    
+    # Possibly infer Sigma_groups
+    if Sigma_groups is None:
+        Sigma_groups = {x:int(x/alpha) for x in np.unique(groups)}
+    Sigma_groups = np.array([Sigma_groups[i] for i in groups])
+
+    # If verbose, report on block sizes
+    if verbose:
+        sizes = calc_group_sizes(Sigma_groups)
+        max_block = sizes.max()
+        mean_block = int(sizes.mean())
+        num_blocks = sizes.shape[0]
+        print(f'ASDP has split Sigma into {num_blocks} blocks, of mean size {mean_block} and max size {max_block}')
+
+    # Make sure this is zero indexed
+    Sigma_groups = preprocess_groups(Sigma_groups) - 1    
+
+    # Construct block approximation
+    l = Sigma_groups.max() + 1
+    Sigma_blocks = [Sigma[Sigma_groups == i][:, Sigma_groups == i] for i in range(l)]
+    group_blocks = [groups[Sigma_groups == i] for i in range(l)]
+    group_blocks = [preprocess_groups(x) for x in group_blocks]
+
+    # Feed approximation to SDP
+    #S = np.zeros((p, p))
+    S_blocks = []
+    for i in range(l):
+        S_block = solve_group_SDP(
+            Sigma = Sigma_blocks[i], groups = group_blocks[i], **kwargs
+        )
+        S_blocks.append(S_block)
+    S_sorted = sp.linalg.block_diag(*S_blocks)
+
+    # Create indexes to unsort S
+    inds_and_groups = [(i, group) for i, group in enumerate(Sigma_groups)]
+    inds_and_groups = sorted(inds_and_groups, key = lambda x: x[1])
+    inds = [i for (i,j) in inds_and_groups]
+
+    # Make sure we can unsort
+    inv_inds = np.zeros(p)
+    for i, j in enumerate(inds):
+        inv_inds[j] = i
+    inv_inds = inv_inds.astype('int32')
+
+    # Unsort and return
+    S = S_sorted[inv_inds]
+    S = S[:, inv_inds]
+    return S
+
+
+
+
 def group_gaussian_knockoffs(X, Sigma, groups, 
                              invSigma = None,
                              copies = 1, 
@@ -250,7 +329,7 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     :param bool check: If False, will not check to make sure S is valid for 
     knockoff generation. This is useful for running simulations, but if you are
     actually applying the package, it is highly recommended to set check = True.
-    :param kwargs: other kwargs for either equicorrelated/SDP solvers.
+    :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
     
     returns: copies x n x p numpy array of knockoffs"""
     
@@ -281,8 +360,13 @@ def group_gaussian_knockoffs(X, Sigma, groups,
             )
         elif method == 'equicorrelated':
             S = EquicorrelatedCovMatrix(Sigma, groups, **kwargs)
+        elif method == 'asdp':
+            S = solve_group_ASDP(
+                Sigma, groups, objective = objective, 
+                verbose = verbose, sdp_verbose = sdp_verbose, **kwargs
+            )
         else:
-            raise ValueError(f'Method must be one of "equicorrelated" or "sdp", not {method}')
+            raise ValueError(f'Method must be one of "equicorrelated", "asdp", "sdp", not {method}')
     else:
         pass
         
@@ -294,8 +378,9 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         
     # Calculate MX knockoff moments...
     mu = X - np.dot(np.dot(X, invSigma), S) # This is a bottleneck??
-    V = 2*S - np.einsum('pk,kl,ls', S, invSigma, S)
-    
+    V = 2*S - np.dot(np.dot(S, invSigma), S)
+    #np.einsum('pk,kl,ls', S, invSigma, S)
+
     # Account for numerical errors
     min_eig = np.linalg.eigh(V)[0].min()
     if verbose:
@@ -308,8 +393,10 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         mean = np.zeros(p), cov = V, size = copies * n
     )
     knockoffs = knockoffs.reshape(n, p, copies)
-    mu = mu.reshape(n, p, 1)
-    knockoffs += mu
+    # This is to prevent weird errors where reshape is ignored -
+    # come back and understand this later perhaps
+    mu = np.array([mu]).reshape(n, p, 1)
+    knockoffs = knockoffs + mu
 
     # For debugging...
     if return_S:
