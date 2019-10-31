@@ -1,7 +1,6 @@
 import warnings
 import numpy as np
 from sklearn import linear_model
-from pyglmnet import GLMCV
 from group_lasso import GroupLasso
 from statsmodels.stats.moment_helpers import cov2corr
 

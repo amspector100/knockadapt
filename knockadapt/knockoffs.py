@@ -226,7 +226,7 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
 
 
 def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
-                     alpha = 2, verbose = True, **kwargs):
+                     alpha = None, verbose = True, **kwargs):
     """
     :param Sigma: covariance (correlation) matrix
     :param groups: numpy array of length p with
@@ -239,11 +239,18 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
     approximation of Sigma. E.g. if alpha = 2, will combine
     pairs of groups in order to define blocks.
     (How does it choose which pairs of groups to combine?
-    It's basically random right now.)
+    It's basically random right now.) Defaults to using
+    blocks of sizes of about 100
     """
 
     # Shape of Sigma
     p = Sigma.shape[0]
+
+    # Possibly automatically choose alpha
+    if alpha is None:
+        group_sizes = calc_group_sizes(groups)
+        max_group = group_sizes.max()
+        alpha = max(1, int(100 / max_group))
     
     # Possibly infer Sigma_groups
     if Sigma_groups is None:
@@ -252,11 +259,11 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
 
     # If verbose, report on block sizes
     if verbose:
-        sizes = calc_group_sizes(Sigma_groups)
+        sizes = calc_group_sizes(Sigma_groups+1)
         max_block = sizes.max()
         mean_block = int(sizes.mean())
         num_blocks = sizes.shape[0]
-        print(f'ASDP has split Sigma into {num_blocks} blocks, of mean size {mean_block} and max size {max_block}')
+        print(f'ASDP{alpha} has split Sigma into {num_blocks} blocks, of mean size {mean_block} and max size {max_block}')
 
     # Make sure this is zero indexed
     Sigma_groups = preprocess_groups(Sigma_groups) - 1    
@@ -306,7 +313,7 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                              return_S = False,
                              verbose = True,
                              sdp_verbose = True,
-                             check = False,
+                             check = True,
                              **kwargs):
     """ Constructs group Gaussian MX knockoffs:
     This is not particularly efficient yet...
@@ -375,11 +382,14 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         min_eig1 = np.linalg.eigh(2*Sigma - S)[0].min()
         if verbose:
             print(f'Minimum eigenvalue of 2Sigma - S is {min_eig1}')
+        # if min_eig1 < 0:
+        #     S += (min_eig1 - tol) * sp.sparse.eye(p)
+        #     min_eig2 = np.linalg.eigh(2*Sigma - S)[0].min()
         
     # Calculate MX knockoff moments...
     mu = X - np.dot(np.dot(X, invSigma), S) # This is a bottleneck??
     V = 2*S - np.dot(np.dot(S, invSigma), S)
-    #np.einsum('pk,kl,ls', S, invSigma, S)
+    min_eig2 = np.linalg.eigh(2*Sigma - S)[0].min()
 
     # Account for numerical errors
     min_eig = np.linalg.eigh(V)[0].min()
