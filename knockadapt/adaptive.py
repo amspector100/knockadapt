@@ -9,6 +9,7 @@ from .knockoff_stats import calc_nongroup_LSM, calc_data_dependent_threshhold
 
 def evaluate_grouping(X, y, 
                       corr_matrix, groups, q, 
+                      recycle_up_to = None,
                       non_nulls = None,
                       copies = 20, 
                       feature_stat_fn = calc_nongroup_LSM,
@@ -20,6 +21,11 @@ def evaluate_grouping(X, y,
     :param corr_matrix: True correlation matrix of X, which is
     assumed to be centered and scaled.
     :param groups: p-length array of the groups of each feature
+    :param int recycle_up_to: If recycle_up_to = k, then the 
+    knockoff generator will use the data itself as the knockoffs
+    for the first k observations. This is necessary to prevent 
+    "double dipping," i.e. looking at the data before runnign
+    knockoffs, from violating FDR control. Defaults to None. 
     :param non_nulls: p-length array where 0's indicate null variables.
     :param q: Desiredd Type 1 error level.
     :param feature_stat_fn: A function which creates the feature statistics (W)
@@ -28,14 +34,36 @@ def evaluate_grouping(X, y,
     :param verbose: Whether the knockoff constructor should give progress reports.
     :param kwargs: kwargs to the Gaussian Knockoffs constructor."""
     
+    n = X.shape[0]
+    p = X.shape[1]
     m = np.unique(groups).shape[0]
     group_sizes = utilities.calc_group_sizes(groups)
 
-    # Knockoff generation
-    all_knockoffs, S = group_gaussian_knockoffs(
-        X, corr_matrix, groups, copies = copies, tol = 1e-3, return_S = True, 
-        **kwargs
-    )
+    # Possibly recycle to some extent:
+    if recycle_up_to is not None:
+
+        # Split
+        trainX = X[:recycle_up_to]
+        testX = X[recycle_up_to:]
+
+        # Generate second half knockoffs
+        test_knockoffs = group_gaussian_knockoffs(
+            testX, corr_matrix, groups, copies = copies, tol = 1e-3, 
+            **kwargs
+        )
+
+        # Recycle first half and combine
+        recycled_knockoffs = np.repeat(trainX, copies).reshape(-1, p, copies)
+        all_knockoffs = np.concatenate(
+            (recycled_knockoffs, test_knockoffs), axis = 0
+        )
+
+    # Else, vanilla Knockoff generation
+    else:
+        all_knockoffs = group_gaussian_knockoffs(
+            X, corr_matrix, groups, copies = copies, tol = 1e-3,
+            **kwargs
+        )
     
     # For each knockoff, calculate FDP, empirical power, power
     fdps = []

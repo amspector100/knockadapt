@@ -226,7 +226,8 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
 
 
 def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
-                     alpha = None, verbose = True, **kwargs):
+                     alpha = None, verbose = True, 
+                     num_iter = 10, **kwargs):
     """
     :param Sigma: covariance (correlation) matrix
     :param groups: numpy array of length p with
@@ -295,9 +296,28 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
         inv_inds[j] = i
     inv_inds = inv_inds.astype('int32')
 
-    # Unsort and return
+    # Unsort
     S = S_sorted[inv_inds]
     S = S[:, inv_inds]
+
+    # Binary search to find minimum gamma
+    lower_bound = 0
+    upper_bound = 1
+    for j in range(num_iter):
+        gamma = (lower_bound + upper_bound)/2
+        mineig = np.linalg.eigh(2*Sigma - gamma*S)[0].min()
+        if mineig < 0:
+            upper_bound = gamma
+        else:
+            lower_bound = gamma
+
+    # Scale S properly, be a bit conservative
+    gamma = lower_bound
+    if verbose:
+        mineig = np.linalg.eigh(2*Sigma - gamma*S)[0].min()
+        print(f'After ASDP, mineig is {mineig} after {num_iter} iters of line search')
+    S = gamma*S
+
     return S
 
 
