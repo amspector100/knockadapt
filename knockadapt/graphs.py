@@ -136,6 +136,7 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
             corr_matrix = cov2corr(chol2inv(Q))
             corr_matrix -= np.diagflat(np.diag(corr_matrix))
             corr_matrix += np.eye(p)
+            Q = chol2inv(corr_matrix)
         elif method == 'ar1':
             corr_matrix = AR1(p = p, **kwargs)
             Q = chol2inv(corr_matrix)
