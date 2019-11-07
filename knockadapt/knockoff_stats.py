@@ -142,7 +142,7 @@ def fit_group_lasso(X, knockoffs, y, groups, **kwargs):
     for group_reg, l1_reg in reg_vals:
 
         # Fit
-        gl = GroupLasso(groups=doubled_groups, tol = 1e-3, 
+        gl = GroupLasso(groups=doubled_groups, tol = 5e-2, 
                         group_reg = group_reg, l1_reg = l1_reg,
                         **kwargs)
         gl.fit(features, y.reshape(n, 1))
