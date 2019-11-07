@@ -6,6 +6,25 @@ from .graphs import sample_data, create_correlation_tree
 from .knockoffs import group_gaussian_knockoffs
 from .knockoff_stats import calc_nongroup_LSM, calc_data_dependent_threshhold
 
+def create_cutoffs(link, reduction, max_size):
+
+    # Only consider partitions w groups less than max size
+    # - Computational justification (easier to do SDP)
+    # - Practical justification (groups > 100 not so useful)
+    # - Power justification (only can try so many cutoffs,
+    # the super high ones usually perform badly)
+    max_group_sizes = np.maximum.accumulate(link[:, 3]) 
+    subset = link[max_group_sizes <= max_size]
+
+    # Create cutoffs
+    spacing = int(subset.shape[0]/reduction)
+    cutoffs = subset[:, 2]
+
+    # Add 0 to beginning (this is our baseline - no groups)
+    # and then add spacing
+    cutoffs = np.insert(cutoffs, 0, 0)
+    cutoffs = cutoffs[::spacing]
+    return cutoffs
 
 def evaluate_grouping(X, y, 
                       corr_matrix, groups, q, 
@@ -96,8 +115,7 @@ def evaluate_grouping(X, y,
             # True power
             power = np.einsum(
                 'm,m,m->', (1/group_sizes), selected_flags, true_selection
-            )#/true_selection.sum()
-            power = np.round(power, 2)
+            )
 
             # FDP
             FDP = np.einsum(
@@ -123,6 +141,7 @@ def select_highest_power(X, y, corr_matrix,
                          link, 
                          cutoffs = None,
                          reduction = 10, 
+                         max_group_size = 100,
                          non_nulls = None,
                          S_matrices = None,
                          **kwargs):
@@ -131,9 +150,9 @@ def select_highest_power(X, y, corr_matrix,
     or the create_correlation_tree function.
     :param cutoffs: List of cutoffs to consider (makes link and reduction
     parameters redundant). Defaults to None
-    :param reduction: If reduction = 10, only look at every 10th cutoff 
-    (i.e. only consider cutoffs which occur after each 10 steps in the 
-    agglomerative clustering step)
+    :param reduction: How many cutoffs to try. E.g. if reduction = 10,
+    try 10 different grouping. These will be evenly spaced cutoffs 
+    on the link.
     :param non_nulls: p-length array where 0 indicates that that feature is null.
     Defaults to None.
     :param S_matrices: dictionary mapping cutoffs to S matrix for knockoffs
@@ -149,12 +168,7 @@ def select_highest_power(X, y, corr_matrix,
     # Create cutoffs and groups - for effieicny,
     # only currently going to look at every 10th cutoff
     if cutoffs is not None:
-        cutoffs = link[:, 2]
-        cutoffs = cutoffs[::reduction]
-
-        # Ignore the last cutoff: often 
-        # too computationally intensive
-        cutoffs = cutoffs[0:-1]
+        cutoffs = create_cutoffs(link, reduction, max_group_size)
 
     # Possibly create S_matrices dictionary
     # if not already supplied
