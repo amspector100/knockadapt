@@ -152,6 +152,10 @@ def select_highest_power(X, y, corr_matrix,
         cutoffs = link[:, 2]
         cutoffs = cutoffs[::reduction]
 
+        # Ignore the last cutoff: often 
+        # too computationally intensive
+        cutoffs = cutoffs[0:-1]
+
     # Possibly create S_matrices dictionary
     # if not already supplied
     if S_matrices is None:
