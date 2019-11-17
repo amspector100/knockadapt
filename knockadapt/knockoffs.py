@@ -71,7 +71,8 @@ def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
 
 def solve_group_SDP(Sigma, groups, sdp_verbose = False,
                     objective = 'abs',
-                    norm_type = 2):
+                    norm_type = 2,
+                    num_iter = 10):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
     Candes et al 2018 (MX Knockoffs)"
@@ -95,6 +96,8 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
         - When objective == 'norm', can be 'fro', 'nuc', np.inf, or 1
           (i.e. which other norm to use).
     Defaults to 2.
+    :param num_iter: We do a line search and scale S at the end to make 
+    absolutely sure there are no numerical errors. Defaults to 10.
     """
 
     # Check to make sure the objective is valid
@@ -220,9 +223,28 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
     problem.solve(verbose = sdp_verbose)
     if sdp_verbose:
         print('Finished solving SDP!')
+
+    # Unsort and get numpy
+    S = S.value[inv_inds][:, inv_inds]
         
+    # To prevent numerical errors, we do a line search and scale S -
+    # however, gamma should be very close to 1
+    lower_bound = 0
+    upper_bound = 1
+    for j in range(num_iter):
+        gamma = (lower_bound + upper_bound)/2
+        mineig = np.linalg.eigh(2*Sigma - gamma*S)[0].min()
+        if mineig < 0:
+            upper_bound = gamma
+        else:
+            lower_bound = gamma
+
+    # Scale S properly, be a bit conservative
+    gamma = lower_bound
+    S = gamma*S
+
     # Return unsorted S value
-    return S.value[inv_inds][:, inv_inds]
+    return S
 
 
 def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
