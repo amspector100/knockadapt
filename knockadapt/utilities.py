@@ -35,16 +35,25 @@ def calc_group_sizes(groups):
         group_sizes[j-1] += 1
     return group_sizes
 
-def random_permutation(p):
-    """ Returns a random permutation of length p and its inverse.
-    Both the permutation and its inverse are denoted as arrays of 
-    dim p, taking unique values from 0 to p-1"""
-    permutation = np.random.choice(np.arange(0, p, 1), size = p, replace = False)
-    inv_permutation = np.zeros(p)
-    for i, j in enumerate(permutation):
-        inv_permutation[j] = i
-    inv_permutation = inv_permutation.astype('int32')
-    return permutation, inv_permutation
+def random_permutation_inds(length):
+    """ Returns indexes which correspond to a random permutation,
+    as well as indexes which undo the permutation. Is truly random
+    (calls np.random.seed()) but does not change random state."""
+
+    # Save random state and change it
+    st0 = np.random.get_state()
+    np.random.seed()
+
+    # Create inds and rev inds
+    inds = np.arange(0, length, 1)
+    np.random.shuffle(inds)
+    rev_inds = [0 for _ in range(length)]
+    for (i, j) in enumerate(inds):
+        rev_inds[j] = i
+
+    # Reset random state and return
+    np.random.set_state(st0)
+    return inds, rev_inds
 
 # def calc_ccorr(Q11, sigma12, Q22):
 #     """ Calculates canonical correlation between
