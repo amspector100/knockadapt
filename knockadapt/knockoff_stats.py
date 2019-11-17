@@ -7,7 +7,7 @@ from statsmodels.stats.moment_helpers import cov2corr
 
 from .utilities import random_permutation_inds
 
-DEFAULT_REG_VALS = np.logspace(-1, 2, base = 10, num = 5)
+DEFAULT_REG_VALS = np.logspace(-3, 1.5, base = 10, num = 10)
 
 
 def calc_mse(model, X, y):
