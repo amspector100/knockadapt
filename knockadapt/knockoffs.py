@@ -6,6 +6,11 @@ from scipy import stats
 
 from .utilities import chol2inv, calc_group_sizes
 
+# Multiprocessing tools
+from functools import partial 
+from multiprocessing import Pool
+
+
 # Options for SDP solver
 OBJECTIVE_OPTIONS = ['abs', 'ccorr', 'pnorm', 'norm']
 
@@ -251,6 +256,7 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
                      alpha = None, verbose = True, 
                      num_iter = 10,
                      max_block = 100,
+                     numprocesses = 1,
                       **kwargs):
     """
     :param Sigma: covariance (correlation) matrix
@@ -320,14 +326,31 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
     group_blocks = [groups[Sigma_groups == i] for i in range(l)]
     group_blocks = [preprocess_groups(x) for x in group_blocks]
 
-    # Feed approximation to SDP
-    #S = np.zeros((p, p))
-    S_blocks = []
-    for i in range(l):
-        S_block = solve_group_SDP(
-            Sigma = Sigma_blocks[i], groups = group_blocks[i], **kwargs
-        )
-        S_blocks.append(S_block)
+    # Feed approximation to SDP, possibly using multiprocessing
+    if numprocesses == 1:
+        S_blocks = []
+        for i in range(l):
+            S_block = solve_group_SDP(
+                Sigma = Sigma_blocks[i], groups = group_blocks[i], **kwargs
+            )
+            S_blocks.append(S_block)
+
+    else:
+        # Partial function for proper mapping
+        partial_group_SDP = partial(solve_group_SDP, **kwargs)
+
+        # Construct arguments for pool
+        all_arguments = []
+        for i in range(l):
+            args = (Sigma_blocks[i], group_blocks[i])
+            all_arguments.append(args)
+
+        # And solve (this is trivially parallelizable)
+        with Pool(numprocesses) as thepool:
+            S_blocks = thepool.starmap(
+                partial_group_SDP, all_arguments
+            )
+
     S_sorted = sp.linalg.block_diag(*S_blocks)
 
     # Create indexes to unsort S
@@ -431,7 +454,7 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                 Sigma, groups, objective = objective, sdp_verbose = sdp_verbose, **kwargs
             )
         elif method == 'equicorrelated':
-            S = EquicorrelatedCovMatrix(Sigma, groups, **kwargs)
+            S = EquicorrelatedCovMatrix(Sigma, groups, *kwargs)
         elif method == 'asdp':
             S = solve_group_ASDP(
                 Sigma, groups, objective = objective, 
