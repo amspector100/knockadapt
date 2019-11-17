@@ -86,6 +86,13 @@ def evaluate_grouping(X, y,
             **kwargs
         )
     
+    # Possibly calculate true selections for this grouping
+    if non_nulls is not None:
+        true_selection = np.zeros(m)
+        for j in range(m):
+            flag = np.abs(non_nulls[groups == j+1]).sum() > 0
+            true_selection[j] = flag
+
     # For each knockoff, calculate FDP, empirical power, power
     fdps = []
     powers = []
@@ -109,10 +116,6 @@ def evaluate_grouping(X, y,
 
         # Possibly, calculate oracle FDP and power
         if non_nulls is not None:
-            true_selection = np.zeros(m)
-            for j in range(m):
-                flag = np.abs(non_nulls[groups == j+1]).sum() > 0
-                true_selection[j] = flag
 
             # True power
             power = np.einsum(
@@ -131,7 +134,7 @@ def evaluate_grouping(X, y,
     
     # Return depending on whether we have oracle info
     if non_nulls is not None:
-        num_non_nulls = float(np.sum(non_nulls != 0))
+        num_non_nulls = float(np.sum(true_selection.astype('float32')))
         hat_powers = np.array(hat_powers)/num_non_nulls
         fdps = np.array(fdps)
         powers = np.array(powers)/num_non_nulls
