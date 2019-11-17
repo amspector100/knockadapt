@@ -249,36 +249,59 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
 
 def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
                      alpha = None, verbose = True, 
-                     num_iter = 10, **kwargs):
+                     num_iter = 10,
+                     max_block = 100,
+                      **kwargs):
     """
     :param Sigma: covariance (correlation) matrix
     :param groups: numpy array of length p with
     integer values between 1 and m. 
-    :param Sigma_groups: dictionary mapping groups to
-    integers between 1 and l, with 1 < l: used to construct
-    an l-block approximation of Sigma. 
+    :param Sigma_groups: array of groups for block approximation
+    OR dictionary mapping groups to integers between 1 and l, 
+    with 1 < l: used to construct an l-block approximation of Sigma. 
     :param alpha: If Sigma_groups is none, combines sets 
     of alpha groups to define the blocks used in the block
     approximation of Sigma. E.g. if alpha = 2, will combine
     pairs of groups in order to define blocks.
     (How does it choose which pairs of groups to combine?
     It's basically random right now.) Defaults to using
-    blocks of sizes of about 100
+    blocks of sizes of about 100 
     """
 
     # Shape of Sigma
     p = Sigma.shape[0]
 
     # Possibly automatically choose alpha
-    if alpha is None:
+    if alpha is None and Sigma_groups is None:
         group_sizes = calc_group_sizes(groups)
         max_group = group_sizes.max()
-        alpha = max(1, int(100 / max_group))
-    
+
+        # If the max group size is small enough:
+        if max_block >= max_group:
+            alpha = int(max_block / max_group)
+            Sigma_groups = {x:int(x/alpha) for x in np.unique(groups)}
+
+        # Else we have to split up groups to make comp. tractable
+        else:
+
+            # How much to split up groups by
+            inv_alpha = int(max_group / max_block)
+
+            # Split them up
+            unique_groups = np.unique(groups)
+            group_counter = {j:0 for j in unique_groups}
+            Sigma_groups = []
+            for i, group_id in enumerate(groups):
+                group_counter[group_id] += 1
+                count = group_counter[group_id]
+                Sigma_groups.append(inv_alpha * group_id + count % inv_alpha)
+            
+            # Preprocess
+            Sigma_groups = preprocess_groups(Sigma_groups)
+
     # Possibly infer Sigma_groups
-    if Sigma_groups is None:
-        Sigma_groups = {x:int(x/alpha) for x in np.unique(groups)}
-    Sigma_groups = np.array([Sigma_groups[i] for i in groups])
+    if isinstance(Sigma_groups, dict):
+        Sigma_groups = np.array([Sigma_groups[i] for i in groups])
 
     # If verbose, report on block sizes
     if verbose:
@@ -286,7 +309,7 @@ def solve_group_ASDP(Sigma, groups, Sigma_groups = None,
         max_block = sizes.max()
         mean_block = int(sizes.mean())
         num_blocks = sizes.shape[0]
-        print(f'ASDP{alpha} has split Sigma into {num_blocks} blocks, of mean size {mean_block} and max size {max_block}')
+        print(f'ASDP has split Sigma into {num_blocks} blocks, of mean size {mean_block} and max size {max_block}')
 
     # Make sure this is zero indexed
     Sigma_groups = preprocess_groups(Sigma_groups) - 1    

@@ -69,6 +69,54 @@ def ErdosRenyi(p = 300, delta = 0.8,
     
     return Q
 
+def daibarber2016_graph(n = 3000, 
+                        p = 1000, 
+                        m = 200, 
+                        k = 20, 
+                        rho = 0.5,
+                        gamma = 0,
+                        seed = 110):
+    """ Same data-generating process as Dai and Barber 2016
+    (see https://arxiv.org/abs/1602.03589) """
+    
+    np.random.seed(seed)
+    
+    # Create groups
+    groups = np.array([int(i / (p / m)) for i in range(p)])
+    
+    # Helper fn for covariance matrix
+    def get_corr(g1, g2):
+        return rho if g1 == g2 else gamma * rho
+    get_corr = np.vectorize(get_corr)
+    
+    # Create correlation matrix, invert
+    Xcoords, Ycoords = np.meshgrid(groups, groups)
+    Sigma = get_corr(Xcoords, Ycoords)
+    Sigma += np.eye(p) - np.diagflat(np.diag(Sigma))
+    Q = chol2inv(Sigma)
+    
+    
+    # Sample design matrix
+    mu = np.zeros(p)
+    X = stats.multivariate_normal.rvs(mean = mu, 
+                                      cov = Sigma,
+                                      size = n)
+    
+    # Create beta
+    chosen_groups = np.random.choice(np.unique(groups), 
+                                     k,
+                                     replace = False)
+    beta = np.array(
+        [3.5 if i in chosen_groups else 0 for i in groups]
+    )
+    signs = (1 - 2*stats.bernoulli.rvs(0.5, size = p))
+    beta = beta * signs
+    
+    # Sample y
+    y = np.dot(X, beta) + stats.norm.rvs(size = n)
+    
+    return X, y, beta, Q, Sigma, groups + 1
+
 def clearGroups(p = 300, rho = 0.6, gamma = 0.3):
     """
     Construct covariance matrix as in Dai and Barber (2016).
@@ -120,7 +168,7 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     sparse linear coefficients. (The noise of the 
     response itself is standard normal).
     :param method: How to generate the covariance matrix.
-    One of 'ErdosRenyi', 'AR1', 'identity'.
+    One of 'ErdosRenyi', 'AR1', 'identity', 'daibarber2016'
     :param Q: p x p precision matrix. If supplied, will not generate
     a new covariance matrix.
     :param corr_matrix: p x p correlation matrix. If supplied, will 
@@ -129,6 +177,9 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     """
     
     # Create Graph
+    if method == 'daibarber2016':
+        return daibarber2016_graph(n = n, p = p, **kwargs)[0:-1]
+
     if Q is None and corr_matrix is None:
         method = str(method).lower()
         if method == 'erdosrenyi':
