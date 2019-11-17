@@ -4,7 +4,7 @@ import scipy.cluster.hierarchy as hierarchy
 from . import utilities
 from .graphs import sample_data, create_correlation_tree
 from .knockoffs import group_gaussian_knockoffs
-from .knockoff_stats import calc_nongroup_LSM, calc_data_dependent_threshhold
+from .knockoff_stats import group_lasso_LCD, calc_data_dependent_threshhold
 
 def create_cutoffs(link, reduction, max_size):
 
@@ -31,7 +31,8 @@ def evaluate_grouping(X, y,
                       recycle_up_to = None,
                       non_nulls = None,
                       copies = 20, 
-                      feature_stat_fn = calc_nongroup_LSM,
+                      feature_stat_fn = group_lasso_LCD,
+                      feature_stat_kwargs = {},
                       **kwargs):
     """ Calculates empirical power, power, and FDP by
     running knockoffs. Does this "copies" times.
@@ -51,6 +52,7 @@ def evaluate_grouping(X, y,
      given the design matrix X, the response y, the knockofs, and the groups.
      Defaults to calc_nongroup_LSM.
     :param verbose: Whether the knockoff constructor should give progress reports.
+    :param feature_stat_kwargs: kwargs to the feature stat function
     :param kwargs: kwargs to the Gaussian Knockoffs constructor."""
     
     n = X.shape[0]
@@ -93,13 +95,13 @@ def evaluate_grouping(X, y,
     
         # Statistics
         W = feature_stat_fn(
-            X = X, knockoffs = knockoffs, y = y, groups = groups
+            X = X, knockoffs = knockoffs, y = y, groups = groups,
+            **feature_stat_kwargs
         )
 
         # Calculate data-dependent threshhold
         T = calc_data_dependent_threshhold(W, fdr = q)
         selected_flags = (W >= T)
-        #selected = np.where(selected_flags)[0] 
 
         # Calculate empirical power
         hat_power = np.einsum('m,m->',(1/group_sizes), selected_flags.astype('float32'))
