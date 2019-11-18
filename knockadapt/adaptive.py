@@ -216,9 +216,6 @@ def select_highest_power(X, y, corr_matrix,
                 X, y, corr_matrix, groups, non_nulls = non_nulls,
                 S = S, **kwargs
             )
-            print('here',powers)
-            print('here',hat_powers)
-            print(kwargs)
             cutoff_hat_powers.append(np.array(hat_powers).mean())
             cutoff_fdps.append(np.array(fdps).mean())
             cutoff_powers.append(np.array(powers).mean())
