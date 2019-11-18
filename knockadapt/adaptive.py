@@ -135,9 +135,14 @@ def evaluate_grouping(X, y,
     # Return depending on whether we have oracle info
     if non_nulls is not None:
         num_non_nulls = float(np.sum(true_selection.astype('float32')))
-        hat_powers = np.array(hat_powers)/num_non_nulls
         fdps = np.array(fdps)
-        powers = np.array(powers)/num_non_nulls
+        if num_non_nulls != 0:
+            hat_powers = np.array(hat_powers)/num_non_nulls
+            powers = np.array(powers)/num_non_nulls
+        # If the global null holds, need a different denominator
+        else:
+            hat_powers = np.array(hat_powers)/float(p)
+            powers = np.array(powers)/float(p)
         return fdps, powers, hat_powers
     else:
         return np.array(hat_powers)
@@ -211,6 +216,8 @@ def select_highest_power(X, y, corr_matrix,
                 X, y, corr_matrix, groups, non_nulls = non_nulls,
                 S = S, **kwargs
             )
+            print('here',powers)
+            print('here',hat_powers)
             cutoff_hat_powers.append(np.array(hat_powers).mean())
             cutoff_fdps.append(np.array(fdps).mean())
             cutoff_powers.append(np.array(powers).mean())
