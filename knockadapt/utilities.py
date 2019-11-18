@@ -3,6 +3,13 @@ import numpy as np
 import scipy as sp
 from statsmodels.stats.moment_helpers import cov2corr
 
+def preprocess_groups(groups):
+    """ Turns a p-dimensional numpy array with m unique elements
+    into a list of integers from 1 to m"""
+    unique_vals = np.unique(groups)
+    conversion = {unique_vals[i]:i for i in range(unique_vals.shape[0])}
+    return np.array([conversion[x] + 1 for x in groups])
+
 def chol2inv(X):
     """ Uses cholesky decomp to get inverse of matrix """
     triang = np.linalg.inv(np.linalg.cholesky(X))
@@ -28,7 +35,13 @@ def calc_group_sizes(groups):
     """
     :param groups: p-length array of integers between 1 and m, 
     where m <= p
-    returns: m-length array of group sizes """
+    returns: m-length array of group sizes 
+    """
+    if np.all(groups.astype('int32') != groups):
+        raise TypeError("groups does not take integer values: apply preprocess_groups first")
+    else:
+        groups = groups.astype('int32')
+
     m = groups.max()
     group_sizes = np.zeros(m)
     for j in groups:

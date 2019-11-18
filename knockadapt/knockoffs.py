@@ -4,7 +4,7 @@ import cvxpy as cp
 import scipy as sp
 from scipy import stats
 
-from .utilities import chol2inv, calc_group_sizes
+from .utilities import chol2inv, calc_group_sizes, preprocess_groups
 
 # Multiprocessing tools
 from functools import partial 
@@ -15,12 +15,7 @@ from multiprocessing import Pool
 OBJECTIVE_OPTIONS = ['abs', 'ccorr', 'pnorm', 'norm']
 
 
-def preprocess_groups(groups):
-    """ Turns a p-dimensional numpy array with m unique elements
-    into a lits of integers from 1 to m"""
-    unique_vals = np.unique(groups)
-    conversion = {unique_vals[i]:i for i in range(unique_vals.shape[0])}
-    return np.array([conversion[x] + 1 for x in groups])
+
 
 
 def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
