@@ -485,12 +485,12 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     print(f'Minimum eigenvalue of V is {min_eig}')
     print(f'Sum of nans in V is {np.isnan(V).sum()}')
     try:
+        st0 = np.random.get_state()
         knockoffs = stats.multivariate_normal.rvs(
             mean = np.zeros(p), cov = V, size = copies * n
         )
     except:
         import pickle
-        st0 = np.random.get_state()
         with open('randomstate', 'wb') as thefile:
             pickle.dump(st0, thefile)
 
