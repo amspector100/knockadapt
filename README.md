@@ -15,3 +15,8 @@ Graph module:
 1. Should have a class which samples data given covariance matrix, beta
 (Takes in a family input, e.g. family = 'gaussian', 'binomial')
 2. Should have a constructor function which constructs beta, 
+
+## Bugs that must be dealt with
+1. weird stdout flush error in experiments
+2. SVD error in multivariate normal sampling - 
+this is low-priority
