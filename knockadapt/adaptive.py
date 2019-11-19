@@ -24,6 +24,12 @@ def create_cutoffs(link, reduction, max_size):
     # and then add spacing
     cutoffs = np.insert(cutoffs, 0, 0)
     cutoffs = cutoffs[::spacing]
+
+    # If cutoffs aren't unique, only consider some
+    # (This occurs only in simulated data)
+    if np.unique(cutoffs).shape[0] != cutoffs.shape[0]:
+        cutoffs = np.unique(cutoffs)
+
     return cutoffs
 
 def evaluate_grouping(X, y, 

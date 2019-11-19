@@ -5,3 +5,8 @@ This package is intended to serve two purposes:
 2. It also has a variety of algorithms for adaptively selecting groupings to maximize power while maintaing FDR control.
 
 This is currently under heavy development (it's in the early stages): docs/tests to come.
+
+## To do
+- The adaptive functions should probably be a class
+- The knockoff functions should probs be a class too
+- Probably the knockoff_stats page could be better abstract-ified

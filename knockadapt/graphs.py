@@ -71,22 +71,39 @@ def ErdosRenyi(p = 300, delta = 0.8,
 
 def daibarber2016_graph(n = 3000, 
                         p = 1000, 
-                        m = 200, 
+                        m = None, 
                         k = 20, 
                         rho = 0.5,
                         gamma = 0,
                         seed = 110):
     """ Same data-generating process as Dai and Barber 2016
-    (see https://arxiv.org/abs/1602.03589) """
+    (see https://arxiv.org/abs/1602.03589).
+    """
     
     np.random.seed(seed)
+
+    # Set default values
+    if m is None:
+        m = int(p/5)
+
+    # Set k
+    if k is None and p == 1000:
+        k = 20
+    else:
+        k = int(m/2)
+
     
     # Create groups
     groups = np.array([int(i / (p / m)) for i in range(p)])
-    
+
     # Helper fn for covariance matrix
+    # Add a tinnnyyyy bit of noise to make sure that the
+    # cutoff method works properly
     def get_corr(g1, g2):
-        return rho if g1 == g2 else gamma * rho
+        if g1 == g2:
+            return rho
+        else:
+            return gamma * rho 
     get_corr = np.vectorize(get_corr)
     
     # Create correlation matrix, invert
@@ -94,14 +111,7 @@ def daibarber2016_graph(n = 3000,
     Sigma = get_corr(Xcoords, Ycoords)
     Sigma += np.eye(p) - np.diagflat(np.diag(Sigma))
     Q = chol2inv(Sigma)
-    
-    
-    # Sample design matrix
-    mu = np.zeros(p)
-    X = stats.multivariate_normal.rvs(mean = mu, 
-                                      cov = Sigma,
-                                      size = n)
-    
+
     # Create beta
     chosen_groups = np.random.choice(np.unique(groups), 
                                      k,
@@ -112,6 +122,11 @@ def daibarber2016_graph(n = 3000,
     signs = (1 - 2*stats.bernoulli.rvs(0.5, size = p))
     beta = beta * signs
     
+    # Sample design matrix
+    mu = np.zeros(p)
+    X = stats.multivariate_normal.rvs(mean = mu, 
+                                      cov = Sigma,
+                                      size = n)
     # Sample y
     y = np.dot(X, beta) + stats.norm.rvs(size = n)
     
@@ -174,13 +189,19 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     :param corr_matrix: p x p correlation matrix. If supplied, will 
     not generate a new correlation matrix.
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
+    If there's a seed in this, will set the seed to generate cov matrix
+    but will NOT use the seed to generate the random data. (To do that, 
+    set the seed outside the function call).
     """
     
     # Create Graph
-    if method == 'daibarber2016':
-        return daibarber2016_graph(n = n, p = p, **kwargs)[0:-1]
-
     if Q is None and corr_matrix is None:
+        
+        # Play with seeding
+        if 'seed' in kwargs:
+            st0 = np.random.get_state()
+            np.random.seed(kwargs['seed'])
+
         method = str(method).lower()
         if method == 'erdosrenyi':
             Q = ErdosRenyi(p = p, **kwargs)
@@ -197,8 +218,17 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
             corr_matrix -= np.diagflat(np.diag(corr_matrix))
             corr_matrix += np.eye(p)
             Q = corr_matrix
+        elif method == 'daibarber2016':
+            _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
+                p = p, n = n, **kwargs
+            )
         else:
             raise ValueError("Other methods not implemented yet")
+
+        # Reset random state
+        if 'seed' in kwargs:
+            np.random.set_state(st0)
+
     elif Q is None:
         Q = chol2inv(corr_matrix)
     elif corr_matrix is None:
@@ -215,7 +245,7 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
         num_nonzero = int(np.floor(sparsity * p))
         mask = np.array([0]*num_nonzero + [1]*(p-num_nonzero))
         np.random.shuffle(mask)
-        signs = 1 - 2*stats.bernoulli.rvs(sparsity, size = p)
+        signs = 1 - 2*stats.bernoulli.rvs(0.5, size = p)
         beta = coeff_size * mask * signs
     y = np.einsum('np,p->n', X, beta) + np.random.standard_normal((n))
     
