@@ -92,7 +92,6 @@ def daibarber2016_graph(n = 3000,
     else:
         k = int(m/2)
 
-    
     # Create groups
     groups = np.array([int(i / (p / m)) for i in range(p)])
 
@@ -132,11 +131,6 @@ def daibarber2016_graph(n = 3000,
     
     return X, y, beta, Q, Sigma, groups + 1
 
-def clearGroups(p = 300, rho = 0.6, gamma = 0.3):
-    """
-    Construct covariance matrix as in Dai and Barber (2016).
-    I.e. within group correlation is clear, """
-    pass
 
 def create_correlation_tree(corr_matrix, method = 'single'):
     """ Creates hierarchical clustering (correlation tree)
@@ -165,7 +159,7 @@ def create_correlation_tree(corr_matrix, method = 'single'):
     elif method == 'complete':
         link = hierarchy.complete(condensed_dist_matrix)
     else:
-        raise ValueError(f'Only "single", "complete", "average" are valid methods, not {method}')
+        raise ValueError(f'Only "single", "complete", "average", "fro" are valid methods, not {method}')
         
         
     return link
@@ -196,11 +190,6 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     
     # Create Graph
     if Q is None and corr_matrix is None:
-        
-        # Play with seeding
-        if 'seed' in kwargs:
-            st0 = np.random.get_state()
-            np.random.seed(kwargs['seed'])
 
         method = str(method).lower()
         if method == 'erdosrenyi':
@@ -225,10 +214,6 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
         else:
             raise ValueError("Other methods not implemented yet")
 
-        # Reset random state
-        if 'seed' in kwargs:
-            np.random.set_state(st0)
-
     elif Q is None:
         Q = chol2inv(corr_matrix)
     elif corr_matrix is None:
@@ -243,7 +228,7 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     # Create sparse coefficients and y
     if beta is None:
         num_nonzero = int(np.floor(sparsity * p))
-        mask = np.array([0]*num_nonzero + [1]*(p-num_nonzero))
+        mask = np.array([1]*num_nonzero + [0]*(p-num_nonzero))
         np.random.shuffle(mask)
         signs = 1 - 2*stats.bernoulli.rvs(0.5, size = p)
         beta = coeff_size * mask * signs
