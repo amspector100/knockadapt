@@ -75,7 +75,7 @@ def evaluate_grouping(X, y,
 
         # Generate second half knockoffs
         test_knockoffs = group_gaussian_knockoffs(
-            testX, corr_matrix, groups, copies = copies, tol = 1e-3, 
+            testX, corr_matrix, groups, copies = copies, tol = 1e-2, 
             **kwargs
         )
 
@@ -88,7 +88,7 @@ def evaluate_grouping(X, y,
     # Else, vanilla Knockoff generation
     else:
         all_knockoffs = group_gaussian_knockoffs(
-            X, corr_matrix, groups, copies = copies, tol = 1e-3,
+            X, corr_matrix, groups, copies = copies, tol = 1e-2,
             **kwargs
         )
     
