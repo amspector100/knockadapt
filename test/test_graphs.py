@@ -5,10 +5,9 @@ from .context import knockadapt
 from knockadapt import graphs
 
 class TestSampleData(unittest.TestCase):
-	""" Tests sample_data function, largely tests
-	to make sure random behavior is reproducible/expected """
+	""" Tests sample_data function """
 
-	def test_ErdosRenyi(self):
+	def test_logistic(self):
 
 
 

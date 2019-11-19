@@ -14,17 +14,6 @@ import scipy.spatial.distance as ssd
 # Graphing
 import matplotlib.pyplot as plt
 
-def BandPrecision(p = 500, a = 0.9, rho = 5, c = 1.5):
-    """ Generates band precision matrix - DOES NOT work yet
-    :param p: number of features
-    :param a: decay exponent base
-    :param rho: cutoff after which precision matrix entries are zero
-    :param c: decay constant"""
-    
-    vert_dists = np.repeat(np.arange(0, p, 1), p).reshape(p, p)
-    dists = np.abs(vert_dists - vert_dists.transpose())
-    Q = np.sign(a) * (a**(dists/c)) * (dists <= rho)
-    return Q
 
 def AR1(p = 30, a = 1, b = 1):
     """ Generates correlation matrix for AR(1) Gaussian process,
@@ -74,13 +63,10 @@ def daibarber2016_graph(n = 3000,
                         m = None, 
                         k = 20, 
                         rho = 0.5,
-                        gamma = 0,
-                        seed = 110):
+                        gamma = 0):
     """ Same data-generating process as Dai and Barber 2016
     (see https://arxiv.org/abs/1602.03589).
     """
-    
-    np.random.seed(seed)
 
     # Set default values
     if m is None:
@@ -164,10 +150,53 @@ def create_correlation_tree(corr_matrix, method = 'single'):
         
     return link
 
-def sample_data(p = 100, n = 50, coeff_size = 1, 
-                sparsity = 0.5, method = 'ErdosRenyi',
+
+def create_sparse_coefficients(p, sparsity = 0.5, 
+                               groups = None, k = None,
+                               coeff_size = 10):
+    """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
+    which are then plus/minus coeff_size with equal probability.
+    
+    Alternatively, if groups and k are supplied, will choose k groups 
+    to have nonzero coefficients, where each of the k groups has a 
+    coefficient size of plus/minus 10."""
+
+    # First, decide which coefficients are nonzero, one of two methods
+    if groups is not None:
+        if k is None:
+            raise ValueError("To choose group coefficients, must supply 'k' arg, not just groups")
+        m = np.unique(groups).shape[0]
+        if k > m:
+            raise ValueError(f"Number of nonzero groups k = {k} is greater than num unique groups {m}")
+
+        # Method one: a certain number of groups are nonzero
+        chosen_groups = np.random.choice(
+            np.unique(groups), k, replace = False
+        )
+        beta = np.array(
+            [coeff_size if i in chosen_groups else 0 for i in groups]
+        )
+
+    else:
+        if k is not None:
+            raise ValueError("To choose group coefficients, must supply 'groups' arg, not just k")
+
+        # Method two (default): a certain percentage of coefficients are nonzero
+        num_nonzero = int(np.floor(sparsity * p))
+        beta = np.array([coeff_size]*num_nonzero + [0]*(p-num_nonzero))
+        np.random.shuffle(beta)
+
+    # Now add random signs
+    signs = 1 - 2*stats.bernoulli.rvs(0.5, size = p)
+    beta = beta * signs
+    return beta
+
+
+def sample_data(p = 100, n = 50, method = 'ErdosRenyi',
                 Q = None, corr_matrix = None, beta = None,
-               **kwargs):
+                coeff_size = 1, sparsity = 0.5, k = None, 
+                groups = None, y_dist = 'gaussian', 
+                **kwargs):
     """ Creates a random covariance matrix using method
     and then samples Gaussian data from it. It also creates
     a linear response y with sparse coefficients.
@@ -182,10 +211,9 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     a new covariance matrix.
     :param corr_matrix: p x p correlation matrix. If supplied, will 
     not generate a new correlation matrix.
+    :param str y_dist: one of 'gaussian' or 'binomial', used to 
+    generate the response. (If 'binomial', uses logistic link fn). 
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
-    If there's a seed in this, will set the seed to generate cov matrix
-    but will NOT use the seed to generate the random data. (To do that, 
-    set the seed outside the function call).
     """
     
     # Create Graph
@@ -221,19 +249,27 @@ def sample_data(p = 100, n = 50, coeff_size = 1,
     else:
         pass
 
+    # Create sparse coefficients
+    if beta is None:
+        beta = create_sparse_coefficients(
+            p = p, sparsity = sparsity, coeff_size = coeff_size,
+            k = k, groups = groups
+        )
+
     # Sample design matrix
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean = mu, cov = corr_matrix, size = n)
 
-    # Create sparse coefficients and y
-    if beta is None:
-        num_nonzero = int(np.floor(sparsity * p))
-        mask = np.array([1]*num_nonzero + [0]*(p-num_nonzero))
-        np.random.shuffle(mask)
-        signs = 1 - 2*stats.bernoulli.rvs(0.5, size = p)
-        beta = coeff_size * mask * signs
-    y = np.einsum('np,p->n', X, beta) + np.random.standard_normal((n))
-    
+    # Create y, one of two families
+    if y_dist == 'gaussian':
+        y = np.dot(X, beta) + np.random.standard_normal((n))
+    elif y_dist == 'binomial':
+        inner_product = np.dot(X, beta)
+        probs = 1/(1 + np.exp(-1*inner_product))
+        y = stats.bernoulli.rvs(probs)
+    else:
+        raise ValueError(f"y_dist must be one of 'gaussian', 'binomial', not {y_dist}")
+
     return X, y, beta, Q, corr_matrix
 
 def plot_dendrogram(link, title = None):

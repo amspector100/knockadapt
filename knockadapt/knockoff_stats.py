@@ -1,7 +1,7 @@
 import warnings
 import numpy as np
 from sklearn import linear_model
-from group_lasso import GroupLasso
+from group_lasso import GroupLasso, LogisticGroupLasso
 from pyglmnet import GLM
 from statsmodels.stats.moment_helpers import cov2corr
 
@@ -11,7 +11,7 @@ DEFAULT_REG_VALS = np.logspace(-3, 1.5, base = 10, num = 10)
 
 
 def calc_mse(model, X, y):
-    """ Gets MSE: super simple """ 
+    """ Gets MSE of a model """ 
     preds = model.predict(X)
     resids = (preds - y)/y.std()
     return np.sum((resids)**2)
@@ -143,8 +143,11 @@ def calc_nongroup_LCD(X, knockoffs, y, groups = None, **kwargs):
         
     return W_group
 
+
 def fit_group_lasso(X, knockoffs, y, groups, 
-                    use_pyglm = True, **kwargs):
+                    use_pyglm = True, 
+                    y_dist = 'gaussian',
+                    **kwargs):
     """ Fits a group lasso model.
     :param X: n x p design matrix
     :param knockoffs: n x p knockoff matrix
@@ -203,15 +206,25 @@ def fit_group_lasso(X, knockoffs, y, groups,
     best_score = -1*np.inf
     for group_reg, l1_reg in reg_vals:
 
-        # Fit
+        # Fit logistic/gaussian group lasso 
         if not use_pyglm:
-            gl = GroupLasso(groups=doubled_groups, tol = 5e-2, 
-                            group_reg = group_reg, l1_reg = l1_reg,
-                            **kwargs)
+            if y_dist.lower() == 'gaussian':
+                gl = GroupLasso(
+                    groups=doubled_groups, tol = 5e-2, 
+                    group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                )
+            elif y_dist.lower() == 'binomial':
+                gl = LogisticGroupLasso(
+                    groups=doubled_groups, tol = 5e-2, 
+                    group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                )
+            else:
+                raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
+
             gl.fit(features, y.reshape(n, 1))
             score = -1*calc_mse(gl, features, y.reshape(n, 1))
         else:
-            gl = GLM(distr='gaussian',
+            gl = GLM(distr=y_dist,
                      tol=5e-2, group=doubled_groups, alpha=1.0,
                      learning_rate=3, max_iter=20,
                      reg_lambda = l1_reg,
@@ -229,12 +242,13 @@ def fit_group_lasso(X, knockoffs, y, groups,
     return best_gl, rev_inds
 
 
-def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True, **kwargs):
+def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True, 
+                    **kwargs):
     """ Calculates mean group Lasso signed max. 
     :param X: n x p design matrix
     :param knockoffs: n x p knockoff matrix
     :param groups: p length numpy array of groups
-    :param kwargs: kwargs for group-lasso GroupLasso class
+    :param kwargs: kwargs for fit_group_lasso function 
     """
     gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups,
                                    use_pyglm = use_pyglm, **kwargs)
@@ -251,13 +265,14 @@ def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True, **kwargs):
 def group_lasso_LCD(X, knockoffs, y, groups = None,
                     use_pyglm = True, **kwargs):
     """ Calculates group Lasso coefficient difference. 
-    :param X: n x p design matrix
-    :param knockoffs: n x p knockoff matrix
-    :param groups: p length numpy array of groups
-    :params **kwargs: kwargs to GroupLasso method 
     I.e. if features 2 and 3 are in the same group, 
     we set W(X, knockoffs, y) = 
-    sum(abs coeff of X) - sum(abs coeff of knockoffs)
+    sum(abs coeff of features 2,3) - sum(abs coeff of knockoff features 2,3)
+    :param X: n x p design matrix
+    :param knockoffs: n x p knockoff matrix
+    :param groups: p length numpy array of function
+    :params **kwargs: kwargs to fit_group_lasso method 
+
     """
     gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups, 
                                    use_pyglm = use_pyglm, **kwargs)

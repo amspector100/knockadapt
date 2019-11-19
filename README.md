@@ -10,3 +10,8 @@ This is currently under heavy development (it's in the early stages): docs/tests
 - The adaptive functions should probably be a class
 - The knockoff functions should probs be a class too
 - Probably the knockoff_stats page could be better abstract-ified
+
+Graph module:
+1. Should have a class which samples data given covariance matrix, beta
+(Takes in a family input, e.g. family = 'gaussian', 'binomial')
+2. Should have a constructor function which constructs beta, 
