@@ -482,9 +482,20 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         V += (tol - min_eig) * sp.sparse.eye(p)
     
     # ...and sample MX knockoffs! 
-    knockoffs = stats.multivariate_normal.rvs(
-        mean = np.zeros(p), cov = V, size = copies * n
-    )
+    print(f'Minimum eigenvalue of V is {min_eig}')
+    print(f'Sum of nans in V is {np.isnan(V).sum()}')
+    try:
+        knockoffs = stats.multivariate_normal.rvs(
+            mean = np.zeros(p), cov = V, size = copies * n
+        )
+    except:
+        import pickle
+        st0 = np.random.get_state()
+        with open('randomstate', 'wb') as thefile:
+            pickle.dump(st0, thefile)
+
+
+
     knockoffs = knockoffs.reshape(n, p, copies)
     # This is to prevent weird errors where reshape is ignored -
     # come back and understand this later perhaps
