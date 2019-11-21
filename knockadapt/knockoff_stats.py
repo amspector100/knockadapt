@@ -2,7 +2,7 @@ import warnings
 import numpy as np
 from sklearn import linear_model
 from group_lasso import GroupLasso, LogisticGroupLasso
-from pyglmnet import GLM
+from pyglmnet import GLM, GLMCV
 from statsmodels.stats.moment_helpers import cov2corr
 
 from .utilities import random_permutation_inds
@@ -188,7 +188,8 @@ def fit_group_lasso(X, knockoffs, y, groups,
     # highly detrimental for group_lasso performance
     if use_pyglm:
         features = (features - features.mean())/features.std()
-        y = (y - y.mean())/y.std()
+        if y_dist == 'gaussian':
+            y = (y - y.mean())/y.std()
 
         # Weird behavior pyglmnet
         doubled_groups = doubled_groups - 1
@@ -224,10 +225,11 @@ def fit_group_lasso(X, knockoffs, y, groups,
             gl.fit(features, y.reshape(n, 1))
             score = -1*calc_mse(gl, features, y.reshape(n, 1))
         else:
-            gl = GLM(distr=y_dist,
+            gl = GLMCV(distr=y_dist,
                      tol=5e-2, group=doubled_groups, alpha=1.0,
                      learning_rate=3, max_iter=20,
                      reg_lambda = l1_reg,
+                     cv = 2,
                      solver = 'cdfast')
             gl.fit(features, y)
             score = -1*calc_mse(gl, features, y)
