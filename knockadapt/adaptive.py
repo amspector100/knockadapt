@@ -183,7 +183,7 @@ def select_highest_power(X, y, corr_matrix,
     
     # Create cutoffs and groups - for effieicny,
     # only currently going to look at every 10th cutoff
-    if cutoffs is not None:
+    if cutoffs is None:
         cutoffs = create_cutoffs(link, reduction, max_group_size)
 
     # Possibly create S_matrices dictionary
