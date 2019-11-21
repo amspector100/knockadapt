@@ -63,9 +63,11 @@ def daibarber2016_graph(n = 3000,
                         m = None, 
                         k = 20, 
                         rho = 0.5,
-                        gamma = 0):
+                        gamma = 0,
+                        **kwargs):
     """ Same data-generating process as Dai and Barber 2016
-    (see https://arxiv.org/abs/1602.03589).
+    (see https://arxiv.org/abs/1602.03589). **kwargs are passed
+    to sample_glm_response function.
     """
 
     # Set default values
@@ -113,7 +115,7 @@ def daibarber2016_graph(n = 3000,
                                       cov = Sigma,
                                       size = n)
     # Sample y
-    y = np.dot(X, beta) + stats.norm.rvs(size = n)
+    y = sample_glm_response(X, beta, **kwargs)
     
     return X, y, beta, Q, Sigma, groups + 1
 
@@ -192,6 +194,25 @@ def create_sparse_coefficients(p, sparsity = 0.5,
     return beta
 
 
+def sample_glm_response(X, beta, y_dist = 'gaussian'):
+    """ Given a design matrix and coefficients (beta), samples
+    a response y """
+
+    n = X.shape[0]
+    p = X.shape[1]
+    # Create y, one of two families
+    if y_dist == 'gaussian':
+        y = np.dot(X, beta) + np.random.standard_normal((n))
+    elif y_dist == 'binomial':
+        inner_product = np.dot(X, beta)
+        probs = 1/(1 + np.exp(-1*inner_product))
+        y = stats.bernoulli.rvs(probs)
+    else:
+        raise ValueError(f"y_dist must be one of 'gaussian', 'binomial', not {y_dist}")
+
+    return y
+
+
 def sample_data(p = 100, n = 50, method = 'ErdosRenyi',
                 Q = None, corr_matrix = None, beta = None,
                 coeff_size = 1, sparsity = 0.5, k = None, 
@@ -260,15 +281,7 @@ def sample_data(p = 100, n = 50, method = 'ErdosRenyi',
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean = mu, cov = corr_matrix, size = n)
 
-    # Create y, one of two families
-    if y_dist == 'gaussian':
-        y = np.dot(X, beta) + np.random.standard_normal((n))
-    elif y_dist == 'binomial':
-        inner_product = np.dot(X, beta)
-        probs = 1/(1 + np.exp(-1*inner_product))
-        y = stats.bernoulli.rvs(probs)
-    else:
-        raise ValueError(f"y_dist must be one of 'gaussian', 'binomial', not {y_dist}")
+    y = sample_glm_response(X = X, beta = beta, y_dist = y_dist)
 
     return X, y, beta, Q, corr_matrix
 
