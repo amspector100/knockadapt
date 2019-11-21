@@ -465,9 +465,9 @@ def group_gaussian_knockoffs(X, Sigma, groups,
         min_eig1 = np.linalg.eigh(2*Sigma - S)[0].min()
         if verbose:
             print(f'Minimum eigenvalue of 2Sigma - S is {min_eig1}')
-        if min_eig1 < 0:
-            warnings.warn("""Minimum eigenvalue of 2Sigma - S is {min_eig1},
-                             meaning FDR control violations are very likely""")
+        if min_eig1 < -1e-3:
+            warnings.warn(f"""Minimum eigenvalue of 2Sigma - S is {min_eig1},
+                              meaning FDR control violations are very likely""")
 
         # if min_eig1 < 0:
         #     S += (min_eig1 - tol) * sp.sparse.eye(p)
