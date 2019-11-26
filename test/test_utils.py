@@ -31,6 +31,15 @@ class TestUtils(unittest.TestCase):
 			err_msg = "Incorrectly preprocesses groups"
 		)
 
+		# Test function which calculates selections
+		non_nulls = [-1, 0, -1, 1, 0, 0, 0]
+		groups = [1, 1, 2, 2, 3, 3, 3]
+		out = utilities.fetch_group_nonnulls(non_nulls, groups)
+		expected = np.array([1.0, 1.0, 0.0])
+		np.testing.assert_array_almost_equal(
+			out, expected, decimal = 6,
+			err_msg = "Incorrectly calculates group selections"
+		)
 
 	def test_random_permutation(self):
 		""" Tests random permutation and seed manipulations """
@@ -88,6 +97,7 @@ class TestUtils(unittest.TestCase):
 			np.eye(100), np.dot(X, inverse), decimal = 6,
 			err_msg = 'chol2inv fails to correctly calculate inverses'
 		)
+
 
 
 

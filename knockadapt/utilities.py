@@ -10,6 +10,32 @@ def preprocess_groups(groups):
     conversion = {unique_vals[i]:i for i in range(unique_vals.shape[0])}
     return np.array([conversion[x] + 1 for x in groups])
 
+def fetch_group_nonnulls(non_nulls, groups):
+    """ 
+    :param non_nulls: a p-length array of coefficients where 
+    a 0 indicates that a variable is null
+    :param groups: a p-length array indicating group membership,
+    with m groups (corresponding to ints ranging from 1 to m)
+    :returns: a m-length array of 1s and 0s where 0s correspond
+    to nulls.
+    """
+
+    if not isinstance(non_nulls, np.ndarray):
+        non_nulls = np.array(non_nulls)
+    if not isinstance(groups, np.ndarray):
+        groups = np.array(groups)
+
+    # Initialize
+    m = np.unique(groups).shape[0]
+    group_nonnulls = np.zeros(m)
+
+    # Calculate and return
+    for j in range(m):
+        flag = np.abs(non_nulls[groups == j+1]).sum() > 0
+        group_nonnulls[j] = float(flag)
+    return group_nonnulls
+
+
 def chol2inv(X):
     """ Uses cholesky decomp to get inverse of matrix """
     triang = np.linalg.inv(np.linalg.cholesky(X))
