@@ -117,6 +117,13 @@ class GroupKnockoffEval():
                 **self.knockoff_kwargs
             )
 
+            # # Delete all this plz
+            # all_knockoffs = all_knockoffs[150:]
+            # rec = np.repeat(X[0:150], copies).reshape(-1, self.p, copies)
+            # all_knockoffs = np.concatenate(
+            #     (rec, all_knockoffs), axis = 0
+            # )
+
         return all_knockoffs
 
 
@@ -148,6 +155,17 @@ class GroupKnockoffEval():
             X = X, knockoffs = knockoffs, y = y, groups = groups,
             **self.feature_stat_kwargs
         )
+        if np.max(group_sizes) == 1:
+            tups = [(Wv, flag) for Wv, flag in zip(W, group_selections)]
+            sorted_W = sorted(tups, key = lambda x: -1*abs(x[0]))
+            print('Printing first twenty W values:')
+            for k in range(20):
+                flag = sorted_W[k][1]
+                if flag == True:
+                    word = "NONNULL"
+                else:
+                    word = "NULL"
+                print(f'W[{k}]: {sorted_W[k][0]} ({word})')
 
         # Data dependent threshhold and group selections
         T = calc_data_dependent_threshhold(W, fdr = self.q)
@@ -207,7 +225,7 @@ class GroupKnockoffEval():
             X=X, groups=groups, recycle_up_to=recycle_up_to, copies=copies,
             **kwargs
         )
-        
+
         # Possibly calculate true selections for this grouping
         if self.non_nulls is not None:
             group_selections = utilities.fetch_group_nonnulls(
@@ -322,4 +340,6 @@ class GroupKnockoffEval():
         return cutoffs, cutoff_fdps, cutoff_powers, cutoff_hat_powers
 
 
-    def sample_split(self, X, y, )
+    def sample_split(self, X, y):
+
+        pass

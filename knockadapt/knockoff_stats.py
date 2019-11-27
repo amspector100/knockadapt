@@ -7,7 +7,7 @@ from statsmodels.stats.moment_helpers import cov2corr
 
 from .utilities import random_permutation_inds
 
-DEFAULT_REG_VALS = np.logspace(-3, 1.5, base = 10, num = 10)
+DEFAULT_REG_VALS = np.logspace(-3, 1.5, base = 10, num = 1)
 
 
 def calc_mse(model, X, y):
@@ -167,6 +167,9 @@ def fit_group_lasso(X, knockoffs, y, groups,
     n = X.shape[0]
     p = X.shape[1]
     features = np.concatenate([X, knockoffs], axis = 1)
+    if use_pyglm:
+        print('Covariance of feature 1 w covs/knockoffs:\n', 
+               np.around(np.cov(features, rowvar = False), 1)[:, 0])
 
     # By default, all variables are their own group
     if groups is None:
@@ -190,9 +193,6 @@ def fit_group_lasso(X, knockoffs, y, groups,
         features = (features - features.mean())/features.std()
         if y_dist == 'gaussian':
             y = (y - y.mean())/y.std()
-
-        # Weird behavior pyglmnet
-        doubled_groups = doubled_groups - 1
 
     # Get regularizations
     if 'reg_vals' in kwargs:
@@ -229,7 +229,7 @@ def fit_group_lasso(X, knockoffs, y, groups,
                      tol=5e-2, group=doubled_groups, alpha=1.0,
                      learning_rate=3, max_iter=20,
                      reg_lambda = l1_reg,
-                     cv = 2,
+                     cv = 3,
                      solver = 'cdfast')
             gl.fit(features, y)
             score = -1*calc_mse(gl, features, y)
@@ -240,6 +240,7 @@ def fit_group_lasso(X, knockoffs, y, groups,
             best_gl = gl
 
     warnings.simplefilter("always")
+    print(f'Best negative MSE is {best_score}')
 
     return best_gl, rev_inds
 
@@ -284,7 +285,32 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
         Z = gl.beta_[rev_inds]
     else:
         Z = gl.coef_[rev_inds]
+
+    if use_pyglm:
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+
+        # Calc feature statistic differences
+        p = X.shape[1]
+        real_coefs = np.abs(Z[0:p])
+        knockoff_coefs = np.abs(Z[p:])
+        sns.distplot(real_coefs, color = 'blue', label = 'real coefs')
+        sns.distplot(knockoff_coefs, color = 'red', label = 'knockoff coefs')
+        plt.legend()
+        plt.title('Coefficient values')
+        plt.show()
+
     W = calc_LCD(Z, groups)
+
+    if use_pyglm:
+        print(f"W is: {W}")
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        sns.distplot(W)
+        plt.title('W values')
+        plt.show()
+
+
     return W
 
 def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):

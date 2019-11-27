@@ -27,11 +27,12 @@ def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
     """
         
     # Get eigenvalues and decomposition
+    p = Sigma.shape[0]
     D = np.zeros((p, p))
     for j in np.unique(groups):
         
         #Select subset of cov matrix 
-        inds = np.where,mv (groups == j)[0]
+        inds = np.where(groups == j)[0]
         full_inds = np.ix_(inds, inds)
         group_sigma = Sigma[full_inds]
         
@@ -449,12 +450,13 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                 Sigma, groups, objective = objective, sdp_verbose = sdp_verbose, **kwargs
             )
         elif method == 'equicorrelated':
-            S = EquicorrelatedCovMatrix(Sigma, groups, *kwargs)
+            S = equicorrelated_block_matrix(Sigma, groups, *kwargs)
         elif method == 'asdp':
             S = solve_group_ASDP(
                 Sigma, groups, objective = objective, 
                 verbose = verbose, sdp_verbose = sdp_verbose, **kwargs
             )
+            print(S)
         else:
             raise ValueError(f'Method must be one of "equicorrelated", "asdp", "sdp", not {method}')
     else:
@@ -494,7 +496,6 @@ def group_gaussian_knockoffs(X, Sigma, groups,
     # come back and understand this later perhaps
     mu = np.array([mu]).reshape(n, p, 1)
     knockoffs = knockoffs + mu
-
     # For debugging...
     if return_S:
         return knockoffs, S
