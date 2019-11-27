@@ -62,6 +62,12 @@ class GroupKnockoffEval():
         self.feature_stat_kwargs = feature_stat_kwargs
         self.knockoff_kwargs = kwargs
 
+        # Defaults for knockoff_kwargs
+        if 'verbose' not in self.knockoff_kwargs:
+            self.knockoff_kwargs['verbose'] = False
+        if 'sdp_verbose' not in self.knockoff_kwargs:
+            self.knockoff_kwargs['sdp_verbose'] = False
+
 
     def combine_S_kwargs(self, new_kwargs):
         """ Combines default knockoff kwargs with new ones (new ones 
@@ -74,7 +80,7 @@ class GroupKnockoffEval():
         return knockoff_kwargs
 
 
-    def sample_knockoffs(self, X, groups, recycle_up_to, copies = 20, **kwargs):
+    def sample_knockoffs(self, X, groups, recycle_up_to = None, copies = 20, **kwargs):
         """ Samples copies knockoffs of X. 
         :param int recycle_up_to: If recycle_up_to = k, then the 
         knockoff generator will use the data itself as the knockoffs
@@ -94,12 +100,12 @@ class GroupKnockoffEval():
 
             # Generate second half knockoffs
             test_knockoffs = group_gaussian_knockoffs(
-                testX, self.corr_matrix, groups, copies = copies, tol = 1e-2, 
+                testX, self.sigma, groups, copies = copies, tol = 1e-2, 
                 **self.knockoff_kwargs
             )
 
             # Recycle first half and combine
-            recycled_knockoffs = np.repeat(trainX, copies).reshape(-1, p, copies)
+            recycled_knockoffs = np.repeat(trainX, copies).reshape(-1, self.p, copies)
             all_knockoffs = np.concatenate(
                 (recycled_knockoffs, test_knockoffs), axis = 0
             )
@@ -107,7 +113,7 @@ class GroupKnockoffEval():
         # Else, vanilla Knockoff generation
         else:
             all_knockoffs = group_gaussian_knockoffs(
-                X, corr_matrix, groups, copies = copies, tol = 1e-2,
+                X, self.sigma, groups, copies = copies, tol = 1e-2,
                 **self.knockoff_kwargs
             )
 
@@ -127,6 +133,9 @@ class GroupKnockoffEval():
             group_selections = utilities.fetch_group_nonnulls(
                 self.non_nulls, groups
             )
+
+            # Calculate number of non-nulls (if we're under the global null,
+            # or aren't the oracle, we let the denominator be p)
             num_non_nulls = np.sum(group_selections)
             if num_non_nulls == 0:
                 num_non_nulls = self.p
@@ -148,7 +157,7 @@ class GroupKnockoffEval():
         hat_power = np.einsum('m,m->',(1/group_sizes), selected_flags) / num_non_nulls
 
         # Possibly, calculate oracle FDP and power
-        if non_nulls is not None:
+        if self.non_nulls is not None:
 
             # True power
             power = np.einsum(
@@ -217,6 +226,7 @@ class GroupKnockoffEval():
             knockoffs = all_knockoffs[:, :, j]
             fdp, power, hat_power = self.eval_knockoff_instance(
                 X = X, y = y, groups = groups, 
+                knockoffs = knockoffs,
                 group_sizes = group_sizes, 
                 group_selections = group_selections
             )
@@ -228,7 +238,7 @@ class GroupKnockoffEval():
 
         # Return
         hat_powers = np.array(hat_powers)
-        if num_non_nulls is None:
+        if self.non_nulls is None:
             return hat_powers
         else:
             fdps = np.array(fdps)
@@ -236,7 +246,8 @@ class GroupKnockoffEval():
             return fdps, powers, hat_powers
 
 
-    def eval_many_cutoffs(X, y, 
+    def eval_many_cutoffs(self,
+                          X, y, 
                           link, 
                           cutoffs = None,
                           reduction = 10, 
@@ -258,9 +269,9 @@ class GroupKnockoffEval():
         :param kwargs: kwargs to eval_grouping, may contain kwargs to 
         gaussian group knockoffs constructor.
 
-        returns: the list of cutoffs, associated empirical powers,
-        associated FDR estimates, and associated power estimates. 
-        These last two lists will contain elements "None" if non_nulls
+        returns: the list of cutoffs, associated FDR estimates, 
+        associated power estimates, and associated empirical powers. 
+        These middle two lists will contain elements "None" if non_nulls
         is None (since then we don't have oracle knowledge of power/FDR
         """
         
@@ -301,12 +312,14 @@ class GroupKnockoffEval():
                 cutoff_fdps.append(None)
                 cutoff_powers.append(None)
             else:
-                fdps, powers, hat_powers = output
+                fdps, powers, hat_powers = outputs
                 cutoff_hat_powers.append(np.array(hat_powers).mean())
                 cutoff_fdps.append(np.array(fdps).mean())
                 cutoff_powers.append(np.array(powers).mean())
 
-            cutoff_hat_powers.append(np.array(hat_powers).mean())
         
         # Return arrays
-        return cutoffs, cutoff_hat_powers, cutoff_fdps, cutoff_powers
+        return cutoffs, cutoff_fdps, cutoff_powers, cutoff_hat_powers
+
+
+    def sample_split(self, X, y, )
