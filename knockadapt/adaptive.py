@@ -158,14 +158,6 @@ class GroupKnockoffEval():
         if np.max(group_sizes) == 1:
             tups = [(Wv, flag) for Wv, flag in zip(W, group_selections)]
             sorted_W = sorted(tups, key = lambda x: -1*abs(x[0]))
-            print('Printing first twenty W values:')
-            for k in range(20):
-                flag = sorted_W[k][1]
-                if flag == True:
-                    word = "NONNULL"
-                else:
-                    word = "NULL"
-                print(f'W[{k}]: {sorted_W[k][0]} ({word})')
 
         # Data dependent threshhold and group selections
         T = calc_data_dependent_threshhold(W, fdr = self.q)

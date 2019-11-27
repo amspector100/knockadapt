@@ -456,7 +456,6 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                 Sigma, groups, objective = objective, 
                 verbose = verbose, sdp_verbose = sdp_verbose, **kwargs
             )
-            print(S)
         else:
             raise ValueError(f'Method must be one of "equicorrelated", "asdp", "sdp", not {method}')
     else:
