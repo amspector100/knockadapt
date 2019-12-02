@@ -7,7 +7,7 @@ from statsmodels.stats.moment_helpers import cov2corr
 
 from .utilities import random_permutation_inds
 
-DEFAULT_REG_VALS = np.logspace(-3, 1.5, base = 10, num = 1)
+DEFAULT_REG_VALS = np.logspace(-4, 1.5, base = 10, num = 10)
 
 
 def calc_mse(model, X, y):
@@ -198,43 +198,52 @@ def fit_group_lasso(X, knockoffs, y, groups,
     else:
         reg_vals = [(x,x) for x in DEFAULT_REG_VALS]
 
-    
+    # Fit pyglm model using warm starts
+    if use_pyglm:
+
+        l1_regs = [x[0] for x in reg_vals]
+
+        gl = GLMCV(distr=y_dist,
+                 tol=5e-2, group=doubled_groups, alpha=1.0,
+                 learning_rate=3, max_iter=20,
+                 reg_lambda = l1_regs,
+                 cv = 3,
+                 solver = 'cdfast')
+        gl.fit(features, y)
+
+        # Pull score, rename
+        best_score = -1*calc_mse(gl, features, y)
+        best_gl = gl
+
     # Fit model
-    best_gl = None
-    best_score = -1*np.inf
-    for group_reg, l1_reg in reg_vals:
+    if not use_pyglm:
+        best_gl = None
+        best_score = -1*np.inf
+        for group_reg, l1_reg in reg_vals:
 
-        # Fit logistic/gaussian group lasso 
-        if not use_pyglm:
-            if y_dist.lower() == 'gaussian':
-                gl = GroupLasso(
-                    groups=doubled_groups, tol = 5e-2, 
-                    group_reg = group_reg, l1_reg = l1_reg, **kwargs
-                )
-            elif y_dist.lower() == 'binomial':
-                gl = LogisticGroupLasso(
-                    groups=doubled_groups, tol = 5e-2, 
-                    group_reg = group_reg, l1_reg = l1_reg, **kwargs
-                )
-            else:
-                raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
+            # Fit logistic/gaussian group lasso 
+            if not use_pyglm:
+                if y_dist.lower() == 'gaussian':
+                    gl = GroupLasso(
+                        groups=doubled_groups, tol = 5e-2, 
+                        group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                    )
+                elif y_dist.lower() == 'binomial':
+                    gl = LogisticGroupLasso(
+                        groups=doubled_groups, tol = 5e-2, 
+                        group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                    )
+                else:
+                    raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
 
-            gl.fit(features, y.reshape(n, 1))
-            score = -1*calc_mse(gl, features, y.reshape(n, 1))
-        else:
-            gl = GLMCV(distr=y_dist,
-                     tol=5e-2, group=doubled_groups, alpha=1.0,
-                     learning_rate=3, max_iter=20,
-                     reg_lambda = l1_reg,
-                     cv = 3,
-                     solver = 'cdfast')
-            gl.fit(features, y)
-            score = -1*calc_mse(gl, features, y)
+                gl.fit(features, y.reshape(n, 1))
+                score = -1*calc_mse(gl, features, y.reshape(n, 1))
 
-        # Score, possibly select
-        if score > best_score:
-            best_score = score
-            best_gl = gl
+
+            # Score, possibly select
+            if score > best_score:
+                best_score = score
+                best_gl = gl
 
     warnings.simplefilter("always")
 

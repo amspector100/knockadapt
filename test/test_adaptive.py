@@ -130,23 +130,23 @@ class TestGroupKnockoffEval(unittest.TestCase):
 		# print(knockoffs2[:, 3].std(), 'Non-recycled')
 		# # print(knockoffs1 - knockoffs2)
 
-		# Now test in harder case
-		print('================== NO RECYCLING ==========================')
-		print(self.corr_matrix2)
-		fdp, power, epower = self.gkval2.eval_grouping(
-			X = self.X2, y = self.y2, groups = self.groups2, copies = 1
-		)
-		print(fdp, power, epower)
+		# # Now test in harder case
+		# print('================== NO RECYCLING ==========================')
+		# print(self.corr_matrix2)
+		# fdp, power, epower = self.gkval2.eval_grouping(
+		# 	X = self.X2, y = self.y2, groups = self.groups2, copies = 1
+		# )
+		# print(fdp, power, epower)
 
-		# Now recycle too
-		print('===================== RECYCLING =======================')
-		fdp, power, epower = self.gkval2.eval_grouping(
-			X = self.X2, y = self.y2, groups = self.groups2, copies = 1,
-			recycle_up_to = int(self.n2/2)
-		)
-		print(fdp, power, epower)
+		# # Now recycle too
+		# print('===================== RECYCLING =======================')
+		# fdp, power, epower = self.gkval2.eval_grouping(
+		# 	X = self.X2, y = self.y2, groups = self.groups2, copies = 1,
+		# 	recycle_up_to = int(self.n2/2)
+		# )
+		# print(fdp, power, epower)
 
-		print('===================END=========================')
+		# print('===================END=========================')
 
 
 

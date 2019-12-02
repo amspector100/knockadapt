@@ -7,6 +7,28 @@ from knockadapt import utilities, graphs, knockoff_stats
 class TestGroupLasso(unittest.TestCase):
 	""" Tests fitting of group lasso """
 
+	def test_gaussian_fit(self):
+
+		n = 500
+		p = 200
+		np.random.seed(110)
+		X, y, beta, Q, corr_matrix, groups = graphs.daibarber2016_graph(
+			n = n, p = p, y_dist = 'gaussian'
+		)
+		fake_knockoffs = np.random.randn(X.shape[0], X.shape[1])
+
+		# Get best model for pyglmnet
+		glasso1, rev_inds1 = knockoff_stats.fit_group_lasso(
+			X, fake_knockoffs, y, groups = groups,
+			use_pyglm = True, y_dist = 'gaussian'
+		)
+		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
+		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
+		self.assertTrue(corr1 > 0.5,
+						msg = f'Pyglm fits logistic very poorly (corr = {corr1} btwn real/fitted coeffs)'
+		)
+
+
 	def test_logistic_fit(self):
 		""" Tests logistic fit of group lasso on an easy case
 		(dai barber dataset). If this test fails, knockoffs will
