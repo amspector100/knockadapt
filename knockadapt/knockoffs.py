@@ -71,7 +71,7 @@ def equicorrelated_block_matrix(Sigma, groups, tol = 1e-5):
 
 
 def solve_group_SDP(Sigma, groups, sdp_verbose = False,
-                    objective = 'abs',
+                    objective = 'pnorm',
                     norm_type = 2,
                     num_iter = 10):
     """ Solves the group SDP problem: extends the
@@ -107,6 +107,9 @@ def solve_group_SDP(Sigma, groups, sdp_verbose = False,
         raise ValueError(
             f'Objective ({objective}) must be one of {OBJECTIVE_OPTIONS}'
         )
+    # Warn user if they're using a weird norm...
+    if objective == 'norm' and norm_type == 2:
+        warnings.warn('Using norm objective and norm_type = 2 can lead to strange behavior: consider using Frobenius norm')
     
     # Figure out sizes of groups
     p = Sigma.shape[0]
@@ -393,7 +396,7 @@ def group_gaussian_knockoffs(X, Sigma, groups,
                              tol = 1e-5, 
                              S = None,
                              method = 'sdp', 
-                             objective = 'norm',
+                             objective = 'pnorm',
                              return_S = False,
                              verbose = True,
                              sdp_verbose = True,
