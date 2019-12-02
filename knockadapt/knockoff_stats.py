@@ -207,7 +207,7 @@ def fit_group_lasso(X, knockoffs, y, groups,
                  tol=5e-2, group=doubled_groups, alpha=1.0,
                  learning_rate=3, max_iter=20,
                  reg_lambda = l1_regs,
-                 cv = 3,
+                 cv = 2,
                  solver = 'cdfast')
         gl.fit(features, y)
 
