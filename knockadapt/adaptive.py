@@ -146,6 +146,8 @@ class GroupKnockoffEval():
             num_non_nulls = np.sum(group_selections)
             if num_non_nulls == 0:
                 num_non_nulls = self.p
+        elif group_selections is not None:
+            num_non_nulls = np.sum(group_selections)
         else:
             num_non_nulls = self.p
 
