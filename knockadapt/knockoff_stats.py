@@ -16,18 +16,45 @@ def calc_mse(model, X, y):
     resids = (preds - y)/y.std()
     return np.sum((resids)**2)
 
+def use_reg_lasso(groups):
+    """ Parses whether or not to use group lasso """
+    # See if we are using regular lasso...
+    if groups is not None:
+        p = groups.shape[0]
+        m = np.unique(groups).shape[0]
+        if p == m:
+            return True
+        else:
+            return False
+    else:
+        return True
+
+def parse_y_dist(kwargs):
+    """ Checks whether y_dist is binomial """
+    if 'y_dist' in kwargs:
+        if kwargs['y_dist'] == 'binomial':
+            return True
+    return False
+
+
 def calc_LCD(Z, groups):
     """
     Calculates coefficient differences for knockoffs
     :param Z: statistics for each feature (including knockoffs)
     2p dimensional numpy array
     :param groups: p dimensional numpy array of group membership
-    with m discrete values
+    with m discrete values. 
     :returns W: m dimensional array of knockoff LCD statistics
     """
 
+    # If None, all are in their own group
+    p = int(Z.shape[0]/2)
+    if 2*p != Z.shape[0]:
+        raise ValueError("Z statistics must have length 2p, but {Z.shape[0]} is odd")
+    if groups is None:
+        groups = np.arange(1, p+1, 1)
+
     # Get dims, initialize output
-    p = groups.shape[0]
     m = np.unique(groups).shape[0]
     W = np.zeros(m)
 
@@ -37,10 +64,10 @@ def calc_LCD(Z, groups):
 
     # Create Wjs
     for j in range(m):
-        true_coeffs = Z_true[groups == j]
-        knock_coeffs = Z_knockoff[groups == j]
+        true_coeffs = Z_true[groups == j + 1]
+        knock_coeffs = Z_knockoff[groups == j + 1]
         Wj = np.sum(np.abs(true_coeffs)) - np.sum(np.abs(knock_coeffs))
-        W[j-1] = Wj
+        W[j] = Wj
 
     return W
 
@@ -144,6 +171,41 @@ def calc_nongroup_LCD(X, knockoffs, y, groups = None, **kwargs):
     return W_group
 
 
+def fit_lasso(X, knockoffs, y, y_dist = 'gaussian', **kwargs):
+
+    # Bind data
+    n = X.shape[0]
+    p = X.shape[1]
+    features = np.concatenate([X, knockoffs], axis = 1)
+
+
+    # Randomize coordinates to make sure everything is symmetric
+    inds, rev_inds = random_permutation_inds(2*p)
+    features = features[:, inds]
+
+    # Fit lasso
+    warnings.filterwarnings("ignore")
+    if y_dist == 'gaussian':
+        gl = linear_model.LassoCV(
+            alphas = DEFAULT_REG_VALS,
+            normalize = True,
+            cv = 2, verbose = False,
+            max_iter = 50, tol = 1e-3
+        ).fit(features, y)
+    elif y_dist == 'binomial':
+        gl = linear_model.LogisticRegressionCV(
+            Cs = 1/DEFAULT_REG_VALS,
+            penalty = 'l1', max_iter = 50,
+            cv = 2, verbose = False,
+            solver = 'liblinear', tol = 1e-3
+        ).fit(features, y)
+    else:
+        raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
+    warnings.resetwarnings()
+
+    return gl, rev_inds
+
+
 def fit_group_lasso(X, knockoffs, y, groups, 
                     use_pyglm = True, 
                     y_dist = 'gaussian',
@@ -170,10 +232,15 @@ def fit_group_lasso(X, knockoffs, y, groups,
 
     # By default, all variables are their own group
     if groups is None:
-        groups = np.arange(0, p, 1)
+        groups = np.arange(1, p+1, 1)
         m = p
     else:
         m = np.unique(groups).shape[0]
+
+    # If m == p, meaning each variable is their own group,
+    # just fit a regular lasso
+    if m == p: 
+        return fit_lasso(X, knockoffs, y, y_dist, **kwargs)
 
     # Make sure variables and their knockoffs are in the same group
     # This is necessary for antisymmetry
@@ -245,7 +312,7 @@ def fit_group_lasso(X, knockoffs, y, groups,
                 best_score = score
                 best_gl = gl
 
-    warnings.simplefilter("always")
+    warnings.resetwarnings()
 
     return best_gl, rev_inds
 
@@ -261,9 +328,17 @@ def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True,
     gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups,
                                    use_pyglm = use_pyglm, **kwargs)
 
+    # See if we are using regular lasso...
+    reg_lasso_flag = use_reg_lasso(groups)
+    logistic_flag = parse_y_dist(kwargs)
+
     # Create LSM statistics
-    if use_pyglm:
+    if use_pyglm and not reg_lasso_flag:
         Z = gl.beta_[rev_inds]
+    elif reg_lasso_flag and logistic_flag:
+        if gl.coef_.shape[0] != 1:
+            raise ValueError("Unexpected shape for logistic lasso coefficients (sklearn)")
+        Z = gl.coef_[0, rev_inds]
     else:
         Z = gl.coef_[rev_inds]
     W = calc_LSM(Z, groups)
@@ -285,12 +360,21 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
     gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups, 
                                    use_pyglm = use_pyglm, **kwargs)
 
+    # See if we are using regular lasso...
+    reg_lasso_flag = use_reg_lasso(groups)
+    logistic_flag = parse_y_dist(kwargs)
+
     # Create LCD statistics
-    if use_pyglm:
+    if use_pyglm and not reg_lasso_flag:
         Z = gl.beta_[rev_inds]
+    elif reg_lasso_flag and logistic_flag:
+        if gl.coef_.shape[0] != 1:
+            raise ValueError("Unexpected shape for logistic lasso coefficients (sklearn)")
+        Z = gl.coef_[0, rev_inds]
     else:
         Z = gl.coef_[rev_inds]
 
+    # Calc LCD
     W = calc_LCD(Z, groups)
     return W
 

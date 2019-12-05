@@ -7,6 +7,47 @@ from knockadapt import utilities, graphs, knockoff_stats
 class TestGroupLasso(unittest.TestCase):
 	""" Tests fitting of group lasso """
 
+	def test_LCD(self):
+
+		# Fake data
+		Z = np.array([-1, -2, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0])
+		groups = np.array([1, 1, 1, 2, 2, 2])
+		W = knockoff_stats.calc_LCD(Z, groups)
+		np.testing.assert_array_almost_equal(
+			W, np.array([4, 0]), decimal = 3,
+			err_msg = 'calc_LCD function incorrectly calculates group LCD'
+		)
+
+		# Again
+		Z2 = np.array([0, 1, 2, 3, -1, -2, -3, -4])
+		groups2 = np.array([1, 2, 3, 4])
+		W2 = knockoff_stats.calc_LCD(Z2, groups2)
+		np.testing.assert_array_almost_equal(
+			W2, np.array([-1, -1, -1, -1]),
+			err_msg = 'calc_LCD function incorrectly calculates group LCD'
+		)
+
+	def test_LCD(self):
+
+		# Fake data
+		Z = np.array([-1, -2, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0])
+		groups = np.array([1, 1, 1, 2, 2, 2])
+		W = knockoff_stats.calc_LCD(Z, groups)
+		np.testing.assert_array_almost_equal(
+			W, np.array([4, 0]), decimal = 3,
+			err_msg = 'calc_LCD function incorrectly calculates group LCD'
+		)
+
+		# Again
+		Z2 = np.array([0, 1, 2, 3, -1, -2, -3, -4])
+		groups2 = np.array([1, 2, 3, 4])
+		W2 = knockoff_stats.calc_LCD(Z2, groups2)
+		np.testing.assert_array_almost_equal(
+			W2, np.array([-1, -1, -1, -1]),
+			err_msg = 'calc_LCD function incorrectly calculates group LCD'
+		)
+
+
 	def test_gaussian_fit(self):
 
 		n = 500
@@ -25,7 +66,18 @@ class TestGroupLasso(unittest.TestCase):
 		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
 		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
 		self.assertTrue(corr1 > 0.5,
-						msg = f'Pyglm fits logistic very poorly (corr = {corr1} btwn real/fitted coeffs)'
+						msg = f'Pyglm fits gauissan very poorly (corr = {corr1} btwn real/fitted coeffs)'
+		)
+
+		# Test again, fitting regular lasso
+		glasso2, rev_inds2 = knockoff_stats.fit_lasso(
+			X, fake_knockoffs, y, y_dist = 'gaussian'
+		)
+		beta2 = glasso2.coef_[rev_inds2][0:p]
+		corr2 = np.corrcoef(beta2, beta)[0, 1]
+
+		self.assertTrue(corr2 > 0.5,
+						msg = f'SKlearn lasso fits gaussian very poorly (corr = {corr2} btwn real/fitted coeffs)'
 		)
 
 
@@ -65,6 +117,16 @@ class TestGroupLasso(unittest.TestCase):
 		self.assertTrue(corr2 > 0.5,
 						msg = f'group-lasso fits logistic very poorly (corr = {corr2} btwn real/fitted coeffs)')
 
+
+		# Test again, fitting regular lasso
+		glasso3, rev_inds3 = knockoff_stats.fit_lasso(
+			X = X, knockoffs = fake_knockoffs, y = y, y_dist = 'binomial'
+		)
+		beta3 = glasso3.coef_[0, rev_inds3][0:p]
+		corr3 = np.corrcoef(beta3, beta)[0, 1]
+		self.assertTrue(corr3 > 0.5,
+						msg = f'SKlearn lasso fits logistic very poorly (corr = {corr3} btwn real/fitted coeffs)'
+		)
 
 
 
