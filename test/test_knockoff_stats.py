@@ -47,6 +47,48 @@ class TestGroupLasso(unittest.TestCase):
 			err_msg = 'calc_LCD function incorrectly calculates group LCD'
 		)
 
+	def test_corr_diff(self):
+
+		# Fake data (p = 5)
+		n = 10000
+		p = 5
+		X = np.random.randn(n, p)
+		knockoffs = np.random.randn(n, p)
+		groups = np.array([1, 1, 2, 2, 2])
+
+		# Calc y
+		beta = np.array([1, 1, 0, 0, 0])
+		y = np.dot(X, beta.reshape(-1, 1))
+
+		# Correlations
+		W = knockoff_stats.marg_corr_diff(X, knockoffs, y, groups = None)
+
+		self.assertTrue(
+			np.abs(W[0] - 1/np.sqrt(2)) < 0.05, 
+			msg = 'marg_corr_diff statistic calculates correlations incorrectly'
+		)
+
+	def test_linear_coef_diff(self):
+
+		# Fake data (p = 5)
+		n = 1000
+		p = 5
+		X = np.random.randn(n, p)
+		knockoffs = np.random.randn(n, p)
+		groups = np.array([1, 1, 2, 2, 2])
+
+		# Calc y
+		beta = np.array([1, 1, 0, 0, 0])
+		y = np.dot(X, beta.reshape(-1, 1))
+
+		# Correlations
+		W = knockoff_stats.linear_coef_diff(X, knockoffs, y, groups = groups)
+
+		np.testing.assert_array_almost_equal(
+			W, np.array([2, 0]), decimal = 3
+		)
+
+
 
 	def test_gaussian_fit(self):
 
@@ -86,7 +128,7 @@ class TestGroupLasso(unittest.TestCase):
 		(dai barber dataset). If this test fails, knockoffs will
 		have pretty atrocious power on binary outcomes. """
 
-		n = 200
+		n = 300
 		p = 100
 		np.random.seed(110)
 		X, y, beta, Q, corr_matrix, groups = graphs.daibarber2016_graph(

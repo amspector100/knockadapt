@@ -1,5 +1,6 @@
 import warnings
 import numpy as np
+from scipy.stats.stats import pearsonr   
 from sklearn import linear_model
 from group_lasso import GroupLasso, LogisticGroupLasso
 from pyglmnet import GLM, GLMCV
@@ -50,7 +51,7 @@ def calc_LCD(Z, groups):
     # If None, all are in their own group
     p = int(Z.shape[0]/2)
     if 2*p != Z.shape[0]:
-        raise ValueError("Z statistics must have length 2p, but {Z.shape[0]} is odd")
+        raise ValueError(f"Z statistics must have length 2p, but {Z.shape[0]} is odd")
     if groups is None:
         groups = np.arange(1, p+1, 1)
 
@@ -377,6 +378,57 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
     # Calc LCD
     W = calc_LCD(Z, groups)
     return W
+
+
+def marg_corr_diff(X, knockoffs, y, groups = None, agg_stat = 'ACD'):
+    """
+    Calculates difference between correlations of X and knockoffs.
+    This is computed as either the total difference (agg_stat = 'ACD') 
+    or the difference between the maxes (agg_stat = 'MCD')
+    """
+
+    # Calc correlations
+    features = np.concatenate([X, knockoffs], axis = 1)
+    correlations = np.corrcoef(
+        features, y.reshape(-1, 1), rowvar = False
+    )[-1][0:-1]
+
+    # Combine with groups to create W-statistic
+    agg_stat = str(agg_stat).lower()
+    if agg_stat == 'acd':
+        W = calc_LCD(correlations, groups)
+    elif agg_stat == 'mcd':
+        W = calc_LSM(correlations, groups)
+    else:
+        raise ValueError(f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}")
+
+    return W
+
+
+def linear_coef_diff(X, knockoffs, y, groups = None, agg_stat = 'ACD'):
+
+    # Run linear regression
+    features = np.concatenate([X, knockoffs], axis = 1)
+    lm = linear_model.LinearRegression(fit_intercept = False).fit(features, y)
+    Z = lm.coef_
+
+    # Play with shape, take abs
+    Z = np.abs(Z.reshape(-1))
+    p = X.shape[1]
+    if Z.shape[0] != 2*p:
+        raise ValueError(f'Unexpected shape {Z.shape} for sklearn LinearRegression coefs (expected ({2*p},))')
+
+    # Combine with groups to create W-statistic
+    agg_stat = str(agg_stat).lower()
+    if agg_stat == 'acd':
+        W = calc_LCD(Z, groups)
+    elif agg_stat == 'mcd':
+        W = calc_LSM(Z, groups)
+    else:
+        raise ValueError(f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}")
+
+    return W
+
 
 def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):
     """

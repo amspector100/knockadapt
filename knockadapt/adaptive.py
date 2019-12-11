@@ -58,7 +58,7 @@ class GroupKnockoffEval():
         self.sigma = corr_matrix
         self.q = q
         self.non_nulls = non_nulls
-        self.feature_stat_fn = group_lasso_LCD
+        self.feature_stat_fn = feature_stat_fn
         self.feature_stat_kwargs = feature_stat_kwargs
         self.knockoff_kwargs = kwargs
 
