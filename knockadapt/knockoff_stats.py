@@ -421,18 +421,24 @@ def marg_corr_diff(X, knockoffs, y, groups=None, agg_stat="ACD"):
 
 def linear_coef_diff(X, knockoffs, y, groups=None, agg_stat="ACD"):
 
-    # Run linear regression
+    # Run linear regression, permute indexes to prevent FDR violations
+    p = X.shape[1]
     features = np.concatenate([X, knockoffs], axis=1)
+    inds, rev_inds = random_permutation_inds(2 * p)
+    features = features[:, inds]
+
     lm = linear_model.LinearRegression(fit_intercept=False).fit(features, y)
     Z = lm.coef_
 
     # Play with shape, take abs
     Z = np.abs(Z.reshape(-1))
-    p = X.shape[1]
     if Z.shape[0] != 2 * p:
         raise ValueError(
             f"Unexpected shape {Z.shape} for sklearn LinearRegression coefs (expected ({2*p},))"
         )
+
+    # Undo random permutation
+    Z = Z[rev_inds]
 
     # Combine with groups to create W-statistic
     agg_stat = str(agg_stat).lower()
