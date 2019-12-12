@@ -3,9 +3,9 @@ import numpy as np
 import scipy.cluster.hierarchy as hierarchy
 
 from . import utilities
-from .graphs import sample_data, create_correlation_tree
 from .knockoffs import group_gaussian_knockoffs
 from .knockoff_stats import group_lasso_LCD, calc_data_dependent_threshhold
+
 
 def create_cutoffs(link, reduction, max_size):
 
@@ -14,11 +14,11 @@ def create_cutoffs(link, reduction, max_size):
     # - Practical justification (groups > 100 not so useful)
     # - Power justification (only can try so many cutoffs,
     # the super high ones usually perform badly)
-    max_group_sizes = np.maximum.accumulate(link[:, 3]) 
+    max_group_sizes = np.maximum.accumulate(link[:, 3])
     subset = link[max_group_sizes <= max_size]
 
     # Create cutoffs
-    spacing = int(subset.shape[0]/reduction)
+    spacing = int(subset.shape[0] / reduction)
     cutoffs = subset[:, 2]
 
     # Add 0 to beginning (this is our baseline - no groups)
@@ -33,7 +33,8 @@ def create_cutoffs(link, reduction, max_size):
 
     return cutoffs
 
-class GroupKnockoffEval():
+
+class GroupKnockoffEval:
     """ Evaluates power, fdr, empirical power
     of different groupings of knockoffs. 
     :param corr_matrix: True correlation matrix of X, which is
@@ -45,13 +46,17 @@ class GroupKnockoffEval():
     Defaults to calc_nongroup_LSM.
     :param feature_stat_kwargs: kwargs to the feature stat function
     :param kwargs: kwargs to the Gaussian Knockoffs constructor
-    """ 
+    """
 
-    def __init__(self, corr_matrix, q,
-                 non_nulls = None, 
-                 feature_stat_fn = group_lasso_LCD,
-                 feature_stat_kwargs = {},
-                 **kwargs):
+    def __init__(
+        self,
+        corr_matrix,
+        q,
+        non_nulls=None,
+        feature_stat_fn=group_lasso_LCD,
+        feature_stat_kwargs={},
+        **kwargs
+    ):
 
         # Save values
         self.p = corr_matrix.shape[0]
@@ -63,11 +68,10 @@ class GroupKnockoffEval():
         self.knockoff_kwargs = kwargs
 
         # Defaults for knockoff_kwargs
-        if 'verbose' not in self.knockoff_kwargs:
-            self.knockoff_kwargs['verbose'] = False
-        if 'sdp_verbose' not in self.knockoff_kwargs:
-            self.knockoff_kwargs['sdp_verbose'] = False
-
+        if "verbose" not in self.knockoff_kwargs:
+            self.knockoff_kwargs["verbose"] = False
+        if "sdp_verbose" not in self.knockoff_kwargs:
+            self.knockoff_kwargs["sdp_verbose"] = False
 
     def combine_S_kwargs(self, new_kwargs):
         """ Combines default knockoff kwargs with new ones (new ones 
@@ -79,8 +83,7 @@ class GroupKnockoffEval():
 
         return knockoff_kwargs
 
-
-    def sample_knockoffs(self, X, groups, recycle_up_to = None, copies = 20, **kwargs):
+    def sample_knockoffs(self, X, groups, recycle_up_to=None, copies=20, **kwargs):
         """ Samples copies knockoffs of X. 
         :param int recycle_up_to: If recycle_up_to = k, then the 
         knockoff generator will use the data itself as the knockoffs
@@ -100,21 +103,17 @@ class GroupKnockoffEval():
 
             # Generate second half knockoffs
             test_knockoffs = group_gaussian_knockoffs(
-                testX, self.sigma, groups, copies = copies, tol = 1e-2, 
-                **knockoff_kwargs
+                testX, self.sigma, groups, copies=copies, tol=1e-2, **knockoff_kwargs
             )
 
             # Recycle first half and combine
             recycled_knockoffs = np.repeat(trainX, copies).reshape(-1, self.p, copies)
-            all_knockoffs = np.concatenate(
-                (recycled_knockoffs, test_knockoffs), axis = 0
-            )
+            all_knockoffs = np.concatenate((recycled_knockoffs, test_knockoffs), axis=0)
 
         # Else, vanilla Knockoff generation
         else:
             all_knockoffs = group_gaussian_knockoffs(
-                X, self.sigma, groups, copies = copies, tol = 1e-2,
-                **knockoff_kwargs
+                X, self.sigma, groups, copies=copies, tol=1e-2, **knockoff_kwargs
             )
 
             # # Delete all this plz
@@ -126,9 +125,9 @@ class GroupKnockoffEval():
 
         return all_knockoffs
 
-
-    def eval_knockoff_instance(self, X, knockoffs, y, groups, 
-                               group_sizes = None, group_selections = None):
+    def eval_knockoff_instance(
+        self, X, knockoffs, y, groups, group_sizes=None, group_selections=None
+    ):
         """ Calculates empirical power and possibly true power/fdp
         for a SINGLE knockoff instance, which must have exactly the same 
         shape as X """
@@ -137,9 +136,7 @@ class GroupKnockoffEval():
         if group_sizes is None:
             group_sizes = utilities.calc_group_sizes(groups)
         if group_selections is None and self.non_nulls is not None:
-            group_selections = utilities.fetch_group_nonnulls(
-                self.non_nulls, groups
-            )
+            group_selections = utilities.fetch_group_nonnulls(self.non_nulls, groups)
 
             # Calculate number of non-nulls (if we're under the global null,
             # or aren't the oracle, we let the denominator be p)
@@ -151,50 +148,40 @@ class GroupKnockoffEval():
         else:
             num_non_nulls = self.p
 
-
         # W statistics
         W = self.feature_stat_fn(
-            X = X, knockoffs = knockoffs, y = y, groups = groups,
-            **self.feature_stat_kwargs
+            X=X, knockoffs=knockoffs, y=y, groups=groups, **self.feature_stat_kwargs
         )
-        if np.max(group_sizes) == 1:
-            tups = [(Wv, flag) for Wv, flag in zip(W, group_selections)]
-            sorted_W = sorted(tups, key = lambda x: -1*abs(x[0]))
 
         # Data dependent threshhold and group selections
-        T = calc_data_dependent_threshhold(W, fdr = self.q)
-        selected_flags = (W >= T).astype('float32')
+        T = calc_data_dependent_threshhold(W, fdr=self.q)
+        selected_flags = (W >= T).astype("float32")
 
         # Empirical power
-        hat_power = np.einsum('m,m->',(1/group_sizes), selected_flags) / num_non_nulls
+        hat_power = (
+            np.einsum("m,m->", (1 / group_sizes), selected_flags) / num_non_nulls
+        )
 
         # Possibly, calculate oracle FDP and power
         if self.non_nulls is not None:
 
             # True power
             power = np.einsum(
-                'm,m,m->', (1/group_sizes), selected_flags, group_selections
+                "m,m,m->", (1 / group_sizes), selected_flags, group_selections
             )
             power = power / num_non_nulls
 
             # FDP
-            FDP = np.einsum(
-                'p,p->', selected_flags, 1-group_selections
-            )
+            FDP = np.einsum("p,p->", selected_flags, 1 - group_selections)
             FDP = FDP / max(1, selected_flags.sum())
 
         else:
             power = None
             FDP = None
 
-
         return FDP, power, hat_power
 
-    
-    def eval_grouping(self, X, y, groups, 
-                      recycle_up_to = None, 
-                      copies = 20,
-                      **kwargs):
+    def eval_grouping(self, X, y, groups, recycle_up_to=None, copies=20, **kwargs):
         """ 
         Calculates empirical power, power, and FDP by
         running knockoffs. Does this "copies" times.
@@ -209,22 +196,17 @@ class GroupKnockoffEval():
         :param kwargs: kwargs to pass to knockoff sampler
         """
 
-        # n, m, X
-        n = X.shape[0]
-        m = np.unique(groups).shape[0]
+        # Group sizes
         group_sizes = utilities.calc_group_sizes(groups)
 
         # Get knockoffs
         all_knockoffs = self.sample_knockoffs(
-            X=X, groups=groups, recycle_up_to=recycle_up_to, copies=copies,
-            **kwargs
+            X=X, groups=groups, recycle_up_to=recycle_up_to, copies=copies, **kwargs
         )
 
         # Possibly calculate true selections for this grouping
         if self.non_nulls is not None:
-            group_selections = utilities.fetch_group_nonnulls(
-                self.non_nulls, groups
-            )
+            group_selections = utilities.fetch_group_nonnulls(self.non_nulls, groups)
 
         # For each knockoff, calculate FDP, empirical power, power.
         fdps = []
@@ -237,10 +219,12 @@ class GroupKnockoffEval():
             # Calculate one FDP, power, hatpower for each copy
             knockoffs = all_knockoffs[:, :, j]
             fdp, power, hat_power = self.eval_knockoff_instance(
-                X = X, y = y, groups = groups, 
-                knockoffs = knockoffs,
-                group_sizes = group_sizes, 
-                group_selections = group_selections
+                X=X,
+                y=y,
+                groups=groups,
+                knockoffs=knockoffs,
+                group_sizes=group_sizes,
+                group_selections=group_selections,
             )
 
             # Append
@@ -257,15 +241,17 @@ class GroupKnockoffEval():
             powers = np.array(powers)
             return fdps, powers, hat_powers
 
-
-    def eval_many_cutoffs(self,
-                          X, y, 
-                          link, 
-                          cutoffs = None,
-                          reduction = 10, 
-                          max_group_size = 100,
-                          S_matrices = None,
-                          **kwargs):
+    def eval_many_cutoffs(
+        self,
+        X,
+        y,
+        link,
+        cutoffs=None,
+        reduction=10,
+        max_group_size=100,
+        S_matrices=None,
+        **kwargs
+    ):
         """
         :param X: n x p design matrix
         :param y: n-length response array
@@ -286,7 +272,7 @@ class GroupKnockoffEval():
         These middle two lists will contain elements "None" if non_nulls
         is None (since then we don't have oracle knowledge of power/FDR
         """
-        
+
         # Create cutoffs and groups - for effieicny,
         # only currently going to look at every 10th cutoff
         if cutoffs is None:
@@ -295,27 +281,25 @@ class GroupKnockoffEval():
         # Possibly create S_matrices dictionary
         # if not already supplied
         if S_matrices is None:
-            S_matrices = {cutoff:None for cutoff in cutoffs}
+            S_matrices = {cutoff: None for cutoff in cutoffs}
 
         # Initialize
         cutoff_hat_powers = []
         cutoff_fdps = []
         cutoff_powers = []
-        
+
         # This is inefficient but it's not a bottleneck
         # - is at worst O(p^2)
         for cutoff in cutoffs:
-            
+
             # Create groups
-            groups = hierarchy.fcluster(link, cutoff, criterion = "distance")
+            groups = hierarchy.fcluster(link, cutoff, criterion="distance")
 
             # Get S matrix
             S = S_matrices[cutoff]
 
             # Possible just get empirical powers if there's no ground truth
-            outputs = self.eval_grouping(
-                X, y, groups, S = S, **kwargs
-            )
+            outputs = self.eval_grouping(X, y, groups, S=S, **kwargs)
 
             # Return differently based on whether non_nulls supplied
             if self.non_nulls is None:
@@ -329,10 +313,8 @@ class GroupKnockoffEval():
                 cutoff_fdps.append(np.array(fdps).mean())
                 cutoff_powers.append(np.array(powers).mean())
 
-        
         # Return arrays
         return cutoffs, cutoff_fdps, cutoff_powers, cutoff_hat_powers
-
 
     def sample_split(self, X, y):
 

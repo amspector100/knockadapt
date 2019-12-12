@@ -1,21 +1,20 @@
 import warnings
 import numpy as np
-from scipy.stats.stats import pearsonr   
 from sklearn import linear_model
 from group_lasso import GroupLasso, LogisticGroupLasso
-from pyglmnet import GLM, GLMCV
-from statsmodels.stats.moment_helpers import cov2corr
+from pyglmnet import GLMCV
 
 from .utilities import random_permutation_inds
 
-DEFAULT_REG_VALS = np.logspace(-4, 1.5, base = 10, num = 10)
+DEFAULT_REG_VALS = np.logspace(-4, 1.5, base=10, num=10)
 
 
 def calc_mse(model, X, y):
-    """ Gets MSE of a model """ 
+    """ Gets MSE of a model """
     preds = model.predict(X)
-    resids = (preds - y)/y.std()
-    return np.sum((resids)**2)
+    resids = (preds - y) / y.std()
+    return np.sum((resids) ** 2)
+
 
 def use_reg_lasso(groups):
     """ Parses whether or not to use group lasso """
@@ -30,10 +29,11 @@ def use_reg_lasso(groups):
     else:
         return True
 
+
 def parse_y_dist(kwargs):
     """ Checks whether y_dist is binomial """
-    if 'y_dist' in kwargs:
-        if kwargs['y_dist'] == 'binomial':
+    if "y_dist" in kwargs:
+        if kwargs["y_dist"] == "binomial":
             return True
     return False
 
@@ -49,11 +49,11 @@ def calc_LCD(Z, groups):
     """
 
     # If None, all are in their own group
-    p = int(Z.shape[0]/2)
-    if 2*p != Z.shape[0]:
+    p = int(Z.shape[0] / 2)
+    if 2 * p != Z.shape[0]:
         raise ValueError(f"Z statistics must have length 2p, but {Z.shape[0]} is odd")
     if groups is None:
-        groups = np.arange(1, p+1, 1)
+        groups = np.arange(1, p + 1, 1)
 
     # Get dims, initialize output
     m = np.unique(groups).shape[0]
@@ -71,6 +71,7 @@ def calc_LCD(Z, groups):
         W[j] = Wj
 
     return W
+
 
 def calc_LSM(Z, groups):
     """
@@ -94,12 +95,12 @@ def calc_LSM(Z, groups):
     # Combine them for each group
     W_group = np.zeros(m)
     for i in range(p):
-        W_group[groups[i]-1] += W[i]
-        
+        W_group[groups[i] - 1] += W[i]
+
     return W_group
 
 
-def calc_lambda_paths(X, knockoffs, y, groups = None, **kwargs):
+def calc_lambda_paths(X, knockoffs, y, groups=None, **kwargs):
     """ Calculates locations at which X/knockoffs enter lasso 
     model when regressed on y.
     :param X: n x p design matrix
@@ -109,23 +110,19 @@ def calc_lambda_paths(X, knockoffs, y, groups = None, **kwargs):
      """
 
     # Bind data
-    n = X.shape[0]
     p = X.shape[1]
-    features = np.concatenate([X, knockoffs], axis = 1)
+    features = np.concatenate([X, knockoffs], axis=1)
 
     # By default, all variables are their own group
     if groups is None:
         groups = np.arange(0, p, 1)
-    m = np.unique(groups).shape[0]
-    
+
     # Fit
-    alphas, _, coefs = linear_model.lars_path(
-        features, y, method='lasso', **kwargs,
-    )
-    
+    alphas, _, coefs = linear_model.lars_path(features, y, method="lasso", **kwargs,)
+
     # Calculate places where features enter the model
-    Z = np.zeros(2*p)
-    for i in range(2*p):
+    Z = np.zeros(2 * p)
+    for i in range(2 * p):
         if (coefs[i] != 0).sum() == 0:
             Z[i] = 0
         else:
@@ -134,7 +131,7 @@ def calc_lambda_paths(X, knockoffs, y, groups = None, **kwargs):
     return Z
 
 
-def calc_nongroup_LSM(X, knockoffs, y, groups = None, **kwargs):
+def calc_nongroup_LSM(X, knockoffs, y, groups=None, **kwargs):
     """ Calculates difference between average group Lasso signed maxs. 
     Does NOT use a group lasso regression class, unfortunately.
     :param X: n x p design matrix
@@ -142,18 +139,17 @@ def calc_nongroup_LSM(X, knockoffs, y, groups = None, **kwargs):
     :param groups: p length numpy array of groups
     :param kwargs: kwargs for sklearn Lasso class
     """
-        
+
     # Z statistics
     Z = calc_lambda_paths(X, knockoffs, y, groups, **kwargs)
 
     # Calculate group LSM
     W_group = calc_LSM(Z, groups)
-        
+
     return W_group
 
 
-
-def calc_nongroup_LCD(X, knockoffs, y, groups = None, **kwargs):
+def calc_nongroup_LCD(X, knockoffs, y, groups=None, **kwargs):
     """ Calculates difference in absolute coefficient sums over groups. 
     Uses the place where X/knockoffs enter the path, not the coefficients.
     This and the prev function should be renamed.
@@ -162,43 +158,46 @@ def calc_nongroup_LCD(X, knockoffs, y, groups = None, **kwargs):
     :param groups: p length numpy array of groups
     :param kwargs: kwargs for sklearn Lasso class
     """
-        
+
     # Z statistics
     Z = calc_lambda_paths(X, knockoffs, y, groups, **kwargs)
 
     # Calculate group LSM
     W_group = calc_LCD(Z, groups)
-        
+
     return W_group
 
 
-def fit_lasso(X, knockoffs, y, y_dist = 'gaussian', **kwargs):
+def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
 
     # Bind data
-    n = X.shape[0]
     p = X.shape[1]
-    features = np.concatenate([X, knockoffs], axis = 1)
-
+    features = np.concatenate([X, knockoffs], axis=1)
 
     # Randomize coordinates to make sure everything is symmetric
-    inds, rev_inds = random_permutation_inds(2*p)
+    inds, rev_inds = random_permutation_inds(2 * p)
     features = features[:, inds]
 
     # Fit lasso
     warnings.filterwarnings("ignore")
-    if y_dist == 'gaussian':
+    if y_dist == "gaussian":
         gl = linear_model.LassoCV(
-            alphas = DEFAULT_REG_VALS,
-            normalize = True,
-            cv = 2, verbose = False,
-            max_iter = 50, tol = 1e-3
+            alphas=DEFAULT_REG_VALS,
+            normalize=True,
+            cv=2,
+            verbose=False,
+            max_iter=50,
+            tol=1e-3,
         ).fit(features, y)
-    elif y_dist == 'binomial':
+    elif y_dist == "binomial":
         gl = linear_model.LogisticRegressionCV(
-            Cs = 1/DEFAULT_REG_VALS,
-            penalty = 'l1', max_iter = 50,
-            cv = 2, verbose = False,
-            solver = 'liblinear', tol = 1e-3
+            Cs=1 / DEFAULT_REG_VALS,
+            penalty="l1",
+            max_iter=50,
+            cv=2,
+            verbose=False,
+            solver="liblinear",
+            tol=1e-3,
         ).fit(features, y)
     else:
         raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
@@ -207,10 +206,9 @@ def fit_lasso(X, knockoffs, y, y_dist = 'gaussian', **kwargs):
     return gl, rev_inds
 
 
-def fit_group_lasso(X, knockoffs, y, groups, 
-                    use_pyglm = True, 
-                    y_dist = 'gaussian',
-                    **kwargs):
+def fit_group_lasso(
+    X, knockoffs, y, groups, use_pyglm=True, y_dist="gaussian", **kwargs
+):
     """ Fits a group lasso model.
     :param X: n x p design matrix
     :param knockoffs: n x p knockoff matrix
@@ -229,84 +227,96 @@ def fit_group_lasso(X, knockoffs, y, groups,
     # Bind data
     n = X.shape[0]
     p = X.shape[1]
-    features = np.concatenate([X, knockoffs], axis = 1)
+    features = np.concatenate([X, knockoffs], axis=1)
 
     # By default, all variables are their own group
     if groups is None:
-        groups = np.arange(1, p+1, 1)
+        groups = np.arange(1, p + 1, 1)
         m = p
     else:
         m = np.unique(groups).shape[0]
 
     # If m == p, meaning each variable is their own group,
     # just fit a regular lasso
-    if m == p: 
+    if m == p:
         return fit_lasso(X, knockoffs, y, y_dist, **kwargs)
 
     # Make sure variables and their knockoffs are in the same group
     # This is necessary for antisymmetry
-    doubled_groups = np.concatenate([groups, groups], axis = 0)
+    doubled_groups = np.concatenate([groups, groups], axis=0)
 
     # Randomize coordinates to make sure everything is symmetric
-    inds, rev_inds = random_permutation_inds(2*p)
+    inds, rev_inds = random_permutation_inds(2 * p)
     features = features[:, inds]
     doubled_groups = doubled_groups[inds]
 
-    # Standardize - important for pyglmnet performance, 
+    # Standardize - important for pyglmnet performance,
     # highly detrimental for group_lasso performance
     if use_pyglm:
-        features = (features - features.mean())/features.std()
-        if y_dist == 'gaussian':
-            y = (y - y.mean())/y.std()
+        features = (features - features.mean()) / features.std()
+        if y_dist == "gaussian":
+            y = (y - y.mean()) / y.std()
 
     # Get regularizations
-    if 'reg_vals' in kwargs:
-        reg_vals = kwargs['reg_vals']
-        kwargs.pop('reg_vals')
+    if "reg_vals" in kwargs:
+        reg_vals = kwargs["reg_vals"]
+        kwargs.pop("reg_vals")
     else:
-        reg_vals = [(x,x) for x in DEFAULT_REG_VALS]
+        reg_vals = [(x, x) for x in DEFAULT_REG_VALS]
 
     # Fit pyglm model using warm starts
     if use_pyglm:
 
         l1_regs = [x[0] for x in reg_vals]
 
-        gl = GLMCV(distr=y_dist,
-                 tol=5e-2, group=doubled_groups, alpha=1.0,
-                 learning_rate=3, max_iter=20,
-                 reg_lambda = l1_regs,
-                 cv = 2,
-                 solver = 'cdfast')
+        gl = GLMCV(
+            distr=y_dist,
+            tol=5e-2,
+            group=doubled_groups,
+            alpha=1.0,
+            learning_rate=3,
+            max_iter=20,
+            reg_lambda=l1_regs,
+            cv=2,
+            solver="cdfast",
+        )
         gl.fit(features, y)
 
         # Pull score, rename
-        best_score = -1*calc_mse(gl, features, y)
+        best_score = -1 * calc_mse(gl, features, y)
         best_gl = gl
 
     # Fit model
     if not use_pyglm:
         best_gl = None
-        best_score = -1*np.inf
+        best_score = -1 * np.inf
         for group_reg, l1_reg in reg_vals:
 
-            # Fit logistic/gaussian group lasso 
+            # Fit logistic/gaussian group lasso
             if not use_pyglm:
-                if y_dist.lower() == 'gaussian':
+                if y_dist.lower() == "gaussian":
                     gl = GroupLasso(
-                        groups=doubled_groups, tol = 5e-2, 
-                        group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                        groups=doubled_groups,
+                        tol=5e-2,
+                        group_reg=group_reg,
+                        l1_reg=l1_reg,
+                        **kwargs,
                     )
-                elif y_dist.lower() == 'binomial':
+                elif y_dist.lower() == "binomial":
                     gl = LogisticGroupLasso(
-                        groups=doubled_groups, tol = 5e-2, 
-                        group_reg = group_reg, l1_reg = l1_reg, **kwargs
+                        groups=doubled_groups,
+                        tol=5e-2,
+                        group_reg=group_reg,
+                        l1_reg=l1_reg,
+                        **kwargs,
                     )
                 else:
-                    raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
+                    raise ValueError(
+                        f"y_dist must be one of gaussian, binomial, not {y_dist}"
+                    )
 
                 gl.fit(features, y.reshape(n, 1))
-                score = -1*calc_mse(gl, features, y.reshape(n, 1))
-
+                score = -1 * calc_mse(gl, features, y.reshape(n, 1))
 
             # Score, possibly select
             if score > best_score:
@@ -318,16 +328,16 @@ def fit_group_lasso(X, knockoffs, y, groups,
     return best_gl, rev_inds
 
 
-def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True, 
-                    **kwargs):
+def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm=True, **kwargs):
     """ Calculates mean group Lasso signed max. 
     :param X: n x p design matrix
     :param knockoffs: n x p knockoff matrix
     :param groups: p length numpy array of groups
     :param kwargs: kwargs for fit_group_lasso function 
     """
-    gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups,
-                                   use_pyglm = use_pyglm, **kwargs)
+    gl, rev_inds = fit_group_lasso(
+        X, knockoffs, y, groups=groups, use_pyglm=use_pyglm, **kwargs
+    )
 
     # See if we are using regular lasso...
     reg_lasso_flag = use_reg_lasso(groups)
@@ -338,7 +348,9 @@ def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True,
         Z = gl.beta_[rev_inds]
     elif reg_lasso_flag and logistic_flag:
         if gl.coef_.shape[0] != 1:
-            raise ValueError("Unexpected shape for logistic lasso coefficients (sklearn)")
+            raise ValueError(
+                "Unexpected shape for logistic lasso coefficients (sklearn)"
+            )
         Z = gl.coef_[0, rev_inds]
     else:
         Z = gl.coef_[rev_inds]
@@ -346,8 +358,7 @@ def group_lasso_LSM(X, knockoffs, y, groups, use_pyglm = True,
     return W
 
 
-def group_lasso_LCD(X, knockoffs, y, groups = None,
-                    use_pyglm = True, **kwargs):
+def group_lasso_LCD(X, knockoffs, y, groups=None, use_pyglm=True, **kwargs):
     """ Calculates group Lasso coefficient difference. 
     I.e. if features 2 and 3 are in the same group, 
     we set W(X, knockoffs, y) = 
@@ -358,8 +369,9 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
     :params **kwargs: kwargs to fit_group_lasso method 
 
     """
-    gl, rev_inds = fit_group_lasso(X, knockoffs, y, groups = groups, 
-                                   use_pyglm = use_pyglm, **kwargs)
+    gl, rev_inds = fit_group_lasso(
+        X, knockoffs, y, groups=groups, use_pyglm=use_pyglm, **kwargs
+    )
 
     # See if we are using regular lasso...
     reg_lasso_flag = use_reg_lasso(groups)
@@ -370,7 +382,9 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
         Z = gl.beta_[rev_inds]
     elif reg_lasso_flag and logistic_flag:
         if gl.coef_.shape[0] != 1:
-            raise ValueError("Unexpected shape for logistic lasso coefficients (sklearn)")
+            raise ValueError(
+                "Unexpected shape for logistic lasso coefficients (sklearn)"
+            )
         Z = gl.coef_[0, rev_inds]
     else:
         Z = gl.coef_[rev_inds]
@@ -380,7 +394,7 @@ def group_lasso_LCD(X, knockoffs, y, groups = None,
     return W
 
 
-def marg_corr_diff(X, knockoffs, y, groups = None, agg_stat = 'ACD'):
+def marg_corr_diff(X, knockoffs, y, groups=None, agg_stat="ACD"):
     """
     Calculates difference between correlations of X and knockoffs.
     This is computed as either the total difference (agg_stat = 'ACD') 
@@ -388,44 +402,48 @@ def marg_corr_diff(X, knockoffs, y, groups = None, agg_stat = 'ACD'):
     """
 
     # Calc correlations
-    features = np.concatenate([X, knockoffs], axis = 1)
-    correlations = np.corrcoef(
-        features, y.reshape(-1, 1), rowvar = False
-    )[-1][0:-1]
+    features = np.concatenate([X, knockoffs], axis=1)
+    correlations = np.corrcoef(features, y.reshape(-1, 1), rowvar=False)[-1][0:-1]
 
     # Combine with groups to create W-statistic
     agg_stat = str(agg_stat).lower()
-    if agg_stat == 'acd':
+    if agg_stat == "acd":
         W = calc_LCD(correlations, groups)
-    elif agg_stat == 'mcd':
+    elif agg_stat == "mcd":
         W = calc_LSM(correlations, groups)
     else:
-        raise ValueError(f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}")
+        raise ValueError(
+            f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}"
+        )
 
     return W
 
 
-def linear_coef_diff(X, knockoffs, y, groups = None, agg_stat = 'ACD'):
+def linear_coef_diff(X, knockoffs, y, groups=None, agg_stat="ACD"):
 
     # Run linear regression
-    features = np.concatenate([X, knockoffs], axis = 1)
-    lm = linear_model.LinearRegression(fit_intercept = False).fit(features, y)
+    features = np.concatenate([X, knockoffs], axis=1)
+    lm = linear_model.LinearRegression(fit_intercept=False).fit(features, y)
     Z = lm.coef_
 
     # Play with shape, take abs
     Z = np.abs(Z.reshape(-1))
     p = X.shape[1]
-    if Z.shape[0] != 2*p:
-        raise ValueError(f'Unexpected shape {Z.shape} for sklearn LinearRegression coefs (expected ({2*p},))')
+    if Z.shape[0] != 2 * p:
+        raise ValueError(
+            f"Unexpected shape {Z.shape} for sklearn LinearRegression coefs (expected ({2*p},))"
+        )
 
     # Combine with groups to create W-statistic
     agg_stat = str(agg_stat).lower()
-    if agg_stat == 'acd':
+    if agg_stat == "acd":
         W = calc_LCD(Z, groups)
-    elif agg_stat == 'mcd':
+    elif agg_stat == "mcd":
         W = calc_LSM(Z, groups)
     else:
-        raise ValueError(f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}")
+        raise ValueError(
+            f"aggregation statistic (agg_stat) must be one of 'acd', 'mcd' not {agg_stat}"
+        )
 
     return W
 
@@ -442,11 +460,12 @@ def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):
 
     # Possible values for Ts
     Ts = sorted(np.abs(W))
-    Ts = np.concatenate([np.array((0,)), Ts], axis = 0)
-    
+    Ts = np.concatenate([np.array((0,)), Ts], axis=0)
+
     # Calculate ratios
     def hat_fdp(t):
-        return ((W <= -t).sum() + offset)/max(1, np.sum(W >= t))
+        return ((W <= -t).sum() + offset) / max(1, np.sum(W >= t))
+
     hat_fdp = np.vectorize(hat_fdp)
     ratios = hat_fdp(Ts)
 
@@ -454,6 +473,5 @@ def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):
     acceptable = Ts[ratios <= fdr]
     if acceptable.shape[0] == 0:
         return np.inf
-    
+
     return acceptable[0]
-    

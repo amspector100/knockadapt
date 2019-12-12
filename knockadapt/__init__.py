@@ -1,5 +1,5 @@
-name = 'knockadapt'
-all = ['adaptive', 'graphs', 'knockoff_stats', 'knockoffs', 'utilities']
+name = "knockadapt"
+all = ["adaptive", "graphs", "knockoff_stats", "knockoffs", "utilities"]
 
 from . import adaptive
 from . import graphs
