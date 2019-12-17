@@ -248,7 +248,7 @@ def sample_data(
             corr_matrix = np.dot(corr_matrix.T, corr_matrix)
             corr_matrix -= np.diagflat(np.diag(corr_matrix))
             corr_matrix += np.eye(p)
-            Q = corr_matrix
+            Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(p=p, n=n, **kwargs)
         else:
