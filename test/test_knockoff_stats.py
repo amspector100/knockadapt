@@ -113,7 +113,7 @@ class TestGroupLasso(unittest.TestCase):
 
 		# Test again, fitting regular lasso
 		glasso2, rev_inds2 = knockoff_stats.fit_lasso(
-			X, fake_knockoffs, y, y_dist = 'gaussian'
+			X, fake_knockoffs, y, y_dist = 'gaussian', max_iter = 50
 		)
 		beta2 = glasso2.coef_[rev_inds2][0:p]
 		corr2 = np.corrcoef(beta2, beta)[0, 1]
@@ -162,7 +162,8 @@ class TestGroupLasso(unittest.TestCase):
 
 		# Test again, fitting regular lasso
 		glasso3, rev_inds3 = knockoff_stats.fit_lasso(
-			X = X, knockoffs = fake_knockoffs, y = y, y_dist = 'binomial'
+			X = X, knockoffs = fake_knockoffs, y = y, y_dist = 'binomial',
+			max_iter = 50
 		)
 		beta3 = glasso3.coef_[0, rev_inds3][0:p]
 		corr3 = np.corrcoef(beta3, beta)[0, 1]

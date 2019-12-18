@@ -498,7 +498,7 @@ def group_gaussian_knockoffs(
     if min_eig < tol:
         if verbose:
             warnings.warn(f'Minimum eigenvalue of V is {min_eig}, under tolerance {tol}')
-        #V += (tol - min_eig) * sp.sparse.eye(p)
+        V += (tol - min_eig) * sp.sparse.eye(p)
 
     # ...and sample MX knockoffs!
     knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=V, size=copies * n)
