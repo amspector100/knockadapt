@@ -497,29 +497,32 @@ def group_gaussian_knockoffs(
         print(f"Minimum eigenvalue of V is {min_eig}")
     if min_eig < tol:
         if verbose:
-            warnings.warn(f'Minimum eigenvalue of V is {min_eig}, under tolerance {tol}')
+            warnings.warn(
+                f"Minimum eigenvalue of V is {min_eig}, under tolerance {tol}"
+            )
         V += (tol - min_eig) * sp.sparse.eye(p)
 
     # ...and sample MX knockoffs!
     knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=V, size=copies * n)
-    
+
     # (Save this for testing later)
     first_row = knockoffs[0, 0:n].copy()
 
     # Some annoying reshaping...
-    knockoffs = knockoffs.flatten(order = 'C')
-    knockoffs = knockoffs.reshape(p, n, copies, order = 'F')
+    knockoffs = knockoffs.flatten(order="C")
+    knockoffs = knockoffs.reshape(p, n, copies, order="F")
     knockoffs = np.transpose(knockoffs, [1, 0, 2])
 
     # (Test we have reshaped correctly)
     new_first_row = knockoffs[0, 0:n, 0]
     np.testing.assert_array_almost_equal(
-        first_row, new_first_row, 
-        err_msg = 'Critical error - reshaping failed in knockoff generator'
+        first_row,
+        new_first_row,
+        err_msg="Critical error - reshaping failed in knockoff generator",
     )
 
     # Add mu
-    mu = np.expand_dims(mu, axis = 2)
+    mu = np.expand_dims(mu, axis=2)
     knockoffs = knockoffs + mu
 
     # For caching/debugging

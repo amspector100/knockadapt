@@ -89,7 +89,7 @@ def random_permutation_inds(length):
 
     # Save random state and change it
     st0 = np.random.get_state()
-    #np.random.seed()
+    # np.random.seed()
 
     # Create inds and rev inds
     inds = np.arange(0, length, 1)

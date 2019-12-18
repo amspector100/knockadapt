@@ -171,22 +171,21 @@ def calc_nongroup_LCD(X, knockoffs, y, groups=None, **kwargs):
 def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
 
     # Parse some kwargs/defaults
-    if 'max_iter' in kwargs:
-        max_iter = kwargs['max_iter']
-        kwargs.pop('max_iter')
+    if "max_iter" in kwargs:
+        max_iter = kwargs["max_iter"]
+        kwargs.pop("max_iter")
     else:
         max_iter = 500
-    if 'tol' in kwargs:
-        tol = kwargs['tol']
-        kwargs.pop('tol')
+    if "tol" in kwargs:
+        tol = kwargs["tol"]
+        kwargs.pop("tol")
     else:
         tol = 1e-3
-    if 'cv' in kwargs:
-        cv = kwargs['cv']
-        kwargs.pop('cv')
+    if "cv" in kwargs:
+        cv = kwargs["cv"]
+        kwargs.pop("cv")
     else:
         cv = 5
-
 
     # Bind data
     p = X.shape[1]
@@ -205,7 +204,7 @@ def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
             verbose=False,
             max_iter=max_iter,
             tol=tol,
-            **kwargs
+            **kwargs,
         ).fit(features, y)
     elif y_dist == "binomial":
         gl = linear_model.LogisticRegressionCV(
@@ -216,7 +215,7 @@ def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
             cv=cv,
             verbose=False,
             solver="liblinear",
-            **kwargs
+            **kwargs,
         ).fit(features, y)
     else:
         raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
@@ -242,6 +241,28 @@ def fit_group_lasso(
     """
 
     warnings.filterwarnings("ignore")
+
+    # Parse some kwargs/defaults
+    if "max_iter" in kwargs:
+        max_iter = kwargs["max_iter"]
+        kwargs.pop("max_iter")
+    else:
+        max_iter = 100
+    if "tol" in kwargs:
+        tol = kwargs["tol"]
+        kwargs.pop("tol")
+    else:
+        tol = 1e-2
+    if "cv" in kwargs:
+        cv = kwargs["cv"]
+        kwargs.pop("cv")
+    else:
+        cv = 5
+    if "learning_rate" in kwargs:
+        learning_rate = kwargs["learning_rate"]
+        kwargs.pop("learning_rate")
+    else:
+        learning_rate = 2
 
     # Bind data
     n = X.shape[0]
@@ -290,13 +311,13 @@ def fit_group_lasso(
 
         gl = GLMCV(
             distr=y_dist,
-            tol=1e-2,
+            tol=tol,
             group=doubled_groups,
             alpha=1.0,
-            learning_rate=3,
-            max_iter=100,
+            learning_rate=learning_rate,
+            max_iter=max_iter,
             reg_lambda=l1_regs,
-            cv=5,
+            cv=cv,
             solver="cdfast",
         )
         gl.fit(features, y)
@@ -316,7 +337,7 @@ def fit_group_lasso(
                 if y_dist.lower() == "gaussian":
                     gl = GroupLasso(
                         groups=doubled_groups,
-                        tol=5e-2,
+                        tol=tol,
                         group_reg=group_reg,
                         l1_reg=l1_reg,
                         **kwargs,
@@ -324,7 +345,7 @@ def fit_group_lasso(
                 elif y_dist.lower() == "binomial":
                     gl = LogisticGroupLasso(
                         groups=doubled_groups,
-                        tol=5e-2,
+                        tol=tol,
                         group_reg=group_reg,
                         l1_reg=l1_reg,
                         **kwargs,

@@ -103,7 +103,8 @@ class TestGroupLasso(unittest.TestCase):
 		# Get best model for pyglmnet
 		glasso1, rev_inds1 = knockoff_stats.fit_group_lasso(
 			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = True, y_dist = 'gaussian'
+			use_pyglm = True, y_dist = 'gaussian',
+			max_iter = 20, tol = 5e-2, learning_rate = 3
 		)
 		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
 		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
@@ -141,7 +142,8 @@ class TestGroupLasso(unittest.TestCase):
 		# Get best model for pyglmnet
 		glasso1, rev_inds1 = knockoff_stats.fit_group_lasso(
 			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = True, y_dist = 'binomial'
+			use_pyglm = True, y_dist = 'binomial',
+			max_iter = 20, tol = 5e-2, learning_rate = 3
 		)
 		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
 		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
@@ -152,7 +154,8 @@ class TestGroupLasso(unittest.TestCase):
 		# Get best model for group-lasso
 		glasso2, rev_inds2 = knockoff_stats.fit_group_lasso(
 			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = False, y_dist = 'binomial'
+			use_pyglm = False, y_dist = 'binomial',
+			max_iter = 20, tol = 5e-2, learning_rate = 3
 		)
 		beta_gl = glasso2.coef_[rev_inds2][0:p].reshape(p)
 		corr2 = np.corrcoef(beta_gl, beta)[0, 1]
