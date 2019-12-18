@@ -496,7 +496,8 @@ def group_gaussian_knockoffs(
     if verbose:
         print(f"Minimum eigenvalue of V is {min_eig}")
     if min_eig < tol:
-        warnings.warn(f'Minimum eigenvalue of V is {min_eig}, under tolerance {tol}')
+        if verbose:
+            warnings.warn(f'Minimum eigenvalue of V is {min_eig}, under tolerance {tol}')
         #V += (tol - min_eig) * sp.sparse.eye(p)
 
     # ...and sample MX knockoffs!
