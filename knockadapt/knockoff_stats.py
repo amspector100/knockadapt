@@ -170,6 +170,24 @@ def calc_nongroup_LCD(X, knockoffs, y, groups=None, **kwargs):
 
 def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
 
+    # Parse some kwargs/defaults
+    if 'max_iter' in kwargs:
+        max_iter = kwargs['max_iter']
+        kwargs.pop('max_iter')
+    else:
+        max_iter = 500
+    if 'tol' in kwargs:
+        tol = kwargs['tol']
+        kwargs.pop('tol')
+    else:
+        tol = 1e-3
+    if 'cv' in kwargs:
+        cv = kwargs['cv']
+        kwargs.pop('cv')
+    else:
+        cv = 5
+
+
     # Bind data
     p = X.shape[1]
     features = np.concatenate([X, knockoffs], axis=1)
@@ -183,21 +201,22 @@ def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
     if y_dist == "gaussian":
         gl = linear_model.LassoCV(
             alphas=DEFAULT_REG_VALS,
-            normalize=True,
-            cv=2,
+            cv=cv,
             verbose=False,
-            max_iter=50,
-            tol=1e-3,
+            max_iter=max_iter,
+            tol=tol,
+            **kwargs
         ).fit(features, y)
     elif y_dist == "binomial":
         gl = linear_model.LogisticRegressionCV(
             Cs=1 / DEFAULT_REG_VALS,
             penalty="l1",
-            max_iter=50,
-            cv=2,
+            max_iter=max_iter,
+            tol=tol,
+            cv=cv,
             verbose=False,
             solver="liblinear",
-            tol=1e-3,
+            **kwargs
         ).fit(features, y)
     else:
         raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
@@ -271,13 +290,13 @@ def fit_group_lasso(
 
         gl = GLMCV(
             distr=y_dist,
-            tol=5e-2,
+            tol=1e-2,
             group=doubled_groups,
             alpha=1.0,
             learning_rate=3,
-            max_iter=20,
+            max_iter=100,
             reg_lambda=l1_regs,
-            cv=2,
+            cv=5,
             solver="cdfast",
         )
         gl.fit(features, y)

@@ -5,7 +5,7 @@ from .context import knockadapt
 from knockadapt import utilities, graphs, knockoffs
 
 class TestSDP(unittest.TestCase):
-	""" Tests fitting of group lasso """
+	""" Tests an easy case of SDP and ASDP """
 
 	def test_easy_sdp(self):
 
@@ -59,6 +59,61 @@ class TestSDP(unittest.TestCase):
 		)
 
 
+class testKnockoffs(unittest.TestCase):
+	""" Tests whether knockoffs have correct distribution empirically"""
+
+	def test_ungrouped_knockoffs(self):
+
+
+		# Test knockoff construction
+		n = 100000
+		copies = 3
+		p = 10
+		for rho in [0.1, 0.5, 0.9]:
+
+			for gamma in [0, 0.5, 1]:
+
+				X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
+					n = n, p = p, gamma = gamma, rho = rho
+				)
+				# S matrix
+				trivial_groups = np.arange(0, p, 1) + 1
+				all_knockoffs, S = knockoffs.group_gaussian_knockoffs(
+					X = X, Sigma = corr_matrix, groups = trivial_groups, 
+					copies = copies, return_S = True,
+					sdp_verbose = False, verbose = False
+				)
+
+				# Calculate empirical covariance matrix
+				knockoff_copy = all_knockoffs[:, :, 0]
+				features = np.concatenate([X, knockoff_copy], axis = 1)
+				G = np.corrcoef(features, rowvar = False)
+				
+				# Now we need to show G has the correct structure - three tests
+				np.testing.assert_array_almost_equal(
+					G[:p, :p], corr_matrix, decimal = 2,
+					err_msg = f'''Empirical corr matrix btwn X and knockoffs
+					has incorrect values (specifically, cov(X, X) section)
+					Daibarber graph, rho = {rho}, gamma = {gamma}
+					'''
+				)
+
+				# Cov(X, knockoffs)
+				np.testing.assert_array_almost_equal(
+					corr_matrix - G[p:, :p], S, decimal = 2,
+					err_msg = f'''Empirical corr matrix btwn X and knockoffs
+					has incorrect values (specifically, cov(X, knockoffs) section)
+					Daibarber graph, rho = {rho}, gamma = {gamma}
+					'''
+				)
+				# Cov(knockoffs, knockoffs)
+				np.testing.assert_array_almost_equal(
+					G[p:, p:], corr_matrix, decimal = 2,
+					err_msg = f'''Empirical corr matrix btwn X and knockoffs
+					has incorrect values (specifically, cov(knockoffs, knockoffs) section)
+					Daibarber graph, rho = {rho}, gamma = {gamma}
+					'''
+				)
 
 
 if __name__ == '__main__':

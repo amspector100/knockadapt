@@ -481,28 +481,47 @@ def group_gaussian_knockoffs(
         if min_eig1 < -1e-3:
             warnings.warn(
                 f"""Minimum eigenvalue of 2Sigma - S is {min_eig1},
-                              meaning FDR control violations are very likely"""
+                  meaning FDR control violations are very likely"""
             )
 
     # Calculate MX knockoff moments...
-    mu = X - np.dot(np.dot(X, invSigma), S)  # This is a bottleneck??
-    V = 2 * S - np.dot(np.dot(S, invSigma), S)
+    invSigma_S = np.dot(invSigma, S)
+    mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
+    # TODO: if we replace "X" inside the dot with "X - true mu"
+    # then we can add a population mu parameter
+    V = 2 * S - np.dot(S, invSigma_S)
 
     # Account for numerical errors
     min_eig = np.linalg.eigh(V)[0].min()
     if verbose:
         print(f"Minimum eigenvalue of V is {min_eig}")
     if min_eig < tol:
-        V += (tol - min_eig) * sp.sparse.eye(p)
+        warnings.warn(f'Minimum eigenvalue of V is {min_eig}, under tolerance {tol}')
+        #V += (tol - min_eig) * sp.sparse.eye(p)
 
     # ...and sample MX knockoffs!
     knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=V, size=copies * n)
-    knockoffs = knockoffs.reshape(n, p, copies)
-    # This is to prevent weird errors where reshape is ignored -
-    # come back and understand this later perhaps
-    mu = np.array([mu]).reshape(n, p, 1)
+    
+    # (Save this for testing later)
+    first_row = knockoffs[0, 0:n].copy()
+
+    # Some annoying reshaping...
+    knockoffs = knockoffs.flatten(order = 'C')
+    knockoffs = knockoffs.reshape(p, n, copies, order = 'F')
+    knockoffs = np.transpose(knockoffs, [1, 0, 2])
+
+    # (Test we have reshaped correctly)
+    new_first_row = knockoffs[0, 0:n, 0]
+    np.testing.assert_array_almost_equal(
+        first_row, new_first_row, 
+        err_msg = 'Critical error - reshaping failed in knockoff generator'
+    )
+
+    # Add mu
+    mu = np.expand_dims(mu, axis = 2)
     knockoffs = knockoffs + mu
-    # For debugging...
+
+    # For caching/debugging
     if return_S:
         return knockoffs, S
 

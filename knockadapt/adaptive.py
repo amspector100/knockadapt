@@ -103,7 +103,7 @@ class GroupKnockoffEval:
 
             # Generate second half knockoffs
             test_knockoffs = group_gaussian_knockoffs(
-                testX, self.sigma, groups, copies=copies, tol=1e-2, **knockoff_kwargs
+                testX, self.sigma, groups, copies=copies, tol=1e-3, **knockoff_kwargs
             )
 
             # Recycle first half and combine
@@ -113,7 +113,7 @@ class GroupKnockoffEval:
         # Else, vanilla Knockoff generation
         else:
             all_knockoffs = group_gaussian_knockoffs(
-                X, self.sigma, groups, copies=copies, tol=1e-2, **knockoff_kwargs
+                X, self.sigma, groups, copies=copies, tol=1e-3, **knockoff_kwargs
             )
 
             # # Delete all this plz

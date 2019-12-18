@@ -7,19 +7,20 @@ This package is intended to serve two purposes:
 This is currently under heavy development (it's in the early stages): docs/tests to come.
 
 ## To do
-- The adaptive functions should probably be a class
-- The knockoff functions should probs be a class too
-- Probably the knockoff_stats page could be better abstract-ified
 
-Graph module:
-1. Should have a class which samples data given covariance matrix, beta
-(Takes in a family input, e.g. family = 'gaussian', 'binomial')
-2. Should have a constructor function which constructs beta, 
+### Abstratification 
+
+- Probably the knockoff_stats page could be better abstract-ified
 
 Thoughts:
 1. Adaptive module should have a class which has
 sample_split, double_dipping procedure, so they're 
-more testable
+
+### Naming conventions
+
+- Basically follow the knockoff package in R (which is beautiful)
+- Also can probably add useful pieces of functionality based on the knockoff
+filter package (e.g., add a mu option for group gaussian knockoffs)
 
 ### Adaptive to-do
 
