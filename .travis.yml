@@ -4,7 +4,7 @@ python:
 before_install:
   - python --version
   - pip install -U pip
-  - pip install -U pytest
+  - pip install -U pytest-cov pytest
   - pip install codecov
   - sudo apt-get -y install libopenblas-dev
   - sudo apt-get -y install libatlas-base-dev 
@@ -14,6 +14,7 @@ addons:
 install:
   - pip install -r requirements.txt # Requirements.txt
   - pip install ".[test]" . # install package + test dependencies
-script: pytest # run tests
+script: 
+  - coverage run -m pytest # run tests
 after_success:
   - codecov # submit coverage
