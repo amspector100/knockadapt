@@ -3,6 +3,7 @@ import unittest
 from .context import knockadapt
 
 from knockadapt import utilities, graphs, knockoff_stats
+from knockadapt.knockoff_stats import calc_data_dependent_threshhold
 
 class TestGroupLasso(unittest.TestCase):
 	""" Tests fitting of group lasso """
@@ -175,7 +176,35 @@ class TestGroupLasso(unittest.TestCase):
 		)
 
 
+class TestDataThreshhold(unittest.TestCase):
+	""" Tests data-dependent threshhold """
 
+	def test_unbatched(self):
+
+		W1 = np.array([1, -2, 3, 6, 3, -2, 1, 2, 5, 3, 0.5, 1, 1, 1, 1, 1, 1, 1])
+		T1 = calc_data_dependent_threshhold(W1, fdr = 0.2)
+		self.assertTrue(T1==0, msg=f'Incorrect data dependent threshhold: T1 should be 0, not {T1}')
+
+		W2 = np.array([-1, -2, -3])
+		T2 = calc_data_dependent_threshhold(W2, fdr = 0.3)
+		self.assertTrue(T2==np.inf, msg=f'Incorrect data dependent threshhold: T2 should be inf, not {T2}')
+
+		W3 = np.array([-5, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+		T3 = calc_data_dependent_threshhold(W3, fdr = 0.2)
+		self.assertTrue(T3 == 5, msg=f'Incorrect data dependent threshhold: T3 should be 5, not {T3}')
+
+	def test_batched(self):
+
+		W1 = np.array([1]*10)
+		W2 = np.array([-2, -1, 1, 2, 3, 4, 5, 6, 7, 8])
+		W3 = np.array([-1]*10)
+		combined = np.stack([W1, W2, W3]).transpose()
+		Ts = calc_data_dependent_threshhold(combined, fdr = 0.2)
+		expected = np.array([0, 2, np.inf])
+		np.testing.assert_array_almost_equal(
+			Ts, expected, 
+			err_msg = f"Incorrect data dependent threshhold (batched): Ts should be {expected}, not {Ts}"
+		)
 
 if __name__ == '__main__':
 	unittest.main()

@@ -101,14 +101,14 @@ class TestGroupKnockoffEval(unittest.TestCase):
 
 		# These are fake knockoffs but whatever
 		knockoffs = np.random.randn(self.n, self.p)
-		fdp, power, epower = self.gkval.eval_knockoff_instance(
+		fdp, power, epower, W = self.gkval.eval_knockoff_instance(
 			self.X, knockoffs, self.y, self.groups, 
 		)
 
 
 	def test_eval_grouping(self):
 
-		fdp, power, epower = self.gkval.eval_grouping(
+		fdp, power, epower, W = self.gkval.eval_grouping(
 			self.X, self.y, self.groups, copies = 2
 		)
 
@@ -153,7 +153,7 @@ class TestGroupKnockoffEval(unittest.TestCase):
 	def test_eval_many_cutoffs(self):
 
 		# Try in easy case
-		cutoffs, fdps, powers, epowers = self.gkval.eval_many_cutoffs(
+		cutoffs, fdps, powers, epowers, Ws = self.gkval.eval_many_cutoffs(
 			X = self.X, y = self.y, link = self.link, reduction = 5,
 			copies = 1
 		)

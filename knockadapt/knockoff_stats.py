@@ -498,26 +498,46 @@ def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):
     """
     This is not efficient but it's definitely not a bottleneck.
     Follows https://github.com/msesia/knockoff-filter/blob/master/R/knockoff/R/knockoff_filter.R
-    :param W: p-length numpy array of feature statistics
+    :param W: p-length numpy array of feature statistics OR p x batch-length numpy array
+    of feature stats. If batched, the last dimension must be the batch dimension.
     :param fdr: desired FDR level (referred to as q in the literature)
     :param offset: if offset = 0, use knockoffs (which control modified FDR).
     Else, if offset = 1, use knockoff+ (controls exact FDR).
     """
 
-    # Possible values for Ts
-    Ts = sorted(np.abs(W))
-    Ts = np.concatenate([np.array((0,)), Ts], axis=0)
+    # Add dummy batch axis if necessary
+    if len(W.shape) == 1:
+        W = W.reshape(-1, 1)
+    p = W.shape[0]
+    batch = W.shape[1]
+
+    # Sort W by absolute values
+    ind = np.argsort(-1*np.abs(W), axis=0)
+    sorted_W = np.take_along_axis(W, ind, axis=0)
 
     # Calculate ratios
-    def hat_fdp(t):
-        return ((W <= -t).sum() + offset) / max(1, np.sum(W >= t))
+    negatives = np.cumsum(sorted_W <= 0, axis=0)
+    positives = np.cumsum(sorted_W > 0, axis=0)
+    positives[positives==0] = 1 # Don't divide by 0
+    ratios = (negatives + offset)/positives
 
-    hat_fdp = np.vectorize(hat_fdp)
-    ratios = hat_fdp(Ts)
+    # Add zero as an option to prevent index errors 
+    # (zero means select everything)
+    sorted_W = np.concatenate(
+        [sorted_W, np.zeros((1, batch))], 
+        axis=0
+    )
 
-    # Find maximum
-    acceptable = Ts[ratios <= fdr]
-    if acceptable.shape[0] == 0:
-        return np.inf
+    # Find maximum indexes satisfying FDR control
+    # Adding np.arange is just a batching trick
+    helper = (ratios <= fdr) + np.arange(0, p, 1).reshape(-1,1)/p
+    sorted_W[1:][helper < 1] = np.inf # Never select values where the ratio > fdr
+    T_inds = np.argmax(helper, axis=0) + 1
+    more_inds = np.indices(T_inds.shape)
 
-    return acceptable[0]
+    # Find Ts
+    acceptable = np.abs(sorted_W)[T_inds, more_inds][0]
+    if batch == 1:
+        acceptable = acceptable[0]
+
+    return acceptable

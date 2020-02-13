@@ -56,7 +56,7 @@ def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol
     return Q
 
 
-def daibarber2016_graph(n=3000, p=1000, m=None, k=20, rho=0.5, gamma=0, **kwargs):
+def daibarber2016_graph(n=3000, p=1000, m=None, k=None, rho=0.5, gamma=0, **kwargs):
     """ Same data-generating process as Dai and Barber 2016
     (see https://arxiv.org/abs/1602.03589). **kwargs are passed
     to sample_glm_response function.

@@ -179,7 +179,7 @@ class GroupKnockoffEval:
             power = None
             FDP = None
 
-        return FDP, power, hat_power
+        return FDP, power, hat_power, W
 
     def eval_grouping(self, X, y, groups, recycle_up_to=None, copies=20, **kwargs):
         """ 
@@ -212,13 +212,14 @@ class GroupKnockoffEval:
         fdps = []
         powers = []
         hat_powers = []
+        Ws = []
 
         # Loop through each knockoff - TODO: paralellize properly
         for j in range(copies):
 
             # Calculate one FDP, power, hatpower for each copy
             knockoffs = all_knockoffs[:, :, j]
-            fdp, power, hat_power = self.eval_knockoff_instance(
+            fdp, power, hat_power, W = self.eval_knockoff_instance(
                 X=X,
                 y=y,
                 groups=groups,
@@ -231,15 +232,17 @@ class GroupKnockoffEval:
             fdps.append(fdp)
             powers.append(power)
             hat_powers.append(hat_power)
+            Ws.append(W)
 
         # Return
         hat_powers = np.array(hat_powers)
+        Ws = np.array(Ws)
         if self.non_nulls is None:
-            return hat_powers
+            return hat_powers, Ws
         else:
             fdps = np.array(fdps)
             powers = np.array(powers)
-            return fdps, powers, hat_powers
+            return fdps, powers, hat_powers, Ws
 
     def eval_many_cutoffs(
         self,
@@ -287,6 +290,7 @@ class GroupKnockoffEval:
         cutoff_hat_powers = []
         cutoff_fdps = []
         cutoff_powers = []
+        cutoff_Ws = []
 
         # This is inefficient but it's not a bottleneck
         # - is at worst O(p^2)
@@ -303,19 +307,58 @@ class GroupKnockoffEval:
 
             # Return differently based on whether non_nulls supplied
             if self.non_nulls is None:
-                hat_powers = outputs
+                hat_powers, Ws = outputs
                 cutoff_hat_powers.append(np.array(hat_powers).mean())
                 cutoff_fdps.append(None)
                 cutoff_powers.append(None)
+                cutoff_Ws.append(Ws)
             else:
-                fdps, powers, hat_powers = outputs
+                fdps, powers, hat_powers, Ws = outputs
                 cutoff_hat_powers.append(np.array(hat_powers).mean())
                 cutoff_fdps.append(np.array(fdps).mean())
                 cutoff_powers.append(np.array(powers).mean())
+                cutoff_Ws.append(Ws)
 
         # Return arrays
-        return cutoffs, cutoff_fdps, cutoff_powers, cutoff_hat_powers
+        return cutoffs, cutoff_fdps, cutoff_powers, cutoff_hat_powers, cutoff_Ws
 
     def sample_split(self, X, y):
 
         pass
+
+    def share_signs(
+        self, 
+        X, 
+        y,
+        link,
+        cutoffs=None,
+        reduction=10,
+        max_group_size=100,
+        S_matrix=None,
+        **kwargs
+    ):
+        """
+        :param X: n x p design matrix
+        :param y: n-length response array
+        :param groups: p-length array of the groups of each feature
+        :param link: Link object returned by scipy hierarchical cluster, 
+        or the create_correlation_tree function.
+        :param cutoffs: List of cutoffs to consider (makes link and reduction
+        parameters redundant). Defaults to None
+        :param reduction: How many cutoffs to try. E.g. if reduction = 10,
+        try 10 different grouping. These will be evenly spaced cutoffs 
+        on the link.
+        :param S_matrices: The S matrix
+        :param kwargs: kwargs to eval_grouping, may contain kwargs to 
+        gaussian group knockoffs constructor.
+        """
+
+        # Create cutoffs and groups - for effieicny,
+        # only currently going to look at every 10th cutoff
+        if cutoffs is None:
+            cutoffs = create_cutoffs(link, reduction, max_group_size)
+
+        # Possibly create S_matrices dictionary
+        # if not already supplied
+        if S_matrices is None:
+            S_matrices = {cutoff: None for cutoff in cutoffs}

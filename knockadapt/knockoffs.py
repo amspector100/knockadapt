@@ -69,7 +69,13 @@ def equicorrelated_block_matrix(Sigma, groups, tol=1e-5):
 
 
 def solve_group_SDP(
-    Sigma, groups, sdp_verbose=False, objective="pnorm", norm_type=2, num_iter=10
+    Sigma, 
+    groups, 
+    sdp_verbose=False, 
+    objective="pnorm", 
+    norm_type=2, 
+    num_iter=10,
+    tol=1e-2,
 ):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
@@ -96,6 +102,7 @@ def solve_group_SDP(
     Defaults to 2.
     :param num_iter: We do a line search and scale S at the end to make 
     absolutely sure there are no numerical errors. Defaults to 10.
+    :param tol: Minimum eigenvalue of S.
     """
 
     # Check to make sure the objective is valid
@@ -228,7 +235,7 @@ def solve_group_SDP(
     for j in range(num_iter):
         gamma = (lower_bound + upper_bound) / 2
         mineig = np.linalg.eigh(2 * Sigma - gamma * S)[0].min()
-        if mineig < 0:
+        if mineig < tol:
             upper_bound = gamma
         else:
             lower_bound = gamma
@@ -250,6 +257,7 @@ def solve_group_ASDP(
     num_iter=10,
     max_block=100,
     numprocesses=1,
+    tol=1e-2,
     **kwargs,
 ):
     """
@@ -370,7 +378,7 @@ def solve_group_ASDP(
     for j in range(num_iter):
         gamma = (lower_bound + upper_bound) / 2
         mineig = np.linalg.eigh(2 * Sigma - gamma * S)[0].min()
-        if mineig < 0:
+        if mineig < tol:
             upper_bound = gamma
         else:
             lower_bound = gamma

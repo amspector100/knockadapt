@@ -6,6 +6,10 @@ This package is intended to serve two purposes:
 
 This is currently under heavy development (it's in the early stages): docs/tests to come.
 
+## To run tests
+
+Run ``python3 -m pytest``
+
 ## To do
 
 ### Abstratification 
