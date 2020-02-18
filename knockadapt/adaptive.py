@@ -138,14 +138,10 @@ class GroupKnockoffEval:
         if group_selections is None and self.non_nulls is not None:
             group_selections = utilities.fetch_group_nonnulls(self.non_nulls, groups)
 
-            # Calculate number of non-nulls (if we're under the global null,
-            # or aren't the oracle, we let the denominator be p)
-            num_non_nulls = np.sum(group_selections)
-            if num_non_nulls == 0:
-                num_non_nulls = self.p
-        elif group_selections is not None:
-            num_non_nulls = np.sum(group_selections)
-        else:
+        # Calculate number of non-nulls (if we're under the global null,
+        # or aren't the oracle, we let the denominator be p)
+        num_non_nulls = np.sum(group_selections)
+        if num_non_nulls == 0:
             num_non_nulls = self.p
 
         # W statistics

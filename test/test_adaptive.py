@@ -169,7 +169,46 @@ class TestGroupKnockoffEval(unittest.TestCase):
 				msg = 'Empirical power is somehow smaller than actual power'
 			)
 
+	def test_power_eval(self):
+		""" Test power under two settings """
 
+		# This "feature statistic" is a hacky way to pass
+		# the gkval instance W values directly
+		def identity_statistic(X, **kwargs):
+			return X
+
+		# Create gkval instance for global null
+		gn_beta = np.array([0, 0, 0, 0, 0, 0, 0])
+		gn_W = np.array([1, 1, 1, 1, 1, 1, 1])
+		p3 = gn_W.shape[0]
+		gn_groups = np.arange(0, p3, 1) + 1
+		self.gkval3 = GroupKnockoffEval(
+			self.corr_matrix2, q=0.4, non_nulls=gn_beta, 
+			feature_stat_fn = identity_statistic,
+		)
+		out = self.gkval3.eval_knockoff_instance(
+			X=gn_W, knockoffs=None, y=None, groups=gn_groups
+		)
+		FDP3, power3, hat_power3, W3 = out
+		self.assertEqual(
+			power3, 0, 
+			msg = 'GroupKnockoffEval does not properly calculate power under the global null'
+		)
+
+
+		# Create gkval instance for some non-nulls
+		nn_beta = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+		grouped_W = np.array([1, 1, 1, 1, 1, 1])
+		groups = np.array([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6])
+		self.gkval3.non_nulls = nn_beta
+		out = self.gkval3.eval_knockoff_instance(
+			X=grouped_W, knockoffs=None, y=None, groups=groups,
+		)
+		FDP3, power3, hat_power3, W3 = out
+		self.assertEqual(
+			power3, 3.5/6, 
+			msg = 'GroupKnockoffEval does not properly calculate power including group sizes'
+		)
 
 
 if __name__ == '__main__':
