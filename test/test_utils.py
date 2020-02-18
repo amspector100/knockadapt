@@ -22,6 +22,22 @@ class TestUtils(unittest.TestCase):
 			err_msg = "Incorrectly calculates group sizes"
 		)
 
+		# Make sure this raises the correct error for groups
+		# which include zero
+		groups = np.arange(0, 10, 1)
+		self.assertRaisesRegex(
+			ValueError, "groups cannot contain 0",
+			utilities.calc_group_sizes, groups,
+		)
+
+		# Make sure this raises the correct error for groups
+		# which include zero
+		groups = [1.5, 1.5, 1.8, 20.4]
+		self.assertRaisesRegex(
+			TypeError, "groups cannot contain non-integer values",
+			utilities.calc_group_sizes, groups,
+		)
+
 		# Preprocess
 		groups = np.array([0.3, 0.24, 0.355, 0.423, 0.423, 0.3])
 		processed_groups = utilities.preprocess_groups(groups)

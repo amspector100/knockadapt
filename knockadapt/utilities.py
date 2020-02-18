@@ -68,12 +68,19 @@ def calc_group_sizes(groups):
     where m <= p
     returns: m-length array of group sizes 
     """
+    if not isinstance(groups, np.ndarray):
+        groups = np.array(groups)
     if np.all(groups.astype("int32") != groups):
         raise TypeError(
-            "groups does not take integer values: apply preprocess_groups first"
+            "groups cannot contain non-integer values: apply preprocess_groups first"
         )
     else:
         groups = groups.astype("int32")
+
+    if np.min(groups) == 0:
+        raise ValueError(
+            "groups cannot contain 0: add one or apply preprocess_groups first"
+        )
 
     m = groups.max()
     group_sizes = np.zeros(m)
