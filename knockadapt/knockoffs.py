@@ -12,7 +12,7 @@ from multiprocessing import Pool
 
 
 # Options for SDP solver
-OBJECTIVE_OPTIONS = ["abs", "ccorr", "pnorm", "norm"]
+OBJECTIVE_OPTIONS = ["abs", "pnorm", "norm"]
 
 
 def equicorrelated_block_matrix(Sigma, groups, tol=1e-5):
@@ -88,7 +88,6 @@ def solve_group_SDP(
     :param objective: How to optimize the S matrix. 
     There are several options:
         - 'abs': minimize sum(abs(Sigma - S))
-        - 'ccorr': minimize sum of cannonical correlations
         between groups and the group knockoffs.
         - 'pnorm': minimize Lp-th matrix norm.
         Equivalent to abs when p = 1.
@@ -102,7 +101,7 @@ def solve_group_SDP(
     Defaults to 2.
     :param num_iter: We do a line search and scale S at the end to make 
     absolutely sure there are no numerical errors. Defaults to 10.
-    :param tol: Minimum eigenvalue of S.
+    :param tol: Minimum eigenvalue of S must be greater than this.
     """
 
     # Check to make sure the objective is valid
@@ -141,7 +140,6 @@ def solve_group_SDP(
     variables = []
     constraints = []
     S_rows = []
-    ccorr_blocks = []  # Stays empty unless objective == 'ccorr'
     shift = 0
     for j in range(m):
 
@@ -173,11 +171,6 @@ def solve_group_SDP(
             )
         S_rows.append(rowj)
 
-        # Track blocks if we need to do ccorr analysis
-        if objective == "ccorr":
-            sigma_block = sortedSigma[shift : shift + gj][:, shift : shift + gj]
-            ccorr_blocks.append([Sj, sigma_block])
-
         # Incremenet shift
         shift += gj
 
@@ -185,7 +178,7 @@ def solve_group_SDP(
     S = cp.vstack(S_rows)
     sortedSigma = cp.Constant(sortedSigma)
     G = cp.bmat([[sortedSigma, sortedSigma - S], [sortedSigma - S, sortedSigma]])
-    constraints += [G >> 0]
+    constraints += [cp.lambda_min(G) >= tol]
 
     # Construct optimization objective
     if objective == "abs":
@@ -194,29 +187,6 @@ def solve_group_SDP(
         objective = cp.Minimize(cp.pnorm(sortedSigma - S, norm_type))
     elif objective == "norm":
         objective = cp.Minimize(cp.norm(sortedSigma - S, norm_type))
-    elif objective == "ccorr":
-
-        # Compute canonical correlations (ccorr) for each block
-        ccorrs = []
-        for Sj, sigma_block in ccorr_blocks:
-
-            if sigma_block.shape == (1, 1):
-                ccorrs.append(cp.abs(1 - Sj))
-            else:
-                # Invert and turn into params cp can understand
-                inv_sigma_block = chol2inv(sigma_block)
-                gj = inv_sigma_block.shape[0]
-                inv_sigma_block = cp.Constant(inv_sigma_block)
-
-                # Calculate ccorr matrix and ccorr
-                inv_sigma_Sj = cp.matmul(inv_sigma_block, Sj)
-                ccorr_matrix = cp.matmul(inv_sigma_Sj.T, inv_sigma_Sj)
-                ccorr_matrix -= 2 * inv_sigma_Sj + cp.Constant(np.eye(gj))
-                ccorr = cp.sqrt(cp.lambda_max(ccorr_matrix))
-                ccorrs.append(ccorr)
-
-        # Sum over canonical correlations
-        objective = cp.Minimize(cp.sum(ccorrs))
     # Note we already checked objective is one of these values earlier
 
     # Conscturt, solve the problem
@@ -226,23 +196,10 @@ def solve_group_SDP(
         print("Finished solving SDP!")
 
     # Unsort and get numpy
-    S = S.value[inv_inds][:, inv_inds]
-
-    # To prevent numerical errors, we do a line search and scale S -
-    # however, gamma should be very close to 1
-    lower_bound = 0
-    upper_bound = 1
-    for j in range(num_iter):
-        gamma = (lower_bound + upper_bound) / 2
-        mineig = np.linalg.eigh(2 * Sigma - gamma * S)[0].min()
-        if mineig < tol:
-            upper_bound = gamma
-        else:
-            lower_bound = gamma
-
-    # Scale S properly, be a bit conservative
-    gamma = lower_bound
-    S = gamma * S
+    S = S.value
+    if S is None:
+        raise ValueError('SDP formulation is infeasible. Try decreasing the tol parameter.')
+    S = S[inv_inds][:, inv_inds]
 
     # Return unsorted S value
     return S
@@ -423,7 +380,6 @@ def group_gaussian_knockoffs(
     :param objective: How to optimize the S matrix if using SDP.
     There are several options:
         - 'abs': minimize sum(abs(Sigma - S))
-        - 'ccorr': minimize sum of cannonical correlation
     :param tol: Minimum eigenvalue allowed for cov matrix of knockoffs
     :param bool verbose: If true, will print stuff as it goes
     :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.

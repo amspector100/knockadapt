@@ -1,4 +1,5 @@
 import numpy as np
+from statsmodels.stats.moment_helpers import cov2corr
 import unittest
 from .context import knockadapt
 
@@ -56,6 +57,53 @@ class TestSDP(unittest.TestCase):
 		np.testing.assert_almost_equal(
 			S_harder_ASDP, expected_out, decimal = 2,
 			err_msg = 'solve_group_ASDP does not produce optimal S matrix (daibarber graphs)'
+		)
+
+	def test_sdp_tolerance(self):
+
+		# Get graph
+		np.random.seed(110)
+		Q = graphs.ErdosRenyi(p=50, tol=1e-1)
+		V = cov2corr(utilities.chol2inv(Q))
+		groups = np.concatenate([np.zeros(10) + j for j in range(5)]) + 1
+		groups = groups.astype('int32')
+
+		# Solve SDP
+		for tol in [1e-3, 0.01, 0.02]:
+			S = knockoffs.solve_group_SDP(
+				Sigma=V, 
+			    groups=groups, 
+			    sdp_verbose=False, 
+			    objective="pnorm",  
+			    num_iter=10,
+			    tol=tol
+			)
+			G = np.hstack([np.vstack([V, V-S]), np.vstack([V-S, V])])
+			mineig = np.linalg.eig(G)[0].min()
+			self.assertTrue(
+				tol - mineig < 1e3,
+				f'sdp solver fails to control minimum eigenvalues: tol is {tol}, val is {mineig}'
+			)
+
+	def test_sdp_errors(self):
+		""" Tests that SDP raises informative errors when problem is unsolvable"""
+
+		# Get graph
+		np.random.seed(110)
+		Q = graphs.ErdosRenyi(p=50, tol=1e-1)
+		V = cov2corr(utilities.chol2inv(Q))
+		groups = np.concatenate([np.zeros(10) + j for j in range(5)]) + 1
+		groups = groups.astype('int32')
+		tol = 0.1
+
+		# Helper function
+		def SDP_solver():
+			return knockoffs.solve_group_SDP(V, groups, tol=tol)
+
+		# Make sure the value error increases 
+		self.assertRaisesRegex(
+			ValueError, "SDP formulation is infeasible",
+			SDP_solver
 		)
 
 

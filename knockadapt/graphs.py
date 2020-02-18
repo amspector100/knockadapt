@@ -30,7 +30,7 @@ def AR1(p=30, a=1, b=1):
     return np.exp(log_corrs)
 
 
-def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol=1e-3):
+def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol=1e-1):
     """ Randomly samples bernoulli flags as well as values
     for partial correlations to generate sparse precision
     matrices."""
