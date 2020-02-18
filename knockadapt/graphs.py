@@ -95,7 +95,9 @@ def daibarber2016_graph(n=3000, p=1000, m=None, k=None, rho=0.5, gamma=0, **kwar
     # Create beta
     chosen_groups = np.random.choice(np.unique(groups), k, replace=False)
     beta = np.array([3.5 if i in chosen_groups else 0 for i in groups])
-    signs = 1 - 2 * stats.bernoulli.rvs(0.5, size=p)
+    true_index = np.random.choice(np.arange(0, p, 1), size = int(p/2), replace = False)
+    signs = np.zeros((p)) - 1
+    signs[true_index] = 1
     beta = beta * signs
 
     # Sample design matrix
