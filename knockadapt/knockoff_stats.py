@@ -541,3 +541,38 @@ def calc_data_dependent_threshhold(W, fdr=0.10, offset=1):
         acceptable = acceptable[0]
 
     return acceptable
+
+
+def calc_epowers(Ws, group_sizes, non_nulls=None, **kwargs):
+    """
+    :param Ws: b x p dimension np array. 
+    :param group_sizes: b x p dimension np array.
+    (May be zero-padded).
+    :param non_nulls: b x p dimension boolean np array.
+    True indicates non-nulls. Used only to normalize powers.
+    :param kwargs: kwargs to calc_data_dependent_threshhold 
+    (fdr and offset).
+    returns: batch length array of empirical powers.
+    """
+
+    # Find discoveries
+    b = Ws.shape[0]
+    p = Ws.shape[1]
+    Ts = calc_data_dependent_threshhold(Ws.T, **kwargs)
+    discoveries = (Ws >= Ts.reshape(b, 1))
+
+    # Weight by inverse group sizes
+    group_sizes[group_sizes==0] = -1
+    inv_group_sizes = 1/group_sizes
+    inv_group_sizes[inv_group_sizes<0] = 0
+
+    # Multiply
+    epowers = (discoveries*inv_group_sizes).sum(axis=1)
+
+    # Possibly normalize
+    if non_nulls is not None:
+        num_non_nulls = non_nulls.sum(axis = 1)
+        num_non_nulls[num_non_nulls==0] = p
+        epowers = epowers/num_non_nulls
+
+    return epowers
