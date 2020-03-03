@@ -13,7 +13,7 @@ import scipy.spatial.distance as ssd
 import matplotlib.pyplot as plt
 
 
-def AR1(p=30, a=1, b=1):
+def AR1(p=30, a=1, b=1, tol=1e-3):
     """ Generates correlation matrix for AR(1) Gaussian process,
     where $Corr(X_t, X_{t-1})$ are drawn from Beta(a,b),
     independently for each t"""
@@ -24,10 +24,17 @@ def AR1(p=30, a=1, b=1):
 
     # Log correlations between x_1 and x_i for each i
     cumrhos = np.cumsum(rhos).reshape(p, 1)
+
     # Use cumsum tricks to calculate all correlations
     log_corrs = -1 * np.abs(cumrhos - cumrhos.transpose())
+    corr_matrix = np.exp(log_corrs)
 
-    return np.exp(log_corrs)
+    # Add tolerance
+    mineig = np.linalg.eigh(corr_matrix)[0].min()
+    if mineig < tol:
+        corr_matrix += (tol - mineig) * np.eye(p)
+
+    return corr_matrix
 
 
 def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol=1e-1):
@@ -95,7 +102,7 @@ def daibarber2016_graph(n=3000, p=1000, m=None, k=None, rho=0.5, gamma=0, **kwar
     # Create beta
     chosen_groups = np.random.choice(np.unique(groups), k, replace=False)
     beta = np.array([3.5 if i in chosen_groups else 0 for i in groups])
-    true_index = np.random.choice(np.arange(0, p, 1), size = int(p/2), replace = False)
+    true_index = np.random.choice(np.arange(0, p, 1), size=int(p / 2), replace=False)
     signs = np.zeros((p)) - 1
     signs[true_index] = 1
     beta = beta * signs
