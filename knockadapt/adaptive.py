@@ -3,6 +3,7 @@ import numpy as np
 import scipy.cluster.hierarchy as hierarchy
 
 from . import utilities
+from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
 from .knockoff_stats import group_lasso_LCD, calc_data_dependent_threshhold
 
@@ -32,6 +33,142 @@ def create_cutoffs(link, reduction, max_size):
         cutoffs = np.unique(cutoffs)
 
     return cutoffs
+
+
+def resample_tau_conditionally(Ws, group_sizes, non_nulls, fdr=0.2, reps = 10000):
+    """
+    :param Ws: R x p matrix of W statistics
+    :param non_nulls: R x p matrix of binary flags, where
+    1 indicates that this variable is a non-nulls
+    :param group_sizes: R x p matrix of group sizes
+    returns: R length array of empirical power samples.
+    """
+
+    # Reflip null coins
+    R = Ws.shape[0]
+    p = Ws.shape[1]
+    signs = np.random.binomial(1, 0.5, (R, p, reps))
+    signs = (1-np.expand_dims(non_nulls, axis=-1)) * signs 
+    signs = 1 - 2*signs
+
+    # Recalculate Ws and empirical powers
+    new_Ws = np.expand_dims(Ws, axis=-1) * signs
+
+    # Batch
+    new_Ws = new_Ws.reshape(R*reps, p, order="F")
+    group_sizes = np.concatenate([group_sizes for _ in range(reps)], axis=0)
+    non_nulls = np.concatenate([non_nulls for _ in range(reps)], axis=0)
+    epowers = knockoff_stats.calc_epowers(
+        new_Ws, group_sizes, non_nulls, fdr=fdr
+    )
+
+    # Reshape and return
+    epowers = epowers.reshape(R, reps, order="F")
+    return epowers
+
+def apprx_epower(
+    Ws, group_sizes, q = 0.25, 
+    eps = 0.05, delta = 0.05, 
+    num_partitions = 1, reduce_var = 1, use_signs = True
+):
+    """
+    Let p be the number of features, R be the 
+    number of partitions/groupiings.
+    :param Ws: an R x p matrix of W-statistics.
+    All groupings must be padded to length p.
+    :param group_sizes: An R x p matrix of 
+    group sizes. 
+    """
+
+    # Sort Ws and group sizes by absolute value
+    p = Ws.shape[1]
+    sorting_inds = np.argsort(-1*np.abs(Ws), axis=1)
+    sorted_Ws = np.take_along_axis(Ws, sorting_inds, axis=1)
+    sorted_group_sizes = np.take_along_axis(
+        group_sizes, sorting_inds, axis=1
+    )
+
+    # Cumulative groupsizes, positives, negatives
+    cum_epower = np.cumsum(sorted_group_sizes, axis=1)#((sorted_Ws > 0)*sorted_group_sizes), axis=1)
+    npos = np.cumsum((sorted_Ws > 0), axis=1).astype('float32')
+    nneg = np.cumsum((sorted_Ws <= 0), axis=1).astype('float32')
+
+    # Prevent divide by 0 errors
+    npos[npos==0] = 1
+
+    # These cutoffs control the FDR
+    flags = ((nneg+1)/npos <= q)*(sorted_Ws != 0)
+    estimates = (cum_epower*flags).sum(axis=1)
+
+
+    return estimates
+
+
+def weighted_binomial_feature_stat(
+    Ws, group_sizes, eps = 0.05, delta = 0.05, 
+    num_partitions = 1, reduce_var = 1, use_signs = True
+):
+    """
+    Let p be the number of features, R be the 
+    number of partitions/groupiings.
+    :param Ws: an R x p matrix of W-statistics.
+    All groupings must be padded to length p.
+    :param group_sizes: An R x p matrix of 
+    group sizes. 
+    """
+
+    # Constants to experiment with
+    c = 0#3/8
+    k = 3#2
+
+    # Sort Ws and group sizes by absolute value
+    sorting_inds = np.argsort(-1*np.abs(Ws), axis=1)
+    sorted_Ws = np.take_along_axis(Ws, sorting_inds, axis=1)
+    sorted_group_sizes = np.take_along_axis(
+        group_sizes, sorting_inds, axis=1
+    )
+
+    # Invert group_sizes
+    sorted_group_sizes[sorted_group_sizes==0] = -1
+    inv_group_sizes = 1/sorted_group_sizes
+    inv_group_sizes[inv_group_sizes<0] = 0
+
+    # How much you weight each positive
+    R = Ws.shape[0]
+    p = Ws.shape[1]
+    weights = (1/np.arange(1, p+1, 1)**1).reshape(1, p)
+
+    # If just using absolute values...
+    if not use_signs:
+        estimates = (np.abs(Ws) * (inv_group_sizes * weights)).sum(axis=1)
+        return estimates
+
+    # Otherwise cond. variance bounds, tight under global null
+    # var_bounds = ((weights *inv_group_sizes)**2).sum(axis=1)/4
+
+    # Nonzero counts
+    nonzero_counts = (Ws != 0).sum(axis = 1)
+
+    # Actual estimates
+    estimates = ((sorted_Ws > 0)*(inv_group_sizes * weights)).sum(axis=1)
+    estimates -= ((sorted_Ws < 0)*(inv_group_sizes * weights)).sum(axis=1)
+    estimates = estimates/(nonzero_counts**(c))
+
+    # Construct adaptive variance estimates
+    adaptive_var = (2*(sorted_Ws < 0) *((inv_group_sizes * weights)**2)).sum(axis=1)
+    adaptive_var = adaptive_var/(nonzero_counts**(2*c))
+    adaptive_var[adaptive_var == 0] = 1
+
+    # "Lower confidence bound"
+    estimates = estimates - k*np.sqrt(adaptive_var) 
+
+
+    # Apply the Hoeffding bound
+    sigmaN2 = (1/eps)*np.sqrt(-1*np.log(delta)) * np.sqrt(adaptive_var)/reduce_var
+
+    # Sample and return
+    return sigmaN2 * np.random.randn(R) + estimates
+
 
 
 class GroupKnockoffEval:
@@ -103,7 +240,7 @@ class GroupKnockoffEval:
 
             # Generate second half knockoffs
             test_knockoffs = group_gaussian_knockoffs(
-                testX, self.sigma, groups, copies=copies, tol=1e-3, **knockoff_kwargs
+                testX, self.sigma, groups, copies=copies, **knockoff_kwargs
             )
 
             # Recycle first half and combine
@@ -113,7 +250,7 @@ class GroupKnockoffEval:
         # Else, vanilla Knockoff generation
         else:
             all_knockoffs = group_gaussian_knockoffs(
-                X, self.sigma, groups, copies=copies, tol=1e-3, **knockoff_kwargs
+                X, self.sigma, groups, copies=copies, **knockoff_kwargs
             )
 
             # # Delete all this plz

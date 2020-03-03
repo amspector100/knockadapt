@@ -210,6 +210,36 @@ class TestGroupKnockoffEval(unittest.TestCase):
 			msg = 'GroupKnockoffEval does not properly calculate power including group sizes'
 		)
 
+	def test_resample_tau_conditionally(self):
+
+		### Test 1 - checking that reshaping succeeds
+		# Create data
+		R = 2
+		p = 100
+		reps = 10000
+		fdr = 0.2
+
+		# Create data
+		Ws = np.random.randn(R, p) + 5
+		non_nulls1 = np.random.binomial(1, 1, (1, p))
+		non_nulls2 = np.random.binomial(1, 0.0, (1, p))
+		non_nulls = np.concatenate([non_nulls1, non_nulls2], axis=0)
+		group_sizes = np.exp(np.random.randn(R, p)/10)
+
+		# Resample - the first R should have 0 variance
+		# because every variable is a non-null
+		epowers = adaptive.resample_tau_conditionally(
+			Ws, group_sizes, non_nulls, fdr=0.2
+		)
+		self.assertEqual(
+			np.unique(epowers[0]).shape[0], 1, 
+			'Resampling tau conditionally fails to reshape arrays properly'
+		)
+		self.assertTrue(
+			epowers[0].mean() > 0.95,
+			"Resampling tau conditionally calculates incorrect empirical powers"
+		)
+
 
 if __name__ == '__main__':
 	unittest.main()
