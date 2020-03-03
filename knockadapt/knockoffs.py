@@ -13,12 +13,14 @@ from multiprocessing import Pool
 # Options for SDP solver
 OBJECTIVE_OPTIONS = ["abs", "pnorm", "norm"]
 
+
 def TestIfCorrMatrix(Sigma):
     """ Tests if a square matrix is a correlation matrix """
     p = Sigma.shape[0]
     diag = np.diag(Sigma)
-    if np.sum(np.abs(diag - np.ones(p))) > p*1e-3:
-        raise ValueError('Sigma is not a correlation matrix. Scale it properly first.')
+    if np.sum(np.abs(diag - np.ones(p))) > p * 1e-3:
+        raise ValueError("Sigma is not a correlation matrix. Scale it properly first.")
+
 
 def permute_matrix_by_groups(groups):
     """
@@ -42,6 +44,7 @@ def permute_matrix_by_groups(groups):
 
     return inds, inv_inds
 
+
 def shift_until_PSD(M, tol):
     """ Add the identity until a p x p matrix M has eigenvalues of at least tol"""
     p = M.shape[0]
@@ -50,6 +53,7 @@ def shift_until_PSD(M, tol):
         M += (tol - mineig) * np.eye(p)
 
     return M
+
 
 def scale_until_PSD(Sigma, S, tol, num_iter):
     """ Takes a PSD matrix S and performs a binary search to 
@@ -60,7 +64,6 @@ def scale_until_PSD(Sigma, S, tol, num_iter):
         np.linalg.cholesky(S)
     except np.linalg.LinAlgError:
         S = shift_until_PSD(S, tol)
-
 
     # Binary search to find minimum gamma
     lower_bound = 0
@@ -111,7 +114,7 @@ def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):
 
     # Test to make sure this is positive definite
     min_d_eig = np.linalg.eigh(D)[0].min()
-    if min_d_eig < -1*tol:
+    if min_d_eig < -1 * tol:
         raise ValueError(f"Minimum eigenvalue of block matrix D is {min_d_eig}")
 
     # Find minimum eigenvalue
@@ -127,7 +130,8 @@ def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):
 
     return gamma
 
-def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter = 10):
+
+def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter=10):
     """ Calculates the block diagonal matrix S using
     the equicorrelated method described by Dai and Barber 2016.
     :param Sigma: true precision matrix of X, of dimension p x p
@@ -158,14 +162,14 @@ def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter
 
 
 def solve_group_SDP(
-    Sigma, 
-    groups, 
-    sdp_verbose=False, 
-    objective="pnorm", 
-    norm_type=2, 
+    Sigma,
+    groups,
+    sdp_verbose=False,
+    objective="pnorm",
+    norm_type=2,
     num_iter=10,
     tol=1e-2,
-    **kwargs
+    **kwargs,
 ):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
@@ -195,8 +199,8 @@ def solve_group_SDP(
     """
 
     # By default we lower the convergence epsilon a bit for drastic speedup.
-    if 'eps' not in kwargs:
-        kwargs['eps'] = 5e-3
+    if "eps" not in kwargs:
+        kwargs["eps"] = 5e-3
 
     # Test corr matrix
     TestIfCorrMatrix(Sigma)
@@ -211,7 +215,7 @@ def solve_group_SDP(
             "Using norm objective and norm_type = 2 can lead to strange behavior: consider using Frobenius norm"
         )
     # Find minimum tolerance, possibly warn user if lower than they specified
-    maxtol = np.linalg.eigh(Sigma)[0].min()/1.1
+    maxtol = np.linalg.eigh(Sigma)[0].min() / 1.1
     if tol > maxtol and sdp_verbose:
         warnings.warn(
             f"Reducing SDP tol from {tol} to {maxtol}, otherwise SDP would be infeasible"
@@ -272,7 +276,7 @@ def solve_group_SDP(
     S = cp.vstack(S_rows)
     sortedSigma = cp.Constant(sortedSigma)
     G = cp.bmat([[sortedSigma, sortedSigma - S], [sortedSigma - S, sortedSigma]])
-    constraints += [2*sortedSigma - S >> 0]
+    constraints += [2 * sortedSigma - S >> 0]
 
     # Construct optimization objective
     if objective == "abs":
@@ -292,18 +296,22 @@ def solve_group_SDP(
     # Unsort and get numpy
     S = S.value
     if S is None:
-        raise ValueError('SDP formulation is infeasible. Try decreasing the tol parameter.')
+        raise ValueError(
+            "SDP formulation is infeasible. Try decreasing the tol parameter."
+        )
     S = S[inv_inds][:, inv_inds]
 
     # Clip 0 and 1 values
     for i in range(p):
-        S[i, i] = max(tol, min(1-tol, S[i, i]))
+        S[i, i] = max(tol, min(1 - tol, S[i, i]))
 
     # Scale to make this PSD using binary search
     S, gamma = scale_until_PSD(Sigma, S, tol, num_iter)
     if sdp_verbose:
         mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
-        print(f"After SDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}")
+        print(
+            f"After SDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
+        )
 
     # Return unsorted S value
     return S
@@ -440,8 +448,9 @@ def solve_group_ASDP(
     S, gamma = scale_until_PSD(Sigma, S, tol, num_iter)
     if verbose:
         mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
-        print(f"After ASDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}")
-
+        print(
+            f"After ASDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
+        )
 
     return S
 
@@ -515,11 +524,12 @@ def group_gaussian_knockoffs(
             if verbose:
                 print(f"Solving SDP for S with p = {p}")
             S = solve_group_SDP(
-                Sigma, groups,
-                objective=objective, 
-                sdp_verbose=sdp_verbose, 
+                Sigma,
+                groups,
+                objective=objective,
+                sdp_verbose=sdp_verbose,
                 tol=sdp_tol,
-                **kwargs
+                **kwargs,
             )
         elif method == "equicorrelated":
             S = equicorrelated_block_matrix(Sigma, groups, *kwargs)
@@ -553,21 +563,21 @@ def group_gaussian_knockoffs(
     mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
     # TODO: if we replace "X" inside the dot with "X - true mu"
     # then we can add a population mu parameter
-    V = 2 * S - np.dot(S, invSigma_S)
+    Vk = 2 * S - np.dot(S, invSigma_S)
 
     # Account for numerical errors
-    min_eig = np.linalg.eigh(V)[0].min()
+    min_eig = np.linalg.eigh(Vk)[0].min()
     if verbose:
-        print(f"Minimum eigenvalue of V is {min_eig}")
+        print(f"Minimum eigenvalue of Vk is {min_eig}")
     if min_eig < sample_tol:
         if verbose:
             warnings.warn(
-                f"Minimum eigenvalue of V is {min_eig}, under tolerance {sample_tol}"
+                f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
             )
-        V = shift_until_PSD(V, sample_tol)
+        Vk = shift_until_PSD(Vk, sample_tol)
 
     # ...and sample MX knockoffs!
-    knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=V, size=copies * n)
+    knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=Vk, size=copies * n)
 
     # (Save this for testing later)
     first_row = knockoffs[0, 0:n].copy()
