@@ -17,7 +17,7 @@ def TestIfCorrMatrix(Sigma):
     """ Tests if a square matrix is a correlation matrix """
     p = Sigma.shape[0]
     diag = np.diag(Sigma)
-    if np.sum(np.abs(diag - np.ones(p))) > 1e-5:
+    if np.sum(np.abs(diag - np.ones(p))) > p*1e-3:
         raise ValueError('Sigma is not a correlation matrix. Scale it properly first.')
 
 def permute_matrix_by_groups(groups):
@@ -194,6 +194,10 @@ def solve_group_SDP(
     :param tol: Minimum eigenvalue of S must be greater than this.
     """
 
+    # By default we lower the convergence epsilon a bit for drastic speedup.
+    if 'eps' not in kwargs:
+        kwargs['eps'] = 5e-3
+
     # Test corr matrix
     TestIfCorrMatrix(Sigma)
 
@@ -279,7 +283,7 @@ def solve_group_SDP(
         objective = cp.Minimize(cp.norm(sortedSigma - S, norm_type))
     # Note we already checked objective is one of these values earlier
 
-    # Conscturt, solve the problem
+    # Construct, solve the problem.
     problem = cp.Problem(objective, constraints)
     problem.solve(verbose=sdp_verbose, **kwargs)
     if sdp_verbose:
