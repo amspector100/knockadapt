@@ -5,7 +5,144 @@ from .context import knockadapt
 
 from knockadapt import utilities, graphs, knockoffs
 
-class TestSDP(unittest.TestCase):
+
+class CheckSMatrix(unittest.TestCase):
+
+	# Helper function
+	def check_S_properties(self, V, S, groups):
+
+		# Test PSD-ness of S
+		min_S_eig = np.linalg.eigh(S)[0].min()
+		self.assertTrue(
+			min_S_eig > 0, f'S matrix is not positive semidefinite: mineig is {min_S_eig}' 
+		)
+
+		# Test PSD-ness of 2V - S
+		min_diff_eig = np.linalg.eigh(2*V - S)[0].min()
+		self.assertTrue(
+			min_diff_eig > 0, f"2Sigma-S matrix is not positive semidefinite: mineig is {min_diff_eig}"
+		)
+
+		# Calculate conditional knockoff matrix
+		invV = utilities.chol2inv(V)
+		invV_S = np.dot(invV, S)
+		Vk = 2 * S - np.dot(S, invV_S)
+
+		# Test PSD-ness of the conditional knockoff matrix
+		min_Vk_eig = np.linalg.eigh(Vk)[0].min()
+		self.assertTrue(
+			min_Vk_eig > 0, f"conditional knockoff matrix is not positive semidefinite: mineig is {min_Vk_eig}"
+		)
+
+		# Test that S is just a block matrix
+		p = V.shape[0]
+		S_test = np.zeros((p, p))
+		for j in np.unique(groups):
+
+			# Select subset of S
+			inds = np.where(groups == j)[0]
+			full_inds = np.ix_(inds, inds)
+			group_S = S[full_inds]
+
+			# Fill only in this subset of S
+			S_test[full_inds] = group_S
+
+
+		# return
+		np.testing.assert_almost_equal(
+			S_test, S, decimal = 5, err_msg = "S matrix is not a block matrix of the correct shape"
+		)
+
+
+class TestEquicorrelated(CheckSMatrix):
+	""" Tests equicorrelated knockoffs and related functions """
+
+	def test_eigenvalue_calculation(self):
+
+		# Test to make sure non-group and group versions agree
+		# (in the case of no grouping)
+		p = 100
+		groups = np.arange(0, p, 1) + 1
+		for rho in [0, 0.3, 0.5, 0.7]:
+			V = np.zeros((p, p)) + rho
+			for i in range(p):
+				V[i, i] = 1
+			expected_gamma = min(1, 2*(1-rho))
+			gamma = knockoffs.calc_min_group_eigenvalue(
+				Sigma=V, groups=groups, 
+			)
+			np.testing.assert_almost_equal(
+				gamma, expected_gamma, decimal = 3, 
+				err_msg = 'calc_min_group_eigenvalue calculates wrong eigenvalue'
+			)
+
+		# Test non equicorrelated version
+		V = np.random.randn(p, p)
+		V = np.dot(V.T, V) + 0.1*np.eye(p)
+		V = cov2corr(V)
+		expected_gamma = min(1, 2*np.linalg.eigh(V)[0].min())
+		gamma = knockoffs.calc_min_group_eigenvalue(
+			Sigma=V, groups=groups
+		)
+		np.testing.assert_almost_equal(
+			gamma, expected_gamma, decimal = 3, 
+			err_msg = 'calc_min_group_eigenvalue calculates wrong eigenvalue'
+
+		)
+
+	def test_equicorrelated_construction(self):
+
+		# Test S matrix construction
+		p = 100
+		groups = np.arange(0, p, 1) + 1
+		V = np.random.randn(p, p)
+		V = np.dot(V.T, V) + 0.1*np.eye(p)
+		V = cov2corr(V)
+
+		# Expected construction
+		expected_gamma = min(1, 2*np.linalg.eigh(V)[0].min())
+		expected_S = expected_gamma*np.eye(p)
+
+		# Equicorrelated
+		S = knockoffs.equicorrelated_block_matrix(Sigma=V, groups=groups)
+
+		# Test to make sure the answer is expected
+		np.testing.assert_almost_equal(
+			S, expected_S, decimal = 3, 
+			err_msg = 'calc_min_group_eigenvalue calculates wrong eigenvalue'
+
+		)
+
+		# # Do it again with a block matrix - start by constructing
+		# # something we can easily analyze
+		# group_sizes = [3, 2, 3, 4, 1]
+		# groups = []
+		# for i, size in enumerate(group_sizes):
+		# 	to_add = [i]*size
+		# 	groups += to_add
+		# groups = np.array(groups) + 1
+
+	def test_psd(self):
+
+		# Test S matrix construction
+		p = 100
+		V = np.random.randn(p, p)
+		V = np.dot(V.T, V) + 0.1*np.eye(p)
+		V = cov2corr(V)
+
+		# Create for various groups
+		groups = np.random.randint(1, p, size=(p))
+		print(groups)
+		groups = utilities.preprocess_groups(groups)
+		S = knockoffs.equicorrelated_block_matrix(Sigma=V, groups=groups)
+
+		# Check S properties
+		self.check_S_properties(V, S, groups)
+
+
+
+
+class TestSDP(CheckSMatrix):
 	""" Tests an easy case of SDP and ASDP """
 
 	def test_easy_sdp(self):
@@ -25,6 +162,7 @@ class TestSDP(unittest.TestCase):
 			S_triv, np.eye(p), decimal = 2,
 			err_msg = 'solve_group_SDP does not produce optimal S matrix (daibarber graphs)'
 		)
+		self.check_S_properties(corr_matrix, S_triv, trivial_groups)
 
 		# Repeat for group_gaussian_knockoffs method
 		_, S_triv2 = knockoffs.group_gaussian_knockoffs(
@@ -35,6 +173,7 @@ class TestSDP(unittest.TestCase):
 			S_triv2, np.eye(p), decimal = 2, 
 			err_msg = 'solve_group_SDP does not produce optimal S matrix (daibarber graphs)'
 		)
+		self.check_S_properties(corr_matrix, S_triv2, trivial_groups)
 
 		# Test slightly harder case
 		_,_,_,_, expected_out, _ = graphs.daibarber2016_graph(
@@ -48,6 +187,7 @@ class TestSDP(unittest.TestCase):
 			S_harder, expected_out, decimal = 2,
 			err_msg = 'solve_group_SDP does not produce optimal S matrix (daibarber graphs)'
 		)
+		self.check_S_properties(corr_matrix, S_harder, groups)
 
 		# Repeat for ASDP
 		_, S_harder_ASDP = knockoffs.group_gaussian_knockoffs(
@@ -58,6 +198,8 @@ class TestSDP(unittest.TestCase):
 			S_harder_ASDP, expected_out, decimal = 2,
 			err_msg = 'solve_group_ASDP does not produce optimal S matrix (daibarber graphs)'
 		)
+		self.check_S_properties(corr_matrix, S_harder_ASDP, groups)
+
 
 	def test_sdp_tolerance(self):
 
@@ -72,11 +214,11 @@ class TestSDP(unittest.TestCase):
 		for tol in [1e-3, 0.01, 0.02]:
 			S = knockoffs.solve_group_SDP(
 				Sigma=V, 
-			    groups=groups, 
-			    sdp_verbose=False, 
-			    objective="pnorm",  
-			    num_iter=10,
-			    tol=tol
+				groups=groups, 
+				sdp_verbose=False, 
+				objective="pnorm",  
+				num_iter=10,
+				tol=tol
 			)
 			G = np.hstack([np.vstack([V, V-S]), np.vstack([V-S, V])])
 			mineig = np.linalg.eig(G)[0].min()
@@ -84,25 +226,27 @@ class TestSDP(unittest.TestCase):
 				tol - mineig < 1e3,
 				f'sdp solver fails to control minimum eigenvalues: tol is {tol}, val is {mineig}'
 			)
+			self.check_S_properties(V, S, groups)
 
-	def test_sdp_errors(self):
-		""" Tests that SDP raises informative errors when problem is unsolvable"""
+
+	def test_corrmatrix_errors(self):
+		""" Tests that SDP raises informative errors when sigma is not scaled properly"""
 
 		# Get graph
 		np.random.seed(110)
 		Q = graphs.ErdosRenyi(p=50, tol=1e-1)
-		V = cov2corr(utilities.chol2inv(Q))
+		V = utilities.chol2inv(Q)
 		groups = np.concatenate([np.zeros(10) + j for j in range(5)]) + 1
 		groups = groups.astype('int32')
-		tol = 0.1
+
 
 		# Helper function
 		def SDP_solver():
-			return knockoffs.solve_group_SDP(V, groups, tol=tol)
+			return knockoffs.solve_group_SDP(V, groups)
 
 		# Make sure the value error increases 
 		self.assertRaisesRegex(
-			ValueError, "SDP formulation is infeasible",
+			ValueError, "Sigma is not a correlation matrix",
 			SDP_solver
 		)
 
