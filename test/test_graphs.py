@@ -1,6 +1,8 @@
 import numpy as np
+import scipy as sp
 import unittest
 from .context import knockadapt
+
 
 from knockadapt import graphs
 
@@ -42,8 +44,9 @@ class TestSampleData(unittest.TestCase):
 
 
 		# Test sparsity
+		p = 100
 		_, _, beta, _, _ = graphs.sample_data(
-			p = 100, sparsity = 0.3, coeff_size = 0.3,
+			p = p, sparsity = 0.3, coeff_size = 0.3,
 		)
 		self.assertTrue((beta != 0).sum() == 30,
 						msg = 'sparsity parameter yields incorrect sparsity')
@@ -54,22 +57,68 @@ class TestSampleData(unittest.TestCase):
 		)
 
 		# Test number of selections for groups
-		k = 10
+		sparsity = 0.2
 		groups = np.concatenate(
 			[np.arange(0, 50, 1), np.arange(0, 50, 1)]
 		)
 		_, _, beta, _, _ = graphs.sample_data(
-			p = 100, sparsity = 0.5, groups = groups,
-			k = k,
+			p = p, sparsity=sparsity, groups = groups,
 		)
-		self.assertTrue((beta != 0).sum() == 2*k,
+
+		# First, test that the correct number of features is chosen
+		num_groups = np.unique(groups).shape[0]
+		expected_nonnull_features = sparsity*p
+		self.assertTrue((beta != 0).sum() == expected_nonnull_features,
 						msg = 'sparsity for groups chooses incorrect number of features')
+		
+		# Check that the correct number of GROUPS has been chosen
+		expected_nonnull_groups = sparsity*num_groups
 		selected_groups = np.unique(groups[beta != 0]).shape[0]
-		self.assertTrue(selected_groups == k,
+		self.assertTrue(selected_groups == expected_nonnull_groups,
 						msg = 'group sparsity parameter does not choose coeffs within a group' )
 
 
+	def test_daibarber2016_sample(self):
 
+		# Check that defaults are correct - start w cov matrix
+		_, _, beta, _, V, _ = graphs.daibarber2016_graph()
+
+		# Construct expected cov matrix -  this is a different
+		# construction than the actual function
+		def construct_expected_V(p, groupsize, rho, gamma):
+
+			# Construct groups with rho ingroup correlation
+			block = np.zeros((groupsize, groupsize)) + rho
+			block += (1-rho)*np.eye(groupsize)
+			blocks = [block for _ in range(int(p/groupsize))]
+			expected = sp.linalg.block_diag(*blocks)
+
+			# Add gamma between-group correlations
+			expected[expected==0] = gamma*rho
+			return expected
+
+		expected = construct_expected_V(p=1000, groupsize=5, rho=0.5, gamma=0)
+
+		# Test equality with actual one
+		np.testing.assert_array_almost_equal(
+			V, expected, err_msg = 'Default daibarber2016 cov matrix is incorrect'
+		)
+
+		# Check number of nonzero groups
+		groupsize = 5
+		nonzero_inds = np.arange(0, 1000, 1)[beta != 0]
+		num_nonzero_groups = np.unique(nonzero_inds // 5).shape[0]
+		self.assertTrue(
+			num_nonzero_groups==20, 
+			msg = f'Default daibarber2016 beta has {num_nonzero_groups} nonzero groups, expected 20'
+		)
+
+		# Check number of nonzero features
+		num_nonzero_features = (beta != 0).sum()
+		self.assertTrue(
+			num_nonzero_features==100, 
+			msg = f'Default daibarber2016 beta has {num_nonzero_features} nonzero features, expected 100'
+		)
 
 if __name__ == '__main__':
 	unittest.main()

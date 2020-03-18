@@ -63,28 +63,33 @@ def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol
     return Q
 
 
-def daibarber2016_graph(n=3000, p=1000, m=None, k=None, rho=0.5, gamma=0, **kwargs):
+def daibarber2016_graph(
+        n=3000, 
+        p=1000, 
+        group_size=5, 
+        sparsity=0.1, 
+        rho=0.5, 
+        gamma=0, 
+        coeff_size=3.5,
+        **kwargs
+    ):
     """ Same data-generating process as Dai and Barber 2016
-    (see https://arxiv.org/abs/1602.03589). **kwargs are passed
-    to sample_glm_response function.
+    (see https://arxiv.org/abs/1602.03589). 
+    :param int group_size: The size of groups. Defaults to 5.
+    :param int sparsity: The proportion of groups with nonzero effects.
+     Defaults to 0.1 (the daibarber2016 default).
+    :param rho: Within-group correlation
+    :param gamma: The between-group correlation = rho * gamma
+    :param **kwargs: Args passed to sample_glm_response function.
     """
 
     # Set default values
-    if m is None:
-        m = int(p / 5)
-
-    # Set k
-    if k is None and p == 1000:
-        k = 20
-    else:
-        k = int(m / 2)
+    num_groups = int(p / group_size)
 
     # Create groups
-    groups = np.array([int(i / (p / m)) for i in range(p)])
+    groups = np.array([int(i / (p / num_groups)) for i in range(p)])
 
     # Helper fn for covariance matrix
-    # Add a tinnnyyyy bit of noise to make sure that the
-    # cutoff method works properly
     def get_corr(g1, g2):
         if g1 == g2:
             return rho
@@ -100,12 +105,9 @@ def daibarber2016_graph(n=3000, p=1000, m=None, k=None, rho=0.5, gamma=0, **kwar
     Q = chol2inv(Sigma)
 
     # Create beta
-    chosen_groups = np.random.choice(np.unique(groups), k, replace=False)
-    beta = np.array([3.5 if i in chosen_groups else 0 for i in groups])
-    true_index = np.random.choice(np.arange(0, p, 1), size=int(p / 2), replace=False)
-    signs = np.zeros((p)) - 1
-    signs[true_index] = 1
-    beta = beta * signs
+    beta = create_sparse_coefficients(
+        p=p, sparsity=sparsity, coeff_size=coeff_size, groups=groups
+    )
 
     # Sample design matrix
     mu = np.zeros(p)
@@ -147,34 +149,38 @@ def create_correlation_tree(corr_matrix, method="single"):
     return link
 
 
-def create_sparse_coefficients(p, sparsity=0.5, groups=None, k=None, coeff_size=10):
+def create_sparse_coefficients(p, sparsity=0.5, groups=None, coeff_size=10):
     """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
     which are then plus/minus coeff_size with equal probability.
-    Alternatively, if groups and k are supplied, will choose k groups 
-    to have nonzero coefficients, where each of the k groups has a 
-    coefficient size of plus/minus 10."""
+    :param p: Dimensionality of coefficients
+    :type p: int
+    :param sparsity: Sparsity of selection
+    :type sparsity: float
+    :param coeff_size: Non-zero coefficients are set to +/i coeff_size
+    :type coeff_size: float
+    :param groups: Allows the possibility of grouped signals. 
+    If not None supplied, will choose 
+    floor(sparsity * num_groups) groups, 
+    where each feature in the selected groups will 
+    have a nonzero coefficient.
+    :type groups: np.ndarray
+    :return: p-length numpy array of sparse coefficients"""
 
     # First, decide which coefficients are nonzero, one of two methods
     if groups is not None:
-        if k is None:
-            raise ValueError(
-                "To choose group coefficients, must supply 'k' arg, not just groups"
-            )
-        m = np.unique(groups).shape[0]
-        if k > m:
-            raise ValueError(
-                f"Number of nonzero groups k = {k} is greater than num unique groups {m}"
-            )
+
 
         # Method one: a certain number of groups are nonzero
-        chosen_groups = np.random.choice(np.unique(groups), k, replace=False)
+        num_groups = np.unique(groups).shape[0]
+        num_nonzero_groups = int(np.floor(sparsity * num_groups))
+        chosen_groups = np.random.choice(
+            np.unique(groups), 
+            num_nonzero_groups, 
+            replace=False
+        )
         beta = np.array([coeff_size if i in chosen_groups else 0 for i in groups])
 
     else:
-        if k is not None:
-            raise ValueError(
-                "To choose group coefficients, must supply 'groups' arg, not just k"
-            )
 
         # Method two (default): a certain percentage of coefficients are nonzero
         num_nonzero = int(np.floor(sparsity * p))
@@ -215,7 +221,6 @@ def sample_data(
     beta=None,
     coeff_size=1,
     sparsity=0.5,
-    k=None,
     groups=None,
     y_dist="gaussian",
     **kwargs,
@@ -237,6 +242,7 @@ def sample_data(
     :param str y_dist: one of 'gaussian' or 'binomial', used to 
     generate the response. (If 'binomial', uses logistic link fn). 
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
+    returns: X, y, beta, Q, corr_matrix
     """
 
     # Create Graph
@@ -259,7 +265,13 @@ def sample_data(
             corr_matrix += np.eye(p)
             Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
-            _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(p=p, n=n, **kwargs)
+            _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
+                p=p,
+                n=n,
+                coeff_size=coeff_size,
+                sparsity=sparsity,
+                **kwargs
+            )
         else:
             raise ValueError("Other methods not implemented yet")
 
@@ -273,7 +285,7 @@ def sample_data(
     # Create sparse coefficients
     if beta is None:
         beta = create_sparse_coefficients(
-            p=p, sparsity=sparsity, coeff_size=coeff_size, k=k, groups=groups
+            p=p, sparsity=sparsity, coeff_size=coeff_size, groups=groups
         )
 
     # Sample design matrix
