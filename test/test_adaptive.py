@@ -19,7 +19,7 @@ class TestGroupKnockoffEval(unittest.TestCase):
 		cls.q = 0.4
 		np.random.seed(110)
 		cls.X, cls.y, cls.beta, _, cls.corr_matrix, cls.groups = graphs.daibarber2016_graph(
-			n = cls.n, p = cls.p, y_dist = 'binomial', k = 3
+			n = cls.n, p = cls.p, y_dist = 'binomial', sparsity = 0.5
 		)
 		cls.link = graphs.create_correlation_tree(
             cls.corr_matrix, method = 'average'
