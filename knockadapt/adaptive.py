@@ -5,7 +5,7 @@ import scipy.cluster.hierarchy as hierarchy
 from . import utilities
 from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
-from .knockoff_stats import group_lasso_LCD, calc_data_dependent_threshhold
+from .knockoff_stats import lasso_statistic, data_dependent_threshhold
 
 
 def create_cutoffs(link, reduction, max_size):
@@ -88,8 +88,13 @@ def apprx_epower(
         group_sizes, sorting_inds, axis=1
     )
 
+    # Invert group_sizes
+    sorted_group_sizes[sorted_group_sizes==0] = -1
+    inv_group_sizes = 1/sorted_group_sizes
+    inv_group_sizes[inv_group_sizes<0] = 0
+
     # Cumulative groupsizes, positives, negatives
-    cum_epower = np.cumsum(sorted_group_sizes, axis=1)#((sorted_Ws > 0)*sorted_group_sizes), axis=1)
+    cum_epower = np.cumsum(inv_group_sizes, axis=1)#((sorted_Ws > 0)*sorted_group_sizes), axis=1)
     npos = np.cumsum((sorted_Ws > 0), axis=1).astype('float32')
     nneg = np.cumsum((sorted_Ws <= 0), axis=1).astype('float32')
 
@@ -100,13 +105,12 @@ def apprx_epower(
     flags = ((nneg+1)/npos <= q)*(sorted_Ws != 0)
     estimates = (cum_epower*flags).sum(axis=1)
 
-
     return estimates
 
 
 def weighted_binomial_feature_stat(
     Ws, group_sizes, eps = 0.05, delta = 0.05, 
-    num_partitions = 1, reduce_var = 1, use_signs = True
+    num_partitions = 1, reduce_var = 1,
 ):
     """
     Let p be the number of features, R be the 
@@ -119,7 +123,7 @@ def weighted_binomial_feature_stat(
 
     # Constants to experiment with
     c = 0#3/8
-    k = 3#2
+    k = 0#2
 
     # Sort Ws and group sizes by absolute value
     sorting_inds = np.argsort(-1*np.abs(Ws), axis=1)
@@ -136,12 +140,7 @@ def weighted_binomial_feature_stat(
     # How much you weight each positive
     R = Ws.shape[0]
     p = Ws.shape[1]
-    weights = (1/np.arange(1, p+1, 1)**1).reshape(1, p)
-
-    # If just using absolute values...
-    if not use_signs:
-        estimates = (np.abs(Ws) * (inv_group_sizes * weights)).sum(axis=1)
-        return estimates
+    weights = (1/np.arange(1, p+1, 1)**0.5).reshape(1, p)
 
     # Otherwise cond. variance bounds, tight under global null
     # var_bounds = ((weights *inv_group_sizes)**2).sum(axis=1)/4
@@ -190,7 +189,7 @@ class GroupKnockoffEval:
         corr_matrix,
         q,
         non_nulls=None,
-        feature_stat_fn=group_lasso_LCD,
+        feature_stat_fn=lasso_statistic,
         feature_stat_kwargs={},
         **kwargs
     ):
@@ -287,7 +286,7 @@ class GroupKnockoffEval:
         )
 
         # Data dependent threshhold and group selections
-        T = calc_data_dependent_threshhold(W, fdr=self.q)
+        T = data_dependent_threshhold(W, fdr=self.q)
         selected_flags = (W >= T).astype("float32")
 
         # Empirical power
