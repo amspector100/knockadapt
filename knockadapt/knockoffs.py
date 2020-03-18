@@ -275,7 +275,6 @@ def solve_group_SDP(
     # Construct S and Grahm Matrix
     S = cp.vstack(S_rows)
     sortedSigma = cp.Constant(sortedSigma)
-    G = cp.bmat([[sortedSigma, sortedSigma - S], [sortedSigma - S, sortedSigma]])
     constraints += [2 * sortedSigma - S >> 0]
 
     # Construct optimization objective

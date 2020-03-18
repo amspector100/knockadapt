@@ -64,15 +64,15 @@ def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol
 
 
 def daibarber2016_graph(
-        n=3000, 
-        p=1000, 
-        group_size=5, 
-        sparsity=0.1, 
-        rho=0.5, 
-        gamma=0, 
-        coeff_size=3.5,
-        **kwargs
-    ):
+    n=3000,
+    p=1000,
+    group_size=5,
+    sparsity=0.1,
+    rho=0.5,
+    gamma=0,
+    coeff_size=3.5,
+    **kwargs,
+):
     """ Same data-generating process as Dai and Barber 2016
     (see https://arxiv.org/abs/1602.03589). 
     :param int group_size: The size of groups. Defaults to 5.
@@ -169,14 +169,11 @@ def create_sparse_coefficients(p, sparsity=0.5, groups=None, coeff_size=10):
     # First, decide which coefficients are nonzero, one of two methods
     if groups is not None:
 
-
         # Method one: a certain number of groups are nonzero
         num_groups = np.unique(groups).shape[0]
         num_nonzero_groups = int(np.floor(sparsity * num_groups))
         chosen_groups = np.random.choice(
-            np.unique(groups), 
-            num_nonzero_groups, 
-            replace=False
+            np.unique(groups), num_nonzero_groups, replace=False
         )
         beta = np.array([coeff_size if i in chosen_groups else 0 for i in groups])
 
@@ -266,11 +263,7 @@ def sample_data(
             Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
-                p=p,
-                n=n,
-                coeff_size=coeff_size,
-                sparsity=sparsity,
-                **kwargs
+                p=p, n=n, coeff_size=coeff_size, sparsity=sparsity, **kwargs
             )
         else:
             raise ValueError("Other methods not implemented yet")

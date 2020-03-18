@@ -1,5 +1,5 @@
 import numpy as np
-from . import knockoff_stats, utilities
+from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
 
 
@@ -16,26 +16,27 @@ def mx_knockoff_filter(
     recycle_up_to=None,
 ):
     """
-	:param X: n x p design matrix
-	:param y: p-length response array
-	:param Sigma: p x p covariance matrix of X
-	:param groups: Grouping of features, p-length
-	array of integers from 1 to m (with m <= p).
-	:param knockoffs: n x p array of knockoffs.
-	If None, will construct second-order group MX knockoffs.
-	Defaults to group gaussian knockoff constructor.
-	:param feature_stat: Function used to
-	calculate W-statistics in knockoffs. 
-	Defaults to group lasso coefficient difference.
-	:param fdr: Desired fdr.
-	:param feature_stat_kwargs: Kwargs to pass to 
-	the feature statistic.
-	:param knockoff_kwargs: Kwargs to pass to the 
-	knockoffs constructor.
+    :param X: n x p design matrix
+    :param y: p-length response array
+    :param Sigma: p x p covariance matrix of X
+    :param groups: Grouping of features, p-length
+    array of integers from 1 to m (with m <= p).
+    :param knockoffs: n x p array of knockoffs.
+    If None, will construct second-order group MX knockoffs.
+    Defaults to group gaussian knockoff constructor.
+    :param feature_stat: Function used to
+    calculate W-statistics in knockoffs. 
+    Defaults to group lasso coefficient difference.
+    :param fdr: Desired fdr.
+    :param feature_stat_kwargs: Kwargs to pass to 
+    the feature statistic.
+    :param knockoff_kwargs: Kwargs to pass to the 
+    knockoffs constructor.
     :param recycle_up_to: If not None, use the first int(recycle_up_to)
      rows of X as the first int(recycle_up_to) rows of knockoffs.
-	"""
+    """
 
+    p = Sigma.shape[0]
     if groups is None:
         groups = np.arange(1, p + 1, 1)
 
