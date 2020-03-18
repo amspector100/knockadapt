@@ -2,6 +2,8 @@
 
 # Don't save data
 data/*
+# DOn't save test profiling
+prof/*
 
 
 # _____ R Defaults _______
