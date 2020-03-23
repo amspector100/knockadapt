@@ -5,6 +5,7 @@ import scipy as sp
 from scipy import stats
 
 from .utilities import chol2inv, calc_group_sizes, preprocess_groups
+from .utilities import shift_until_PSD, scale_until_PSD
 
 # Multiprocessing tools
 from functools import partial
@@ -45,41 +46,7 @@ def permute_matrix_by_groups(groups):
     return inds, inv_inds
 
 
-def shift_until_PSD(M, tol):
-    """ Add the identity until a p x p matrix M has eigenvalues of at least tol"""
-    p = M.shape[0]
-    mineig = np.linalg.eigh(M)[0].min()
-    if mineig < tol:
-        M += (tol - mineig) * np.eye(p)
 
-    return M
-
-
-def scale_until_PSD(Sigma, S, tol, num_iter):
-    """ Takes a PSD matrix S and performs a binary search to 
-    find the largest gamma such that 2*V - gamma*S is PSD as well."""
-
-    # Raise value error if S is not PSD
-    try:
-        np.linalg.cholesky(S)
-    except np.linalg.LinAlgError:
-        S = shift_until_PSD(S, tol)
-
-    # Binary search to find minimum gamma
-    lower_bound = 0
-    upper_bound = 1
-    for j in range(num_iter):
-        gamma = (lower_bound + upper_bound) / 2
-        mineig = np.linalg.eigh(2 * Sigma - gamma * S)[0].min()
-        if mineig < tol:
-            upper_bound = gamma
-        else:
-            lower_bound = gamma
-
-    # Scale S properly, be a bit conservative
-    S = lower_bound * S
-
-    return S, gamma
 
 
 def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):

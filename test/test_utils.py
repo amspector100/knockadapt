@@ -91,13 +91,13 @@ class TestUtils(unittest.TestCase):
 		X = (X.T + X)/2
 
 		# Force pos definite
-		eigenvalue_tolerance = 1e-3
-		posX = utilities.force_positive_definite(X, tol = eigenvalue_tolerance)
+		tol = 1e-3
+		posX = utilities.shift_until_PSD(X, tol=tol)
 		mineig = np.linalg.eigh(posX)[0].min()
 
 		# Make sure the difference between the tolerance and is small
 		self.assertTrue(
-			mineig >= eigenvalue_tolerance - 1e-5,
+			mineig >= tol - 1e-5, # Acct for num. errors in eigval calc
 			msg = 'Minimum eigenvalue is not greater than or equal to tolerance'
 		)
 

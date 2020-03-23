@@ -3,7 +3,7 @@ from scipy import stats
 
 # Utility functions
 from statsmodels.stats.moment_helpers import cov2corr
-from .utilities import force_positive_definite, chol2inv
+from .utilities import shift_until_PSD, chol2inv
 
 # Tree methods
 import scipy.cluster.hierarchy as hierarchy
@@ -29,10 +29,8 @@ def AR1(p=30, a=1, b=1, tol=1e-3):
     log_corrs = -1 * np.abs(cumrhos - cumrhos.transpose())
     corr_matrix = np.exp(log_corrs)
 
-    # Add tolerance
-    mineig = np.linalg.eigh(corr_matrix)[0].min()
-    if mineig < tol:
-        corr_matrix += (tol - mineig) * np.eye(p)
+    # Ensure PSD-ness
+    corr_matrix = shift_until_PSD(corr_matrix, tol)
 
     return corr_matrix
 
@@ -58,7 +56,7 @@ def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol
     Q = np.dot(Q, Q.T)
 
     # Force to be positive definite -
-    Q = force_positive_definite(Q, tol=tol)
+    Q = shift_until_PSD(Q, tol=tol)
 
     return Q
 

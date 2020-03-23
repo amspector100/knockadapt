@@ -2,6 +2,7 @@ import warnings
 import numpy as np
 import scipy as sp
 
+### Group helpers
 
 def preprocess_groups(groups):
     """ Turns a p-dimensional numpy array with m unique elements
@@ -36,32 +37,6 @@ def fetch_group_nonnulls(non_nulls, groups):
         group_nonnulls[j] = float(flag)
     return group_nonnulls
 
-
-def chol2inv(X):
-    """ Uses cholesky decomp to get inverse of matrix """
-    triang = np.linalg.inv(np.linalg.cholesky(X))
-    return np.dot(triang.T, triang)
-
-
-def force_positive_definite(X, tol=1e-3):
-    """Forces X to be positive semidefinite with minimum eigenvalue of tol"""
-
-    # Find minimum eigenvalue
-    min_eig = np.linalg.eigh(X)[0].min()
-    imag_part = np.imag(min_eig)
-    if imag_part != 0:
-        warnings.warn(
-            f"Uh oh: the minimum eigenvalue is not real (imag part = {imag_part})"
-        )
-    min_eig = np.real(min_eig)
-
-    # Check within tolerance
-    if min_eig < tol:
-        p = X.shape[0]
-        X += (tol - min_eig) * sp.sparse.eye(p)
-    return X
-
-
 def calc_group_sizes(groups):
     """
     :param groups: p-length array of integers between 1 and m, 
@@ -86,8 +61,74 @@ def calc_group_sizes(groups):
     group_sizes = np.zeros(m)
     for j in groups:
         group_sizes[j - 1] += 1
+    group_sizes = group_sizes.astype('int32')
     return group_sizes
 
+### Matrix helpers for S-matrix computation
+
+def chol2inv(X):
+    """ Uses cholesky decomp to get inverse of matrix """
+    triang = np.linalg.inv(np.linalg.cholesky(X))
+    return np.dot(triang.T, triang)
+
+def shift_until_PSD(M, tol):
+    """ Add the identity until a p x p matrix M has eigenvalues of at least tol"""
+    p = M.shape[0]
+    mineig = np.linalg.eigh(M)[0].min()
+    if mineig < tol:
+        M += (tol - mineig) * np.eye(p)
+
+    return M
+
+def scale_until_PSD(Sigma, S, tol, num_iter):
+    """ Takes a PSD matrix S and performs a binary search to 
+    find the largest gamma such that 2*V - gamma*S is PSD as well."""
+
+    # Raise value error if S is not PSD
+    try:
+        np.linalg.cholesky(S)
+    except np.linalg.LinAlgError:
+        S = shift_until_PSD(S, tol)
+
+    # Binary search to find minimum gamma
+    lower_bound = 0
+    upper_bound = 1
+    for j in range(num_iter):
+        gamma = (lower_bound + upper_bound) / 2
+        mineig = np.linalg.eigh(2 * Sigma - gamma * S)[0].min()
+        if mineig < tol:
+            upper_bound = gamma
+        else:
+            lower_bound = gamma
+
+    # Scale S properly, be a bit conservative
+    S = lower_bound * S
+
+    return S, gamma
+
+def permute_matrix_by_groups(groups):
+    """
+    Permute a (correlation) matrix according to a list of feature groups.
+    :param groups: a p-length array of integers.
+    returns: inds and inv_inds
+    Given a p x p matrix M, Mp = M[inds][:, inds] permutes the matrix according to the group.
+    Then, Mp[inv_inds][:, inv_inds] unpermutes the matrix back to its original form. 
+    """
+    # Create sorting indices
+    inds_and_groups = [(i, group) for i, group in enumerate(groups)]
+    inds_and_groups = sorted(inds_and_groups, key=lambda x: x[1])
+    inds = [i for (i, j) in inds_and_groups]
+
+    # Make sure we can unsort
+    p = groups.shape[0]
+    inv_inds = np.zeros(p)
+    for i, j in enumerate(inds):
+        inv_inds[j] = i
+    inv_inds = inv_inds.astype("int32")
+
+    return inds, inv_inds
+
+### Feature-statistic helpers
 
 def random_permutation_inds(length):
     """ Returns indexes which correspond to a random permutation,
@@ -108,18 +149,3 @@ def random_permutation_inds(length):
     # Reset random state and return
     np.random.set_state(st0)
     return inds, rev_inds
-
-
-# def calc_ccorr(Q11, sigma12, Q22):
-#     """ Calculates canonical correlation between
-#     two sets of variables of dimensions p and q.
-#     :param Q11: precision matrix of first set of variables.
-#     p x p numpy array.
-#     :param sigma12: covariance matrix between sets.
-#     p x q numpy array.
-#     :param Q22: precision matrix of second set of variables.
-#     q x q numpy array.
-
-#     returns: canonical correlation
-#     """
-#     pass
