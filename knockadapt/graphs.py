@@ -30,7 +30,7 @@ def AR1(p=30, a=1, b=1, tol=1e-3):
     corr_matrix = np.exp(log_corrs)
 
     # Ensure PSD-ness
-    corr_matrix = shift_until_PSD(corr_matrix, tol)
+    corr_matrix = cov2corr(shift_until_PSD(corr_matrix, tol))
 
     return corr_matrix
 

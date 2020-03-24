@@ -6,6 +6,7 @@ from scipy import stats
 
 from .utilities import chol2inv, calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
+from . import utilities
 
 # Multiprocessing tools
 from functools import partial
@@ -197,7 +198,7 @@ def solve_group_SDP(
         group_sizes[j - 1] += 1
 
     # Sort the covariance matrix according to the groups
-    inds, inv_inds = permute_matrix_by_groups(groups)
+    inds, inv_inds = utilities.permute_matrix_by_groups(groups)
     sortedSigma = Sigma[inds][:, inds]
 
     # Create blocks of semidefinite matrix S,
