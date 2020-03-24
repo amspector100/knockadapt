@@ -24,32 +24,6 @@ def TestIfCorrMatrix(Sigma):
         raise ValueError("Sigma is not a correlation matrix. Scale it properly first.")
 
 
-def permute_matrix_by_groups(groups):
-    """
-    Permute a (correlation) matrix according to a list of feature groups.
-    :param groups: a p-length array of integers.
-    returns: inds and inv_inds
-    Given a p x p matrix M, Mp = M[inds][:, inds] permutes the matrix according to the group.
-    Then, Mp[inv_inds][:, inv_inds] unpermutes the matrix back to its original form. 
-    """
-    # Create sorting indices
-    inds_and_groups = [(i, group) for i, group in enumerate(groups)]
-    inds_and_groups = sorted(inds_and_groups, key=lambda x: x[1])
-    inds = [i for (i, j) in inds_and_groups]
-
-    # Make sure we can unsort
-    p = groups.shape[0]
-    inv_inds = np.zeros(p)
-    for i, j in enumerate(inds):
-        inv_inds[j] = i
-    inv_inds = inv_inds.astype("int32")
-
-    return inds, inv_inds
-
-
-
-
-
 def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):
     """
     Calculates the minimum "group" eigenvalue of a covariance 
