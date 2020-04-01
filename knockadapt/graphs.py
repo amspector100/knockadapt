@@ -13,13 +13,20 @@ import scipy.spatial.distance as ssd
 import matplotlib.pyplot as plt
 
 
-def AR1(p=30, a=1, b=1, tol=1e-3):
+def AR1(p=30, a=1, b=1, tol=1e-3, rho=None):
     """ Generates correlation matrix for AR(1) Gaussian process,
     where $Corr(X_t, X_{t-1})$ are drawn from Beta(a,b),
-    independently for each t"""
+    independently for each t. 
+    If rho is specified, then $Corr(X_t, X_{t-1}) = rho
+    for all t."""
 
     # Generate rhos, take log to make multiplication easier
-    rhos = np.log(stats.beta.rvs(size=p, a=a, b=b))
+    if rho is None:
+        rhos = np.log(stats.beta.rvs(size=p, a=a, b=b))
+    else:
+        if np.abs(rho) > 1:
+            raise ValueError(f"rho {rho} must be a correlation between -1 and 1")
+        rhos = np.log(np.array([rho for _ in range(p)]))
     rhos[0] = 0
 
     # Log correlations between x_1 and x_i for each i

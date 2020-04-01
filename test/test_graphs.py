@@ -120,5 +120,44 @@ class TestSampleData(unittest.TestCase):
 			msg = f'Default daibarber2016 beta has {num_nonzero_features} nonzero features, expected 100'
 		)
 
+	def test_AR1_sample(self):
+
+		# Check that rho parameter works
+		rho = 0.3
+		p = 500
+		_,_,_,_,Sigma = graphs.sample_data(
+			p=p, method='AR1', rho=rho
+		)
+		np.testing.assert_almost_equal(
+			np.diag(Sigma, k=1), 
+			np.array([rho for _ in range(p-1)]),
+			decimal=4,
+			err_msg="Rho parameter for AR1 graph sampling fails"
+		)
+
+		# Error testing
+		def ARsample():
+			graphs.sample_data(method='AR1', rho=1.5)
+		self.assertRaisesRegex(
+			ValueError, "must be a correlation between -1 and 1",
+			ARsample
+		)
+
+
+		# Check that a, b parameters work
+		np.random.seed(110)
+		a = 100
+		b = 100
+		_,_,_,_,Sigma = graphs.sample_data(
+			p=500, method='AR1', a=a, b=b
+		)
+		mean_rho = np.diag(Sigma, k=1).mean()
+		expected = a/(a+b)
+		np.testing.assert_almost_equal(
+			mean_rho, a/(a+b),
+			decimal=2,
+			err_msg=f'random AR1 gen has unexpected avg rho {mean_rho} vs {expected} '
+		)
+
 if __name__ == '__main__':
 	unittest.main()
