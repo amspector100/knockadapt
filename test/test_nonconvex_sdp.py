@@ -203,6 +203,47 @@ class TestNonconvexSDP(CheckSMatrix):
                 err_msg=f'For equicorrelated cov rho={rho}, SDPgrad_solver returns {opt_S}, expected {expected}'
             )
 
+    def test_equicorrelated_soln_recycled(self):
+
+        # Main constants 
+        p = 50
+        groups = np.arange(1, p+1, 1)
+
+        # Test separately with the recycling proportion param
+        rhos = [0.1, 0.3, 0.5, 0.7, 0.9]
+        true_rec_props = [0.5, 0.25, 0.8, 0.5, 0.5]
+        for true_rec_prop, rho in zip(true_rec_props, rhos):
+            
+            # Construct Sigma
+            Sigma = np.zeros((p, p)) + rho
+            Sigma += (1-rho)*np.eye(p)
+
+            # Expected solution
+            opt_prop_rec = min(rho, 0.5)
+            max_S_val = min(1, 2-2*rho)
+            normal_opt = (1-opt_prop_rec)*max_S_val
+            new_opt = min(2-2*rho, normal_opt/(1-true_rec_prop))
+            expected = new_opt*np.eye(p)
+
+            # Test optimizer
+            opt = nonconvex_sdp.NonconvexSDPSolver(
+                Sigma=Sigma,
+                groups=groups,
+                init_S=None,
+                rec_prop=true_rec_prop
+            )
+            opt_S = opt.optimize(
+                sdp_verbose=False,
+                tol=1e-5,
+                max_epochs=300,
+                line_search_iter=10,
+            )
+            self.check_S_properties(Sigma, opt_S, groups)
+            np.testing.assert_almost_equal(
+                opt_S, expected, decimal=1,
+                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, SDPgrad_solver returns {opt_S}, expected {expected}'
+            )
+
     def test_ar1_soln(self):
 
         # Construct AR1 graph + groups

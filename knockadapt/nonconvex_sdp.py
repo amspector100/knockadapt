@@ -92,9 +92,12 @@ class FKPrecisionTraceLoss(nn.Module):
     - A list of square numpy matrices, with the ith element
     corresponding to the block of the ith group in S.
     Default: Half of the identity.
+    :param rec_prop: The proportion of data you are planning
+    to recycle. (The optimal S matrix depends on the recycling
+    proportion.)
     """
 
-    def __init__(self, Sigma, groups, init_S=None, invSigma=None):
+    def __init__(self, Sigma, groups, init_S=None, invSigma=None, rec_prop=0):
 
         super().__init__()
 
@@ -115,6 +118,8 @@ class FKPrecisionTraceLoss(nn.Module):
             invSigma = utilities.chol2inv(Sigma)
         self.invSigma = torch.from_numpy(invSigma).float()
 
+        # Save recycling proportion
+        self.rec_prop = rec_prop
 
         # Create new blocks
         if init_S is None:
@@ -158,6 +163,7 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # Create schurr complement
         S = self.pull_S()
+        S = (1 - self.rec_prop)*S # Account for recycling calcing loss
         diff = self.Sigma - S
         G_schurr = self.Sigma - torch.mm(torch.mm(diff, self.invSigma), diff)
 
