@@ -123,7 +123,7 @@ def daibarber2016_graph(
     return X, y, beta, Q, Sigma, groups + 1
 
 
-def create_correlation_tree(corr_matrix, method="single"):
+def create_correlation_tree(corr_matrix, method="average"):
     """ Creates hierarchical clustering (correlation tree)
     from a correlation matrix
     :param corr_matrix: the correlation matrix
