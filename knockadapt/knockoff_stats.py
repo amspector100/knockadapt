@@ -29,8 +29,18 @@ def use_reg_lasso(groups):
     else:
         return True
 
+def parse_y_dist(y):
+    n = y.shape[0]
+    if np.unique(y).shape[0] == 2:
+        return 'binomial'
+    elif np.unique(y).shape[0] == n:
+        return 'gaussian'
+    else:
+        raise ValueError(
+            "Please supply 'y_dist' arg (type of GLM to fit), e.g. gaussian, binomial"
+        )
 
-def parse_y_dist(kwargs):
+def parse_logistic_flag(kwargs):
     """ Checks whether y_dist is binomial """
     if "y_dist" in kwargs:
         if kwargs["y_dist"] == "binomial":
@@ -48,8 +58,9 @@ def combine_Z_stats(Z, groups, pair_agg="cd", group_agg="sum"):
     to knockoffs (in the same order as the true features).
     :param groups: p length numpy array of groups. 
     :param str pair_agg: Specifies how to create pairwise W 
-    statistics. Two options: "CD" (coefficient difference) 
-    and "SM" (signed maximum).
+    statistics. Two options: 
+        - "CD" (Coefficient difference/diff of abs values),
+        - "SM" (signed maximum).
     :param str group_agg: Specifies how to combine pairwise W
     statistics into grouped W statistics. Two options: "sum" (default)
     and "avg".
@@ -133,7 +144,7 @@ def calc_lars_path(X, knockoffs, y, groups=None, **kwargs):
     return Z[rev_inds]
 
 
-def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
+def fit_lasso(X, knockoffs, y, y_dist=None, **kwargs):
 
     # Parse some kwargs/defaults
     if "max_iter" in kwargs:
@@ -151,6 +162,8 @@ def fit_lasso(X, knockoffs, y, y_dist="gaussian", **kwargs):
         kwargs.pop("cv")
     else:
         cv = 5
+    if y_dist is None:
+        y_dist = parse_y_dist(y)
 
     # Bind data
     p = X.shape[1]
@@ -195,7 +208,7 @@ def fit_group_lasso(
     y,
     groups,
     use_pyglm=True,
-    y_dist="gaussian",
+    y_dist=None,
     group_lasso=True,
     **kwargs,
 ):
@@ -237,6 +250,8 @@ def fit_group_lasso(
         kwargs.pop("learning_rate")
     else:
         learning_rate = 2
+    if y_dist is None:
+        y_dist = parse_y_dist(y)
 
     # Bind data
     n = X.shape[0]
@@ -378,8 +393,9 @@ def lasso_statistic(
     :param bool group_lasso: If True and zstat='coef', then runs
     group lasso. Defaults to False (recommended). 
     :param str pair_agg: Specifies how to create pairwise W 
-    statistics. Two options: "CD" (coefficient difference) 
-    and "SM" (signed maximum).
+    statistics. Two options: 
+        - "CD" (Coefficient difference/diff of abs values),
+        - "SM" (signed maximum).
     :param str group_agg: Specifies how to combine pairwise W
     statistics into grouped W statistics. Two options: "sum" (default)
     and "avg".
@@ -387,15 +403,22 @@ def lasso_statistic(
     """
 
     # Possibly set default groups
+    n = X.shape[0]
     p = X.shape[1]
     if groups is None:
         groups = np.arange(1, p + 1, 1)
+
+    # Check if y_dist is gaussian, binomial, poisson
+    if 'y_dist' not in kwargs:
+        kwargs['y_dist'] = parse_y_dist(y)
+    elif kwargs['y_dist'] is None:
+        kwargs['y_dist'] = parse_y_dist(y)
 
     # Step 1: Calculate Z statistics
     zstat = str(zstat).lower()
     if zstat == "coef":
 
-        # Fit lasso
+        # Fit (possibly group) lasso
         gl, rev_inds = fit_group_lasso(
             X,
             knockoffs,
@@ -409,7 +432,7 @@ def lasso_statistic(
         # Parse the expected output format based on which
         # lasso package we are using
         reg_lasso_flag = use_reg_lasso(groups) or (not group_lasso)
-        logistic_flag = parse_y_dist(kwargs)
+        logistic_flag = parse_logistic_flag(kwargs)
 
         # Retrieve Z statistics
         if use_pyglm and not reg_lasso_flag:
