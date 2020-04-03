@@ -2,6 +2,7 @@ import numpy as np
 from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
 
+STATS = ['lasso', 'ols', 'margcorr']
 
 def mx_knockoff_filter(
     X,
@@ -9,7 +10,7 @@ def mx_knockoff_filter(
     Sigma,
     groups=None,
     knockoffs=None,
-    feature_stat_fn=knockoff_stats.lasso_statistic,
+    feature_stat_fn='lasso',
     fdr=0.10,
     feature_stat_kwargs={},
     knockoff_kwargs={"sdp_verbose": False},
@@ -28,17 +29,44 @@ def mx_knockoff_filter(
     calculate W-statistics in knockoffs. 
     Defaults to group lasso coefficient difference.
     :param fdr: Desired fdr.
+    :param feature_stat_fn: A function which takes X,
+    knockoffs, y, and groups, and returns a set of 
+    p anti-symmetric knockoff statistics. Can also
+    be one of "lasso", "ols", or "margcorr." 
     :param feature_stat_kwargs: Kwargs to pass to 
     the feature statistic.
     :param knockoff_kwargs: Kwargs to pass to the 
     knockoffs constructor.
-    :param recycle_up_to: If not None, use the first int(recycle_up_to)
-     rows of X as the first int(recycle_up_to) rows of knockoffs.
+    :param recycle_up_to: Three options:
+        - if None, does nothing.
+        - if an integer > 1, uses the first "recycle_up_to"
+        rows of X as the the first "recycle_up_to" rows of knockoffs.
+        - if a float between 0 and 1 (inclusive), interpreted
+        as the proportion of knockoffs to recycle. 
+    For more on recycling, see https://arxiv.org/abs/1602.03574
     """
 
+    # Preliminaries
+    n = X.shape[0]
     p = Sigma.shape[0]
     if groups is None:
         groups = np.arange(1, p + 1, 1)
+
+    # Parse recycle_up_to
+    if recycle_up_to is None:
+        pass
+    elif recycle_up_to <= 1:
+        recycle_up_to = int(recycle_up_to*n)
+    else:
+        recycle_up_to = int(recycle_up_to)
+
+    # Parse feature statistic function
+    if feature_stat_fn == 'lasso':
+        feature_stat_fn = knockoff_stats.lasso_statistic
+    elif feature_stat_fn == 'ols':
+        feature_stat_fn = knockoff_stats.linear_coef_diff
+    elif feature_stat_fn == 'margcorr':
+        feature_stat_fn = knockoff_stats.marg_corr_diff
 
     # Sample knockoffs
     if knockoffs is None:
