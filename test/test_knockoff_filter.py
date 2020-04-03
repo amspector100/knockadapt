@@ -10,7 +10,14 @@ from knockadapt.knockoff_filter import mx_knockoff_filter
 
 class TestFdrControl(unittest.TestCase):
 
-	def check_fdr_control(self, reps=50, q=0.2, alpha=0.05, **kwargs):
+	def check_fdr_control(
+			self, 
+			reps=50,
+			q=0.2,
+			alpha=0.05,
+			filter_kwargs={},
+			**kwargs
+		):
 
 		np.random.seed(110)
 
@@ -60,9 +67,9 @@ class TestFdrControl(unittest.TestCase):
 					y=y, 
 					Sigma=Sigma, 
 					groups=groups,
-					feature_stat_kwargs={'group_lasso':False, 'y_dist':y_dist},
 					knockoff_kwargs={'S':S, 'invSigma':invSigma, 'verbose':False},
 					fdr=q,
+					**filter_kwargs,
 				)
 
 				# Calculate fdp
@@ -72,7 +79,6 @@ class TestFdrControl(unittest.TestCase):
 			fdps = np.array(fdps)
 			fdr = fdps.mean()
 			fdr_se = fdps.std()/np.sqrt(reps)
-			print(fdps, fdr, fdr_se)
 
 			norm_quant = stats.norm.ppf(1-alpha)
 
@@ -94,7 +100,8 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=300, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15
+			n=300, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15,
+			filter_kwargs = {'feature_stat_fn':'ols'}
 		)
 
 		# Scenario 3: Dai Barber
@@ -107,8 +114,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 1: AR1 a = 1, b = 1, global null
 		self.check_fdr_control(
-			n=300, p=100, method='AR1', sparsity=0.2, y_dist ='binomial', reps=15
-		)
+			n=300, p=100, method='AR1', sparsity=0.2, y_dist ='binomial', reps=15,		)
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
@@ -125,7 +131,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 1: AR1 a = 1, b = 1, global null
 		self.check_fdr_control(
-			n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', reps=15
+			n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', reps=15,
 		)
 
 		# Scenario 2: Erdos Renyi
@@ -135,7 +141,22 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 3: Dai Barber
 		self.check_fdr_control(
-			method='daibarber2016', rho=0.4, sparsity=0.5, y_dist='gaussian', reps=15
+			method='daibarber2016', rho=0.4, sparsity=0.5, y_dist='gaussian', reps=15,
+			filter_kwargs={'feature_stat_fn':'margcorr'}
+		)
+
+	def test_recycling_control(self):
+
+		# Scenario 1: AR1, recycle half
+		self.check_fdr_control(
+			reps=15, n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', 
+			filter_kwargs={'recycle_up_to':0.5},
+		)
+
+		# Scenario 2: AR1, recycle exactly 23
+		self.check_fdr_control(
+			reps=15, n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', 
+			filter_kwargs={'recycle_up_to':28},
 		)
 
 
