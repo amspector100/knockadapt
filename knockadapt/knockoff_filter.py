@@ -2,8 +2,6 @@ import numpy as np
 from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
 
-STATS = ['lasso', 'ols', 'margcorr']
-
 def mx_knockoff_filter(
     X,
     y,
