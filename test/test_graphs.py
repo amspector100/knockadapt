@@ -117,7 +117,7 @@ class TestSampleData(unittest.TestCase):
 		def sample_bad_dist():
 			graphs.sample_data(p = 100, coeff_dist = 'baddist')
 		self.assertRaisesRegex(
-			ValueError, " must be 'none', 'normal' or 'uniform'",
+			ValueError, "must be 'none', 'normal', or 'uniform'",
 			sample_bad_dist
 		)
 	
