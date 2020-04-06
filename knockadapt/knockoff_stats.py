@@ -59,8 +59,9 @@ def combine_Z_stats(Z, groups, pair_agg="cd", group_agg="sum"):
     :param groups: p length numpy array of groups. 
     :param str pair_agg: Specifies how to create pairwise W 
     statistics. Two options: 
-        - "CD" (Coefficient difference/diff of abs values),
+        - "CD" (Difference of absolute vals of coefficients),
         - "SM" (signed maximum).
+        - "SCD" (Simple difference of coefficients - NOT recommended)
     :param str group_agg: Specifies how to combine pairwise W
     statistics into grouped W statistics. Two options: "sum" (default)
     and "avg".
@@ -76,16 +77,19 @@ def combine_Z_stats(Z, groups, pair_agg="cd", group_agg="sum"):
         groups = np.arange(1, p + 1, 1)
 
     pair_agg = str(pair_agg).lower()
-    # Coefficient differences
+    # Absolute coefficient differences
     if pair_agg == "cd":
         pair_W = np.abs(Z[0:p]) - np.abs(Z[p:])
     # Signed maxes
     elif pair_agg == "sm":
         inds = np.arange(0, p, 1)
-        pair_W = np.maximum(Z[inds], Z[inds + p])
+        pair_W = np.maximum(np.abs(Z[inds]), np.abs(Z[inds + p]))
         pair_W = pair_W * np.sign(np.abs(Z[inds]) - np.abs(Z[inds + p]))
+    # Simple coefficient differences
+    elif pair_agg == 'scd':
+        pair_W = Z[0:p] - Z[p:]
     else:
-        raise ValueError(f'pair_agg ({pair_agg}) must be one of "cd", "sm"')
+        raise ValueError(f'pair_agg ({pair_agg}) must be one of "cd", "sm", "scd"')
 
     # Step 2: Group statistics
     m = np.unique(groups).shape[0]
@@ -367,6 +371,7 @@ def lasso_statistic(
     group_lasso=False,
     pair_agg="cd",
     group_agg="avg",
+    return_Z=False,
     **kwargs,
 ):
     """
@@ -394,8 +399,9 @@ def lasso_statistic(
     group lasso. Defaults to False (recommended). 
     :param str pair_agg: Specifies how to create pairwise W 
     statistics. Two options: 
-        - "CD" (Coefficient difference/diff of abs values),
+        - "CD" (Difference of absolute vals of coefficients),
         - "SM" (signed maximum).
+        - "SCD" (Simple difference of coefficients - NOT recommended)
     :param str group_agg: Specifies how to combine pairwise W
     statistics into grouped W statistics. Two options: "sum" (default)
     and "avg".
@@ -454,10 +460,20 @@ def lasso_statistic(
 
     # Combine Z statistics
     W_group = combine_Z_stats(Z, groups, pair_agg=pair_agg, group_agg=group_agg)
+    # Possibly return both Z and W
+    if return_Z:
+        return W_group, Z    
     return W_group
 
 
-def marg_corr_diff(X, knockoffs, y, groups=None, **kwargs):
+def marg_corr_diff(
+    X,
+    knockoffs,
+    y,
+    groups=None,
+    return_Z=False,
+    **kwargs,
+):
     """
     Marginal correlations used as Z statistics. 
     :param X: n x p design matrix
@@ -474,10 +490,20 @@ def marg_corr_diff(X, knockoffs, y, groups=None, **kwargs):
 
     # Combine
     W = combine_Z_stats(correlations, groups, **kwargs)
+    # Possibly return both Z and W
+    if return_Z:
+        return W, correlations
     return W
 
 
-def linear_coef_diff(X, knockoffs, y, groups=None, **kwargs):
+def linear_coef_diff(
+    X, 
+    knockoffs,
+    y,
+    groups=None,
+    return_Z=False,
+    **kwargs
+):
     """
     Linear regression coefficients used as Z statistics.
     :param X: n x p design matrix
@@ -509,6 +535,9 @@ def linear_coef_diff(X, knockoffs, y, groups=None, **kwargs):
 
     # Combine with groups to create W-statistic
     W = combine_Z_stats(Z, groups, **kwargs)
+    # Possibly return both Z and W
+    if return_Z:
+        return W, Z
     return W
 
 

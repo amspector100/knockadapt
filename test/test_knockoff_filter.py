@@ -6,7 +6,7 @@ from .context import knockadapt
 from knockadapt import utilities
 from knockadapt import graphs
 from knockadapt.knockoffs import solve_group_SDP
-from knockadapt.knockoff_filter import mx_knockoff_filter
+from knockadapt.knockoff_filter import MXKnockoffFilter
 
 class TestFdrControl(unittest.TestCase):
 
@@ -62,7 +62,8 @@ class TestFdrControl(unittest.TestCase):
 					y_dist = 'gaussian'
 
 				# Run MX knockoff filter
-				selections = mx_knockoff_filter(
+				mxfilter = MXKnockoffFilter()
+				selections = mxfilter.forward(
 					X=X, 
 					y=y, 
 					Sigma=Sigma, 
@@ -71,6 +72,7 @@ class TestFdrControl(unittest.TestCase):
 					fdr=q,
 					**filter_kwargs,
 				)
+				del mxfilter
 
 				# Calculate fdp
 				fdp = np.sum(selections*(1-group_nonnulls))/max(1, np.sum(selections))

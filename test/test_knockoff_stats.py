@@ -144,7 +144,7 @@ class TestGroupLasso(unittest.TestCase):
 						msg = f'group-lasso fits logistic very poorly (corr = {corr2} btwn real/fitted coeffs)')
 
 
-		# Test again, fitting regular lasso
+		# Test again, fitting logistic (regular) lasso
 		glasso3, rev_inds3 = knockoff_stats.fit_lasso(
 			X = X, knockoffs = fake_knockoffs, y = y, y_dist = None,
 			max_iter = 50
@@ -155,6 +155,73 @@ class TestGroupLasso(unittest.TestCase):
 						msg = f'SKlearn lasso fits logistic very poorly (corr = {corr3} btwn real/fitted coeffs)'
 		)
 
+
+	def test_antisymmetric_fns(self):
+
+		n = 100
+		p = 20
+		np.random.seed(110)
+		X, y, beta, _, corr_matrix = graphs.sample_data(
+			n = n, p = p, y_dist = 'gaussian', 
+			coeff_size = 100, sign_prob = 1
+		)		
+		groups = np.arange(1, p+1, 1)
+
+		# These are not real, just helpful syntatically
+		fake_knockoffs = np.zeros((n, p))
+
+		# Run to make sure there are no errors for
+		# different pair_aggs
+		np.random.seed(110)
+		W_cd, Z_cd = knockoff_stats.lasso_statistic(
+			X = X, 
+			knockoffs = fake_knockoffs,
+			y = y, 
+			y_dist = None,
+			return_Z = True,
+			pair_agg='cd'
+		)
+		W_cd[np.abs(W_cd) < 10] = 0
+		Z_cd[np.abs(Z_cd) < 10] = 0
+		np.testing.assert_array_almost_equal(
+			W_cd, -1*Z_cd[0:p], 
+			err_msg = 'pair agg CD returns weird W stats'
+		)
+
+
+		# Run to make sure there are no errors for
+		# different pair_aggs
+		np.random.seed(110)
+		W_sm, Z_sm = knockoff_stats.lasso_statistic(
+			X = X, 
+			knockoffs = fake_knockoffs,
+			y = y, 
+			y_dist = None,
+			return_Z = True,
+			pair_agg='sm'
+		)
+		np.testing.assert_array_almost_equal(
+			W_sm, np.abs(Z_sm[0:p]), decimal=3,
+			err_msg = 'pair agg SM returns weird W stats'
+		)
+
+		# Run to make sure there are no errors for
+		# different pair_aggs
+		np.random.seed(110)
+		W_scd, Z_scd = knockoff_stats.lasso_statistic(
+			X = X, 
+			knockoffs = fake_knockoffs,
+			y = y, 
+			y_dist = None,
+			return_Z = True,
+			pair_agg='scd'
+		)
+		W_scd[np.abs(W_scd) < 10] = 0
+		Z_scd[np.abs(Z_scd) < 10] = 0
+		np.testing.assert_array_almost_equal(
+			W_scd, Z_scd[0:p], 
+			err_msg = 'pair agg SCD returns weird W stats'
+		)
 
 class TestDataThreshhold(unittest.TestCase):
 	""" Tests data-dependent threshhold """
