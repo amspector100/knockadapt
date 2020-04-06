@@ -77,6 +77,67 @@ class TestSampleData(unittest.TestCase):
 		self.assertTrue(selected_groups == expected_nonnull_groups,
 						msg = 'group sparsity parameter does not choose coeffs within a group' )
 
+	def test_coeff_dist(self):
+
+		# Test normal
+		np.random.seed(110)
+		p = 1000
+		_, _, beta, _, _ = graphs.sample_data(
+			p = p, sparsity = 1, coeff_size=1,
+			coeff_dist = 'normal', sign_prob = 0
+		)
+		expected = 1
+		mean_est = beta.mean()
+		self.assertTrue(
+			np.abs(mean_est - expected) < 0.1,
+			msg = f"coeff_dist (normal) mean is wrong: expected mean 1 but got mean {mean_est}"
+		)
+
+
+		# Test uniform
+		np.random.seed(110)
+		p = 1000
+		_, _, beta, _, _ = graphs.sample_data(
+			p = p, sparsity = 1, coeff_size=1,
+			coeff_dist = 'uniform', sign_prob = 0
+		)
+		expected = 0.5
+		mean_est = beta.mean()
+		self.assertTrue(
+			np.abs(mean_est - expected) < 0.1,
+			msg = f"coeff_dist (uniform) mean is wrong: expected mean 1 but got mean {mean_est}"
+		)
+		mbeta = np.max(beta)
+		self.assertTrue(
+			mbeta <= 1,
+			msg = f'coeff_dist (uniform) produces max beta abs of {mbeta} > 1 for coeff_size = 1'
+		)
+
+		# Test Value-Error
+		def sample_bad_dist():
+			graphs.sample_data(p = 100, coeff_dist = 'baddist')
+		self.assertRaisesRegex(
+			ValueError, " must be 'normal' or 'uniform",
+			sample_bad_dist
+		)
+	
+	def test_beta_sign_prob(self):
+
+
+		# Test signs of beta
+		p = 100
+		for sign_prob in [0, 1]:
+			_, _, beta, _, _ = graphs.sample_data(
+				p = p, sparsity = 1, coeff_size=1,
+				sign_prob = sign_prob
+			)
+			sum_beta = beta.sum()
+			expected = p*(1 - 2*sign_prob)
+			self.assertTrue(
+				sum_beta == expected,
+				msg = f"sign_prob ({sign_prob}) fails to correctly control sign of beta"
+			)
+
 
 	def test_daibarber2016_sample(self):
 

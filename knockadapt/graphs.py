@@ -76,6 +76,8 @@ def daibarber2016_graph(
     rho=0.5,
     gamma=0,
     coeff_size=3.5,
+    coeff_dist=None,
+    sign_prob=0.5,
     **kwargs,
 ):
     """ Same data-generating process as Dai and Barber 2016
@@ -111,7 +113,12 @@ def daibarber2016_graph(
 
     # Create beta
     beta = create_sparse_coefficients(
-        p=p, sparsity=sparsity, coeff_size=coeff_size, groups=groups
+        p=p, 
+        sparsity=sparsity,
+        coeff_size=coeff_size,
+        groups=groups,
+        sign_prob=sign_prob,
+        coeff_dist=coeff_dist,
     )
 
     # Sample design matrix
@@ -154,7 +161,14 @@ def create_correlation_tree(corr_matrix, method="average"):
     return link
 
 
-def create_sparse_coefficients(p, sparsity=0.5, groups=None, coeff_size=10):
+def create_sparse_coefficients(
+    p, 
+    sparsity=0.5,
+    groups=None, 
+    coeff_size=1,
+    coeff_dist=None,
+    sign_prob=0.5,
+):
     """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
     which are then plus/minus coeff_size with equal probability.
     :param p: Dimensionality of coefficients
@@ -169,6 +183,11 @@ def create_sparse_coefficients(p, sparsity=0.5, groups=None, coeff_size=10):
     where each feature in the selected groups will 
     have a nonzero coefficient.
     :type groups: np.ndarray
+    :param sign_prob: The probability that each nonzero coefficient
+    will be positive. (Signs are assigned independently.)
+    :param coeff_dist: If None, all coefficients have absolute value 
+    coeff_size. If "normal", all nonzero coefficients are drawn
+    from N(coeff_size, 1). If "uniform", drawn from Unif(0, coeff_size).
     :return: p-length numpy array of sparse coefficients"""
 
     # First, decide which coefficients are nonzero, one of two methods
@@ -189,9 +208,22 @@ def create_sparse_coefficients(p, sparsity=0.5, groups=None, coeff_size=10):
         beta = np.array([coeff_size] * num_nonzero + [0] * (p - num_nonzero))
         np.random.shuffle(beta)
 
-    # Now add random signs
-    signs = 1 - 2 * stats.bernoulli.rvs(0.5, size=p)
+    # Now draw random signs
+    signs = 1 - 2 * stats.bernoulli.rvs(sign_prob, size=p)
+
+    # Possibly change the absolute values of beta
+    if coeff_dist is not None:
+        beta_nonzeros = (beta != 0)
+        if str(coeff_dist).lower() == 'normal':
+            beta = (beta + np.random.randn(p))*beta_nonzeros
+        elif str(coeff_dist).lower() == 'uniform':
+            beta = beta*np.random.uniform(size=p)
+        else:
+            raise ValueError(f"coeff_dist ({coeff_dist}) must be 'normal' or 'uniform")
+
     beta = beta * signs
+
+
     return beta
 
 
@@ -222,9 +254,11 @@ def sample_data(
     corr_matrix=None,
     beta=None,
     coeff_size=1,
+    coeff_dist=None,
     sparsity=0.5,
     groups=None,
     y_dist="gaussian",
+    sign_prob=0.5,
     **kwargs,
 ):
     """ Creates a random covariance matrix using method
@@ -268,7 +302,13 @@ def sample_data(
             Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
-                p=p, n=n, coeff_size=coeff_size, sparsity=sparsity, **kwargs
+                p=p, 
+                n=n, 
+                coeff_size=coeff_size,
+                coeff_dist=coeff_dist, 
+                sparsity=sparsity, 
+                sign_prob=sign_prob,
+                **kwargs
             )
         else:
             raise ValueError("Other methods not implemented yet")
@@ -283,7 +323,12 @@ def sample_data(
     # Create sparse coefficients
     if beta is None:
         beta = create_sparse_coefficients(
-            p=p, sparsity=sparsity, coeff_size=coeff_size, groups=groups
+            p=p, 
+            sparsity=sparsity,
+            coeff_size=coeff_size,
+            groups=groups,
+            sign_prob=sign_prob,
+            coeff_dist=coeff_dist,
         )
 
     # Sample design matrix
