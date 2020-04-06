@@ -218,12 +218,12 @@ def create_sparse_coefficients(
             beta = (beta + np.random.randn(p))*beta_nonzeros
         elif str(coeff_dist).lower() == 'uniform':
             beta = beta*np.random.uniform(size=p)
+        elif str(coeff_dist).lower() == 'none':
+            pass
         else:
-            raise ValueError(f"coeff_dist ({coeff_dist}) must be 'normal' or 'uniform")
+            raise ValueError(f"coeff_dist ({coeff_dist}) must be 'none', 'normal', or 'uniform'")
 
     beta = beta * signs
-
-
     return beta
 
 
