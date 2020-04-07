@@ -132,7 +132,6 @@ class TestEquicorrelated(CheckSMatrix):
 
 		# Create for various groups
 		groups = np.random.randint(1, p, size=(p))
-		print(groups)
 		groups = utilities.preprocess_groups(groups)
 		S = knockoffs.equicorrelated_block_matrix(Sigma=V, groups=groups)
 
@@ -167,7 +166,8 @@ class TestSDP(CheckSMatrix):
 		# Repeat for group_gaussian_knockoffs method
 		_, S_triv2 = knockoffs.group_gaussian_knockoffs(
 			X = X, Sigma = corr_matrix, groups = trivial_groups, 
-			return_S = True, sdp_verbose = False, verbose = False
+			return_S = True, sdp_verbose = False, verbose = False,
+			method = 'sdp'
 		)
 		np.testing.assert_array_almost_equal(
 			S_triv2, np.eye(p), decimal = 2, 
@@ -181,7 +181,8 @@ class TestSDP(CheckSMatrix):
 		)
 		_, S_harder = knockoffs.group_gaussian_knockoffs(
 			X = X, Sigma = corr_matrix, groups = groups, 
-			return_S = True, sdp_verbose = False, verbose = False
+			return_S = True, sdp_verbose = False, verbose = False,
+			method = 'sdp'
 		)
 		np.testing.assert_almost_equal(
 			S_harder, expected_out, decimal = 2,
@@ -251,13 +252,75 @@ class TestSDP(CheckSMatrix):
 		)
 
 
-class testKnockoffs(unittest.TestCase):
+class TestKnockoffs(unittest.TestCase):
 	""" Tests whether knockoffs have correct distribution empirically"""
+
+	def test_method_parser(self):
+
+		# Easiest test
+		method1 = 'hello'
+		out1 = knockoffs.parse_method(method1, None, None)
+		self.assertTrue(
+			out1 == method1, 
+			"parse method fails to return non-None methods"
+		)
+
+		# Default is TFKP
+		p = 1000
+		groups = np.arange(1, p+1, 1)
+		out2 = knockoffs.parse_method(None, groups, p)
+		self.assertTrue(
+			out2 == 'tfkp', 
+			"parse method fails to return tfkp by default"
+		)
+
+		# Otherwise SDP
+		groups[-1] = 1
+		out2 = knockoffs.parse_method(None, groups, p)
+		self.assertTrue(
+			out2 == 'sdp', 
+			"parse method fails to return SDP for grouped knockoffs"
+		)
+
+		# Otherwise ASDP
+		p = 1001
+		groups = np.ones(p)
+		out2 = knockoffs.parse_method(None, groups, p)
+		self.assertTrue(
+			out2 == 'asdp', 
+			"parse method fails to return asdp for large p"
+		)
+
+	def test_error_raising(self):
+
+		# Generate data
+		n = 10
+		p = 100
+		X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
+			n = n, p = p, gamma = 1, rho = 0.8
+		)
+		S_bad = np.eye(p)
+
+		def fdr_vio_knockoffs():
+			knockoffs.group_gaussian_knockoffs(
+				X = X, 
+				Sigma = corr_matrix,
+				S=S_bad,
+				sdp_verbose = False, 
+				verbose = False
+			)
+
+		self.assertRaisesRegex(
+			np.linalg.LinAlgError,
+			"meaning FDR control violations are extremely likely",
+			fdr_vio_knockoffs, 
+		)
 
 	def test_ungrouped_knockoffs(self):
 
 
-		# Test knockoff construction
+		# Test knockoff construction for TFKP and SDP
+		# on equicorrelated matrices
 		n = 100000
 		copies = 3
 		p = 10
@@ -265,47 +328,54 @@ class testKnockoffs(unittest.TestCase):
 
 			for gamma in [0, 0.5, 1]:
 
-				X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
-					n = n, p = p, gamma = gamma, rho = rho
-				)
-				# S matrix
-				trivial_groups = np.arange(0, p, 1) + 1
-				all_knockoffs, S = knockoffs.group_gaussian_knockoffs(
-					X = X, Sigma = corr_matrix, groups = trivial_groups, 
-					copies = copies, return_S = True,
-					sdp_verbose = False, verbose = False
-				)
+				for method in ['tfkp', 'sdp']:
 
-				# Calculate empirical covariance matrix
-				knockoff_copy = all_knockoffs[:, :, 0]
-				features = np.concatenate([X, knockoff_copy], axis = 1)
-				G = np.corrcoef(features, rowvar = False)
-				
-				# Now we need to show G has the correct structure - three tests
-				np.testing.assert_array_almost_equal(
-					G[:p, :p], corr_matrix, decimal = 2,
-					err_msg = f'''Empirical corr matrix btwn X and knockoffs
-					has incorrect values (specifically, cov(X, X) section)
-					Daibarber graph, rho = {rho}, gamma = {gamma}
-					'''
-				)
+					X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
+						n = n, p = p, gamma = gamma, rho = rho
+					)
+					# S matrix
+					trivial_groups = np.arange(0, p, 1) + 1
+					all_knockoffs, S = knockoffs.group_gaussian_knockoffs(
+						X = X, 
+						Sigma = corr_matrix,
+						groups = trivial_groups, 
+						copies = copies,
+						method = method, 
+						return_S = True,
+						sdp_verbose = False, 
+						verbose = False
+					)
 
-				# Cov(X, knockoffs)
-				np.testing.assert_array_almost_equal(
-					corr_matrix - G[p:, :p], S, decimal = 2,
-					err_msg = f'''Empirical corr matrix btwn X and knockoffs
-					has incorrect values (specifically, cov(X, knockoffs) section)
-					Daibarber graph, rho = {rho}, gamma = {gamma}
-					'''
-				)
-				# Cov(knockoffs, knockoffs)
-				np.testing.assert_array_almost_equal(
-					G[p:, p:], corr_matrix, decimal = 2,
-					err_msg = f'''Empirical corr matrix btwn X and knockoffs
-					has incorrect values (specifically, cov(knockoffs, knockoffs) section)
-					Daibarber graph, rho = {rho}, gamma = {gamma}
-					'''
-				)
+					# Calculate empirical covariance matrix
+					knockoff_copy = all_knockoffs[:, :, 0]
+					features = np.concatenate([X, knockoff_copy], axis = 1)
+					G = np.corrcoef(features, rowvar = False)
+					
+					# Now we need to show G has the correct structure - three tests
+					np.testing.assert_array_almost_equal(
+						G[:p, :p], corr_matrix, decimal = 2,
+						err_msg = f'''Empirical corr matrix btwn X and knockoffs
+						has incorrect values (specifically, cov(X, X) section)
+						Daibarber graph, rho = {rho}, gamma = {gamma}
+						'''
+					)
+
+					# Cov(X, knockoffs)
+					np.testing.assert_array_almost_equal(
+						corr_matrix - G[p:, :p], S, decimal = 2,
+						err_msg = f'''Empirical corr matrix btwn X and knockoffs
+						has incorrect values (specifically, cov(X, knockoffs) section)
+						Daibarber graph, rho = {rho}, gamma = {gamma}
+						'''
+					)
+					# Cov(knockoffs, knockoffs)
+					np.testing.assert_array_almost_equal(
+						G[p:, p:], corr_matrix, decimal = 2,
+						err_msg = f'''Empirical corr matrix btwn X and knockoffs
+						has incorrect values (specifically, cov(knockoffs, knockoffs) section)
+						Daibarber graph, rho = {rho}, gamma = {gamma}
+						'''
+					)
 
 
 if __name__ == '__main__':

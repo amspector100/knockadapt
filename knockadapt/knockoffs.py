@@ -7,6 +7,7 @@ from scipy import stats
 from .utilities import chol2inv, calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
 from . import utilities
+from . import nonconvex_sdp
 
 # Multiprocessing tools
 from functools import partial
@@ -115,7 +116,7 @@ def solve_group_SDP(
 ):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
-    Candes et al 2018 (MX Knockoffs)"
+    Candes et al 2018 (MX Knockoffs)
     :param Sigma: true covariance (correlation) matrix, 
     p by p numpy array.
     :param groups: numpy array of length p with
@@ -167,9 +168,7 @@ def solve_group_SDP(
     # Figure out sizes of groups
     p = Sigma.shape[0]
     m = groups.max()
-    group_sizes = np.zeros(m)
-    for j in groups:
-        group_sizes[j - 1] += 1
+    group_sizes = utilities.calc_group_sizes(groups)
 
     # Sort the covariance matrix according to the groups
     inds, inv_inds = utilities.permute_matrix_by_groups(groups)
@@ -395,21 +394,35 @@ def solve_group_ASDP(
 
     return S
 
+def parse_method(method, groups, p):
+    """ Decides which method to use to create the 
+    knockoff S matrix """ 
+    if method is not None:
+        return method
+    if np.all(groups == np.arange(1,p+1,1)):
+        method = 'tfkp'
+    else:
+        if p > 1000:
+            method = 'asdp'
+        else:
+            method = 'sdp'
+    return method
 
 def group_gaussian_knockoffs(
     X,
     Sigma,
-    groups,
+    groups=None,
     invSigma=None,
     copies=1,
     sample_tol=1e-5,
     sdp_tol=1e-2,
     S=None,
-    method="sdp",
+    method=None,
     objective="pnorm",
     return_S=False,
     verbose=True,
     sdp_verbose=True,
+    rec_prop=0,
     **kwargs,
 ):
     """ Constructs group Gaussian MX knockoffs:
@@ -422,10 +435,29 @@ def group_gaussian_knockoffs(
     :param copies: integer number of knockoff copies of each observation to draw
     :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
     and will be constructed by knockoff generator.
-    :param method: How to constructe S matrix, either 'sdp' or 'equicorrelated'
+    :param method: How to constructe S matrix. There are three options:
+        - 'equicorrelated': In this construction, the correlation between 
+        each feature and its knockoff is the same (gamma). Minimizes this 
+        gamma while preserving validity. See Dai and Barber 2016 for the
+        group equicorrelated construction.
+        - 'sdp': solves a convex semidefinite program to minimize the 
+        (absolute) correlation between the features and their knockoffs
+        while keeping knockoffs valid.
+        - 'asdp': Same as SDP, but to increase speed, approximates correlation
+        matrix as a block-diagonal matrix.
+        - 'tfkp': minimizes trace of feature-knockoff precision matrix. Solves this
+        (nonconvex) problem with projected gradient, using either SDP or ASDP 
+        to initialize. 
+    The default is to use TFKP for non-group knockoffs, and to use the group-SDP
+    for grouped knockoffs. In both cases we use the ASDP if p > 1000.
     :param objective: How to optimize the S matrix if using SDP.
     There are several options:
         - 'abs': minimize sum(abs(Sigma - S))
+        between groups and the group knockoffs.
+        - 'pnorm': minimize Lp-th matrix norm.
+        Equivalent to abs when p = 1.
+        - 'norm': minimize different type of matrix norm
+        (see norm_type below).
     :param sample_tol: Minimum eigenvalue allowed for cov matrix of knockoffs.
     Keep this extremely small (1e-5): it's just to prevent linalg errors downstream.
     :param sdp_tol: Minimum eigenvalue allowed for grahm matrix of knockoff 
@@ -434,6 +466,11 @@ def group_gaussian_knockoffs(
     feature-knockoff combinations may become unidentifiable.
     :param bool verbose: If true, will print stuff as it goes
     :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
+    :param rec_prop: The proportion of knockoffs you are planning to recycle
+    (see Barber and Candes 2018, https://arxiv.org/abs/1602.03574). If 
+    method = 'tfkp',then the method takes this into account and should 
+    dramatically increase the power of recycled knockoffs, especially in
+    sparsely-correlated, high-dimensional settings.
     :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
     
     returns: copies x n x p numpy array of knockoffs"""
@@ -441,11 +478,15 @@ def group_gaussian_knockoffs(
     # I follow the notation of Katsevich et al. 2019
     n = X.shape[0]
     p = X.shape[1]
-
+    if groups is None:
+        groups = np.arange(1, p+1, 1)
     if groups.shape[0] != p:
         raise ValueError(
             f"Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match"
         )
+
+    # Parse which method to use if not supplied
+    method = parse_method(method, groups, p)
 
     # Get precision matrix
     if invSigma is None:
@@ -473,7 +514,7 @@ def group_gaussian_knockoffs(
                 **kwargs,
             )
         elif method == "equicorrelated":
-            S = equicorrelated_block_matrix(Sigma, groups, *kwargs)
+            S = equicorrelated_block_matrix(Sigma, groups, **kwargs)
         elif method == "asdp":
             S = solve_group_ASDP(
                 Sigma,
@@ -483,9 +524,27 @@ def group_gaussian_knockoffs(
                 sdp_verbose=sdp_verbose,
                 **kwargs,
             )
+        elif method == 'tfkp':
+            S_init = solve_group_ASDP(
+                Sigma,
+                groups,
+                objective=objective,
+                verbose=verbose,
+                sdp_verbose=sdp_verbose,
+                max_block=500,
+                tol=sample_tol,
+                **kwargs,
+            )
+            opt = nonconvex_sdp.NonconvexSDPSolver(
+                Sigma=Sigma,
+                groups=groups,
+                init_S=S,
+                rec_prop=rec_prop
+            )
+            S = opt.optimize(max_epochs=1000)
         else:
             raise ValueError(
-                f'Method must be one of "equicorrelated", "asdp", "sdp", not {method}'
+                f'Method must be one of "equicorrelated", "sdp", "asdp", "tfkp" not {method}'
             )
     else:
         pass
