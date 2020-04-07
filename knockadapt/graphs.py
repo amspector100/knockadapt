@@ -185,9 +185,12 @@ def create_sparse_coefficients(
     :type groups: np.ndarray
     :param sign_prob: The probability that each nonzero coefficient
     will be positive. (Signs are assigned independently.)
-    :param coeff_dist: If None, all coefficients have absolute value 
-    coeff_size. If "normal", all nonzero coefficients are drawn
-    from N(coeff_size, 1). If "uniform", drawn from Unif(0, coeff_size).
+    :param coeff_dist: Three options:
+        - If None, all coefficients have absolute value 
+    coeff_size.
+        - If "normal", all nonzero coefficients are drawn
+    from N(coeff_size, 1). 
+        - If "uniform", drawn from Unif(coeff_size/2, coeff_size).
     :return: p-length numpy array of sparse coefficients"""
 
     # First, decide which coefficients are nonzero, one of two methods
@@ -217,7 +220,7 @@ def create_sparse_coefficients(
         if str(coeff_dist).lower() == 'normal':
             beta = (beta + np.random.randn(p))*beta_nonzeros
         elif str(coeff_dist).lower() == 'uniform':
-            beta = beta*np.random.uniform(size=p)
+            beta = beta*np.random.uniform(size=p)/2 + beta/2
         elif str(coeff_dist).lower() == 'none':
             pass
         else:

@@ -101,16 +101,21 @@ class TestSampleData(unittest.TestCase):
 			p = p, sparsity = 1, coeff_size=1,
 			coeff_dist = 'uniform', sign_prob = 0
 		)
-		expected = 0.5
+		expected = 0.75
 		mean_est = beta.mean()
 		self.assertTrue(
 			np.abs(mean_est - expected) < 0.1,
 			msg = f"coeff_dist (uniform) mean is wrong: expected mean 1 but got mean {mean_est}"
 		)
-		mbeta = np.max(beta)
+		maxbeta = np.max(beta)
 		self.assertTrue(
-			mbeta <= 1,
-			msg = f'coeff_dist (uniform) produces max beta abs of {mbeta} > 1 for coeff_size = 1'
+			maxbeta <= 1,
+			msg = f'coeff_dist (uniform) produces max beta abs of {maxbeta} > 1 for coeff_size = 1'
+		)
+		minbeta = np.min(beta)
+		self.assertTrue(
+			minbeta >= 0.5,
+			msg = f'coeff_dist (uniform) produces min beta abs of {minbeta} 0.5 for coeff_size = 1'
 		)
 
 		# Test Value-Error
