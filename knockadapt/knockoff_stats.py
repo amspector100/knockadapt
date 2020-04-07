@@ -587,7 +587,7 @@ def data_dependent_threshhold(W, fdr=0.10, offset=1):
     ratios = (negatives + offset) / positives
 
     # Add zero as an option to prevent index errors
-    # (zero means select everything)
+    # (zero means select everything strictly > 0)
     sorted_W = np.concatenate([sorted_W, np.zeros((1, batch))], axis=0)
 
     # Find maximum indexes satisfying FDR control
@@ -599,6 +599,16 @@ def data_dependent_threshhold(W, fdr=0.10, offset=1):
 
     # Find Ts
     acceptable = np.abs(sorted_W)[T_inds, more_inds][0]
+
+    # Replace 0s with a very small value to ensure that
+    # downstream you don't select W statistics == 0.
+    # This value is the smallest abs value of nonzero W
+    if np.sum(acceptable == 0) != 0:
+        W_new = W.copy() 
+        W_new[W_new==0] = np.abs(W).max()
+        zero_replacement = np.abs(W_new).min(axis=0)
+        acceptable[acceptable==0] = zero_replacement[acceptable==0]
+
     if batch == 1:
         acceptable = acceptable[0]
 

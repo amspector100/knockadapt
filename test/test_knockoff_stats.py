@@ -49,11 +49,11 @@ class TestGroupLasso(unittest.TestCase):
 			msg = 'marg_corr_diff statistic calculates correlations incorrectly'
 		)
 
-	def test_lars_fit(self):
+	def test_lars_solver_fit(self):
 		""" Tests power of lars lasso solver """
 
 		# Get DGP, knockoffs, S matrix
-		np.random.seed(110)
+		np.random.seed(1)
 		p = 100
 		n = 150
 		rho = 0.7
@@ -69,10 +69,12 @@ class TestGroupLasso(unittest.TestCase):
 			coeff_dist="uniform"
 		)
 		S = (1-rho)*np.eye(p)
+		groups = np.arange(1, p+1, 1)
 		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
 			X=X,
 			Sigma=V,
 			S=S,
+			groups=groups,
 		)[:,:,0]
 		# Test lars solver
 		W, Z = knockoff_stats.lasso_statistic(
@@ -85,12 +87,15 @@ class TestGroupLasso(unittest.TestCase):
 		T = data_dependent_threshhold(W, fdr = 0.2)
 		selections = (W >= T).astype('float32')
 		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
+		fdp = ((beta == 0)*selections).sum()/max(np.sum(selections), 1)
 		self.assertTrue(
 			power==1.0,
 			msg = f"Power {power} for LARS solver in equicor case should be 1"
 		)
 
-	def test_lars_fit(self):
+
+
+	def test_lars_path_fit(self):
 		""" Tests power of lars path statistic """
 		# Get DGP, knockoffs, S matrix
 		np.random.seed(110)
@@ -108,10 +113,12 @@ class TestGroupLasso(unittest.TestCase):
 			sign_prob=0.5,
 		)
 		S = (1-rho)*np.eye(p)
+		groups = np.arange(1, p+1, 1)
 		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
 			X=X,
 			Sigma=V,
 			S=S,
+			groups=groups,
 		)[:,:,0]
 		# Repeat for LARS path statistic
 		# Test lars solver
@@ -312,7 +319,8 @@ class TestDataThreshhold(unittest.TestCase):
 
 		W1 = np.array([1, -2, 3, 6, 3, -2, 1, 2, 5, 3, 0.5, 1, 1, 1, 1, 1, 1, 1])
 		T1 = data_dependent_threshhold(W1, fdr = 0.2)
-		self.assertTrue(T1==0, msg=f'Incorrect data dependent threshhold: T1 should be 0, not {T1}')
+		expected = np.abs(W1).min()
+		self.assertTrue(T1==expected, msg=f'Incorrect data dependent threshhold: T1 should be 0, not {T1}')
 
 		W2 = np.array([-1, -2, -3])
 		T2 = data_dependent_threshhold(W2, fdr = 0.3)
@@ -329,11 +337,26 @@ class TestDataThreshhold(unittest.TestCase):
 		W3 = np.array([-1]*10)
 		combined = np.stack([W1, W2, W3]).transpose()
 		Ts = data_dependent_threshhold(combined, fdr = 0.2)
-		expected = np.array([0, 2, np.inf])
+		expected = np.array([1, 2, np.inf])
 		np.testing.assert_array_almost_equal(
 			Ts, expected, 
 			err_msg = f"Incorrect data dependent threshhold (batched): Ts should be {expected}, not {Ts}"
 		)
+
+	def test_zero_handling(self):
+		""" Makes sure Ts != 0 """
+
+		W1 = np.array([1]*10 + [0]*10)
+		W2 = np.array([-2, -1, 1, 2, 3, 4, 5, 6, 7, 8] + [0]*10)
+		W3 = np.array([-1]*10 + [0]*10)
+		combined = np.stack([W1, W2, W3]).transpose()
+		Ts = data_dependent_threshhold(combined, fdr = 0.2)
+		expected = np.array([1, 2, np.inf])
+		np.testing.assert_array_almost_equal(
+			Ts, expected, 
+			err_msg = f"Incorrect data dependent threshhold (batched): Ts should be {expected}, not {Ts}"
+		)
+
 
 if __name__ == '__main__':
 	unittest.main()

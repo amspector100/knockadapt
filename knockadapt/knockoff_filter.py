@@ -31,6 +31,7 @@ class MXKnockoffFilter():
             # Combine
             knockoffs = np.concatenate((rec_knockoffs, new_knockoffs), axis=0)
 
+        self.knockoffs = knockoffs
         return knockoffs
 
     def make_selections(self, W, fdr):

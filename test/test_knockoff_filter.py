@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 from scipy import stats
 import unittest
@@ -16,6 +17,7 @@ class TestFdrControl(unittest.TestCase):
 			q=0.2,
 			alpha=0.05,
 			filter_kwargs={},
+			S=None,
 			**kwargs
 		):
 
@@ -40,7 +42,8 @@ class TestFdrControl(unittest.TestCase):
 		for name, groups in zip([name1, name2], [groups1, groups2]):
 				
 			# Solve SDP
-			S = solve_group_SDP(Sigma, groups=groups)
+			if S is None:
+				S = solve_group_SDP(Sigma, groups=groups)
 			invSigma = utilities.chol2inv(Sigma)
 			group_nonnulls = utilities.fetch_group_nonnulls(beta, groups)
 
@@ -49,6 +52,7 @@ class TestFdrControl(unittest.TestCase):
 
 			# Sample data reps times
 			for j in range(reps):
+				np.random.seed(j)
 				X, y, _, _, _ = graphs.sample_data(
 					corr_matrix=Sigma,
 					beta=beta,
@@ -161,6 +165,52 @@ class TestMXKnockoffFilter(TestFdrControl):
 			filter_kwargs={'recycle_up_to':28},
 		)
 
+	@pytest.mark.slow
+	def test_lars_control(self):
+
+		# Scenario 1: daibarber2016
+		p = 500
+		rho = 0.3
+		S = (1-rho)*np.eye(p)
+		self.check_fdr_control(
+			reps=10, 
+			n=1000,
+			p=p,
+			S=S,
+			method='daibarber2016',
+			gamma=1,
+			rho=rho,
+			sparsity=0.5, 
+			y_dist='gaussian', 
+			coeff_dist='uniform', 
+			coeff_size=5, 
+			filter_kwargs={
+				'feature_stat_kwargs':{'use_lars':True}
+			},
+		)
+
+	@pytest.mark.quick
+	def test_selection_procedure(self):
+
+		mxfilter = MXKnockoffFilter()
+		W1 = np.concatenate([np.ones(10), -0.4*np.ones(100)])
+		selections = mxfilter.make_selections(W1, fdr=0.1)
+		num_selections = np.sum(selections)
+		expected = np.sum(W1 > 0)
+		self.assertTrue(
+			 num_selections == expected,
+			f"selection procedure makes {num_selections} discoveries, expected {expected}"
+		)
+
+		# Repeat to test zero handling
+		W2 = np.concatenate([np.abs(np.random.randn(500)), np.zeros(1)])
+		selections2 = mxfilter.make_selections(W2, fdr=0.2)
+		num_selections2 = np.sum(selections2)
+		expected2 = np.sum(W2 > 0)
+		self.assertTrue(
+			 num_selections2 == expected2,
+			f"selection procedure makes {num_selections2} discoveries, expected {expected2}"
+		)
 
 
 if __name__ == '__main__':
