@@ -6,7 +6,7 @@ from pyglmnet import GLMCV
 
 from .utilities import calc_group_sizes, random_permutation_inds
 
-DEFAULT_REG_VALS = np.logspace(-4, 1.5, base=10, num=10)
+DEFAULT_REG_VALS = np.logspace(-4, 4, base=10, num=20)
 
 
 def calc_mse(model, X, y):
@@ -122,6 +122,10 @@ def calc_lars_path(X, knockoffs, y, groups=None, **kwargs):
     :param kwargs: kwargs for sklearn Lasso class 
      """
 
+    # Ignore y_dist kwargs (residual)
+    if 'y_dist' in kwargs:
+        kwargs.pop('y_dist')
+
     # Bind data
     p = X.shape[1]
     features = np.concatenate([X, knockoffs], axis=1)
@@ -148,7 +152,14 @@ def calc_lars_path(X, knockoffs, y, groups=None, **kwargs):
     return Z[rev_inds]
 
 
-def fit_lasso(X, knockoffs, y, y_dist=None, **kwargs):
+def fit_lasso(
+    X, 
+    knockoffs, 
+    y, 
+    y_dist=None, 
+    use_lars=False,
+    **kwargs
+):
 
     # Parse some kwargs/defaults
     if "max_iter" in kwargs:
@@ -180,14 +191,22 @@ def fit_lasso(X, knockoffs, y, y_dist=None, **kwargs):
     # Fit lasso
     warnings.filterwarnings("ignore")
     if y_dist == "gaussian":
-        gl = linear_model.LassoCV(
-            alphas=DEFAULT_REG_VALS,
-            cv=cv,
-            verbose=False,
-            max_iter=max_iter,
-            tol=tol,
-            **kwargs,
-        ).fit(features, y)
+        if not use_lars:
+            gl = linear_model.LassoCV(
+                alphas=DEFAULT_REG_VALS,
+                cv=cv,
+                verbose=False,
+                max_iter=max_iter,
+                tol=tol,
+                **kwargs,
+            ).fit(features, y)
+        elif use_lars:
+            gl = linear_model.LassoLarsCV(
+                cv=cv,
+                verbose=False,
+                max_iter=max_iter,
+                **kwargs,
+            ).fit(features, y)
     elif y_dist == "binomial":
         gl = linear_model.LogisticRegressionCV(
             Cs=1 / DEFAULT_REG_VALS,

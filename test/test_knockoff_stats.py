@@ -49,6 +49,88 @@ class TestGroupLasso(unittest.TestCase):
 			msg = 'marg_corr_diff statistic calculates correlations incorrectly'
 		)
 
+	def test_lars_fit(self):
+		""" Tests power of lars lasso solver """
+
+		# Get DGP, knockoffs, S matrix
+		np.random.seed(110)
+		p = 100
+		n = 150
+		rho = 0.7
+		X, y, beta, Q, V = graphs.sample_data(
+			method='daibarber2016',
+			rho=rho,
+			gamma=1,
+			sparsity=0.5,
+			coeff_size=5,
+			n=n,
+			p=p,
+			sign_prob=0,
+			coeff_dist="uniform"
+		)
+		S = (1-rho)*np.eye(p)
+		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
+			X=X,
+			Sigma=V,
+			S=S,
+		)[:,:,0]
+		# Test lars solver
+		W, Z = knockoff_stats.lasso_statistic(
+			X,
+			knockoffs,
+			y,
+			return_Z=True,
+			use_lars=True,
+		)
+		T = data_dependent_threshhold(W, fdr = 0.2)
+		selections = (W >= T).astype('float32')
+		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
+		self.assertTrue(
+			power==1.0,
+			msg = f"Power {power} for LARS solver in equicor case should be 1"
+		)
+
+	def test_lars_fit(self):
+		""" Tests power of lars path statistic """
+		# Get DGP, knockoffs, S matrix
+		np.random.seed(110)
+		p = 100
+		n = 300
+		rho = 0.7
+		X, y, beta, Q, V = graphs.sample_data(
+			method='daibarber2016',
+			rho=rho,
+			gamma=1,
+			sparsity=0.5,
+			coeff_size=5,
+			n=n,
+			p=p,
+			sign_prob=0.5,
+		)
+		S = (1-rho)*np.eye(p)
+		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
+			X=X,
+			Sigma=V,
+			S=S,
+		)[:,:,0]
+		# Repeat for LARS path statistic
+		# Test lars solver
+		W, Z = knockoff_stats.lasso_statistic(
+			X,
+			knockoffs,
+			y,
+			return_Z=True,
+			zstat='lars_path',
+			pair_agg='sm',
+		)
+		T = data_dependent_threshhold(W, fdr = 0.2)
+		selections = (W >= T).astype('float32')
+		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
+		self.assertTrue(
+			power==1.0,
+			msg = f"Power {power} for LARS path statistic in equicor case should be 1"
+		)
+
 	def test_linear_coef_diff(self):
 
 		# Fake data (p = 5)
