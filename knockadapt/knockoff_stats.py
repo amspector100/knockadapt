@@ -542,8 +542,8 @@ def linear_coef_diff(
     lm = linear_model.LinearRegression(fit_intercept=False).fit(features, y)
     Z = lm.coef_
 
-    # Play with shape, take abs
-    Z = np.abs(Z.reshape(-1))
+    # Play with shape
+    Z = Z.reshape(-1)
     if Z.shape[0] != 2 * p:
         raise ValueError(
             f"Unexpected shape {Z.shape} for sklearn LinearRegression coefs (expected ({2*p},))"
