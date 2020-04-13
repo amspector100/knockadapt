@@ -16,6 +16,12 @@ class MXKnockoffFilter():
         recycle_up_to,
     ):
 
+        # SDP degen flag (for internal use)
+        if '_sdp_degen' in knockoff_kwargs:
+            _sdp_degen = knockoff_kwargs.pop('_sdp_degen')
+        else:
+            _sdp_degen = False
+
         # Initial sample
         knockoffs = group_gaussian_knockoffs(
             X=X, groups=groups, Sigma=Sigma, **knockoff_kwargs,
@@ -30,6 +36,12 @@ class MXKnockoffFilter():
 
             # Combine
             knockoffs = np.concatenate((rec_knockoffs, new_knockoffs), axis=0)
+
+        # For high precision simulations of degenerate knockoffs,
+        # ensure degeneracy
+        if _sdp_degen:
+            sumcols = X[:, 0] + knockoffs[:, 0]
+            knockoffs = sumcols.reshape(-1, 1) - X
 
         self.knockoffs = knockoffs
         return knockoffs
