@@ -134,8 +134,8 @@ class TestGroupLasso(unittest.TestCase):
 		selections = (W >= T).astype('float32')
 		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
 		self.assertTrue(
-			power==1.0,
-			msg = f"Power {power} for LARS path statistic in equicor case should be 1"
+			power>0.9,
+			msg = f"Power {power} for LARS path statistic in equicor case should be > 0.9"
 		)
 
 	def test_linear_coef_diff(self):
