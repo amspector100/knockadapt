@@ -378,6 +378,79 @@ class TestGroupLasso(unittest.TestCase):
 			err_msg = 'pair agg SCD returns weird W stats'
 		)
 
+	def test_cv_scoring(self):
+
+		# Create data generating process
+		n = 100
+		p = 20
+		np.random.seed(110)
+		X, y, beta, _, corr_matrix = graphs.sample_data(
+			n = n, p = p, y_dist = 'gaussian', 
+			coeff_size = 100, sign_prob = 1
+		)		
+		groups = np.arange(1, p+1, 1)
+
+		# These are not real, just helpful syntatically
+		knockoffs = np.zeros((n, p))
+
+		# 1. Test lars cv scoring
+		lars_stat = kstats.LassoStatistic()
+		lars_stat.fit(
+			X,
+			knockoffs,
+			y,
+			use_lars=True,
+			cv_score=True,
+		)
+		self.assertTrue(
+			lars_stat.score_type=='mse_cv',
+			msg=f"cv_score=True fails to create cross-validated scoring for lars (score_type={lars_stat.score_type})"
+		)
+
+		# 2. Test OLS cv scoring
+		ols_stat = kstats.OLSStatistic()
+		ols_stat.fit(
+			X,
+			knockoffs,
+			y,
+			cv_score=True,
+		)
+		self.assertTrue(
+			ols_stat.score_type=='mse_cv',
+			msg=f"cv_score=True fails to create cross-validated scoring for lars (score_type={lars_stat.score_type})"
+		)
+		self.assertTrue(
+			ols_stat.score<2,
+			msg=f"cv scoring fails for ols_stat as cv_score={ols_stat.score} >= 2",
+		)
+		
+		# 3. Test that throws correct error for non-sklearn backend
+		def bad_backend_cvscore():
+			X, y, beta, _, corr_matrix = graphs.sample_data(
+				n = n, p = p, y_dist = 'binomial', 
+				coeff_size = 100, sign_prob = 1
+			)
+			groups = np.random.randint(1, p+1, size=(p,))
+			group = utilities.preprocess_groups(groups)
+			pyglm_logit = kstats.LassoStatistic()
+			pyglm_logit.fit(
+				X,
+				knockoffs,
+				y,
+				use_pyglm=True,
+				group_lasso=True,
+				groups=groups,
+				cv_score=True,
+			)
+
+		self.assertRaisesRegex(
+			ValueError, "must be sklearn estimator",
+			bad_backend_cvscore
+		)
+
+
+
+
 class TestDataThreshhold(unittest.TestCase):
 	""" Tests data-dependent threshhold """
 

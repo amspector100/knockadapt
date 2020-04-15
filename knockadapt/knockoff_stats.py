@@ -1,6 +1,9 @@
 import warnings
 import numpy as np
-from sklearn import linear_model
+
+# Model-fitters
+import sklearn
+from sklearn import linear_model, model_selection
 from group_lasso import GroupLasso, LogisticGroupLasso
 from pyglmnet import GLMCV
 
@@ -383,6 +386,25 @@ class FeatureStatistic():
         self.groups = None # Grouping of features for group knockoffs
         self.W = None # W statistic
 
+    def score_model(self, features, y, cv_score):
+
+        # Possibly, compute CV MSE/Accuracy, although this
+        # can be very expensive (e.g. for LARS solver)
+        if cv_score:
+            if isinstance(self.model, sklearn.base.RegressorMixin):
+                cv_scores = model_selection.cross_val_score(
+                    self.model, features, y, cv=5,
+                )
+                self.score = cv_scores.mean()
+                self.score_type = 'mse_cv' # might have to amend in future
+                # if we perform this for data where mse is nonsensical
+            else:
+                raise ValueError(f"Model is of {type(self.model)}, must be sklearn estimator for cvscoring")
+        else:
+            preds = self.model.predict(features)
+            self.score = np.power(preds - y, 2).mean()
+            self.score_type = 'mse'
+
 
 class LassoStatistic(FeatureStatistic):
     """ Lasso Statistic wrapper class """
@@ -401,6 +423,7 @@ class LassoStatistic(FeatureStatistic):
         group_lasso=False,
         pair_agg="cd",
         group_agg="avg",
+        cv_score=False,
         **kwargs,
     ):
         """
@@ -434,6 +457,9 @@ class LassoStatistic(FeatureStatistic):
         :param str group_agg: Specifies how to combine pairwise W
         statistics into grouped W statistics. Two options: "sum" (default)
         and "avg".
+        :param cv_score: If true, score the feature statistic
+        using cross validation, at the (possible) cost of
+        quite a lot of extra computation.
         :param kwargs: kwargs to lasso or lars_path solver. 
         """
 
@@ -483,6 +509,7 @@ class LassoStatistic(FeatureStatistic):
 
             # Save lasso class and reverse inds
             self.model = gl
+            self.inds = inds
             self.rev_inds = rev_inds
 
             # Try to save cv accuracy for logistic lasso
@@ -493,12 +520,15 @@ class LassoStatistic(FeatureStatistic):
             elif isinstance(self.model, linear_model.LassoCV):
                 self.score = self.model.mse_path_.mean(axis=1).min()
                 self.score_type = 'mse_cv'
-            # Else just compute MSE
+            # Else compute the score
             else:
                 features = np.concatenate([X, knockoffs], axis=1)[:, inds]
-                preds = self.model.predict(features)
-                self.score = np.power(preds - y, 2).mean()
-                self.score_type = 'mse'
+                self.score_model(
+                    features=features, 
+                    y=y, 
+                    cv_score=cv_score,
+                )
+ 
 
         elif zstat == "lars_path":
             Z = calc_lars_path(X, knockoffs, y, groups, **kwargs)
@@ -566,6 +596,7 @@ class OLSStatistic(FeatureStatistic):
         knockoffs,
         y,
         groups=None,
+        cv_score=False,
         **kwargs
     ):
         """
@@ -600,15 +631,20 @@ class OLSStatistic(FeatureStatistic):
         # Combine with groups to create W-statistic
         W = combine_Z_stats(Z, groups, **kwargs)
 
-        # Save and return
+        # Save 
         self.model = lm
+        self.inds = inds
         self.rev_inds = rev_inds
-        predictions = self.model.predict(features)
-        self.score = np.power(predictions - y, 2).mean()
-        self.score_type = 'mse'
         self.Z = Z
         self.groups = groups
         self.W = W
+
+        # Score model
+        self.score_model(
+            features=features,
+            y=y,
+            cv_score=cv_score,
+        )
 
         return W
 
