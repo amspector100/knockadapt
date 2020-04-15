@@ -386,18 +386,31 @@ class FeatureStatistic():
         self.groups = None # Grouping of features for group knockoffs
         self.W = None # W statistic
 
-    def score_model(self, features, y, cv_score):
+    def score_model(self, features, y, cv_score, logistic_flag=False):
 
         # Possibly, compute CV MSE/Accuracy, although this
         # can be very expensive (e.g. for LARS solver)
         if cv_score:
             if isinstance(self.model, sklearn.base.RegressorMixin):
+
+                # Parse whether to use MSE or Accuracy
+                if logistic_flag:
+                    self.score_type = 'accuracy_cv'
+                    scoring = 'accuracy'
+                else:
+                    self.score_type = 'mse_cv'
+                    scoring = 'neg_mean_squared_error'
                 cv_scores = model_selection.cross_val_score(
-                    self.model, features, y, cv=5,
+                    self.model, features, y, cv=5, scoring=scoring,
                 )
+
+                # Adjust negative mse to be positive
+                if scoring == 'neg_mean_squared_error':
+                    cv_scores = -1*cv_scores
+
+                # Take the mean
                 self.score = cv_scores.mean()
-                self.score_type = 'mse_cv' # might have to amend in future
-                # if we perform this for data where mse is nonsensical
+
             else:
                 raise ValueError(f"Model is of {type(self.model)}, must be sklearn estimator for cvscoring")
         else:
@@ -527,6 +540,7 @@ class LassoStatistic(FeatureStatistic):
                     features=features, 
                     y=y, 
                     cv_score=cv_score,
+                    logistic_flag=logistic_flag
                 )
  
 
