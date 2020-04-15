@@ -5,7 +5,42 @@ import scipy.cluster.hierarchy as hierarchy
 from . import utilities
 from . import knockoff_stats
 from .knockoffs import group_gaussian_knockoffs
-from .knockoff_stats import lasso_statistic, data_dependent_threshhold
+from .knockoff_stats import LassoStatistic, data_dependent_threshhold
+
+
+def calc_epowers(Ws, group_sizes, non_nulls=None, **kwargs):
+    """
+    :param Ws: b x p dimension np array. 
+    :param group_sizes: b x p dimension np array.
+    (May be zero-padded).
+    :param non_nulls: b x p dimension boolean np array.
+    True indicates non-nulls. Used only to normalize powers.
+    :param kwargs: kwargs to data_dependent_threshhold 
+    (fdr and offset).
+    returns: batch length array of empirical powers.
+    """
+
+    # Find discoveries
+    b = Ws.shape[0]
+    p = Ws.shape[1]
+    Ts = data_dependent_threshhold(Ws.T, **kwargs)
+    discoveries = Ws >= Ts.reshape(b, 1)
+
+    # Weight by inverse group sizes
+    group_sizes[group_sizes == 0] = -1
+    inv_group_sizes = 1 / group_sizes
+    inv_group_sizes[inv_group_sizes < 0] = 0
+
+    # Multiply
+    epowers = (discoveries * inv_group_sizes).sum(axis=1)
+
+    # Possibly normalize
+    if non_nulls is not None:
+        num_non_nulls = non_nulls.sum(axis=1)
+        num_non_nulls[num_non_nulls == 0] = p
+        epowers = epowers / num_non_nulls
+
+    return epowers
 
 
 def create_cutoffs(link, reduction, max_size):
@@ -58,7 +93,7 @@ def resample_tau_conditionally(Ws, group_sizes, non_nulls, fdr=0.2, reps=10000):
     new_Ws = new_Ws.reshape(R * reps, p, order="F")
     group_sizes = np.concatenate([group_sizes for _ in range(reps)], axis=0)
     non_nulls = np.concatenate([non_nulls for _ in range(reps)], axis=0)
-    epowers = knockoff_stats.calc_epowers(new_Ws, group_sizes, non_nulls, fdr=fdr)
+    epowers = calc_epowers(new_Ws, group_sizes, non_nulls, fdr=fdr)
 
     # Reshape and return
     epowers = epowers.reshape(R, reps, order="F")
@@ -179,9 +214,10 @@ class GroupKnockoffEval:
     assumed to be centered and scaled.
     :param non_nulls: p-length array where 0's indicate null variables.
     :param q: Desiredd Type 1 error level.
-    :param feature_stat_fn: A function which creates the feature statistics (W)
+    :param feature_stat: A class with a fit method. The fit method
+    should create and return the feature statistics (W)
     given the design matrix X, the response y, the knockofs, and the groups.
-    Defaults to calc_nongroup_LSM.
+    Defaults to a LassoStatistic.
     :param feature_stat_kwargs: kwargs to the feature stat function
     :param kwargs: kwargs to the Gaussian Knockoffs constructor
     """
@@ -191,7 +227,7 @@ class GroupKnockoffEval:
         corr_matrix,
         q,
         non_nulls=None,
-        feature_stat_fn=lasso_statistic,
+        feature_stat=LassoStatistic,
         feature_stat_kwargs={},
         **kwargs
     ):
@@ -201,7 +237,7 @@ class GroupKnockoffEval:
         self.sigma = corr_matrix
         self.q = q
         self.non_nulls = non_nulls
-        self.feature_stat_fn = feature_stat_fn
+        self.feature_stat = feature_stat()
         self.feature_stat_kwargs = feature_stat_kwargs
         self.knockoff_kwargs = kwargs
 
@@ -283,7 +319,7 @@ class GroupKnockoffEval:
             num_non_nulls = self.p
 
         # W statistics
-        W = self.feature_stat_fn(
+        W = self.feature_stat.fit(
             X=X, knockoffs=knockoffs, y=y, groups=groups, **self.feature_stat_kwargs
         )
 

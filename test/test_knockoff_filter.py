@@ -107,7 +107,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
 			n=300, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15,
-			filter_kwargs = {'feature_stat_fn':'ols'}
+			filter_kwargs = {'feature_stat':'ols'}
 		)
 
 		# Scenario 3: Dai Barber
@@ -148,7 +148,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 		# Scenario 3: Dai Barber
 		self.check_fdr_control(
 			method='daibarber2016', rho=0.4, sparsity=0.5, y_dist='gaussian', reps=15,
-			filter_kwargs={'feature_stat_fn':'margcorr'}
+			filter_kwargs={'feature_stat':'margcorr'}
 		)
 
 	def test_recycling_control(self):

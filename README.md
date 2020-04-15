@@ -17,11 +17,7 @@ Run ``python3 -m pytest``
 - Probably the knockoff_stats page could be better abstract-ified
 
 Knockoff stats:
-1. Wrapper class called "feature statistic"
-2. Several antisymmetric functions available
-(antisymmetric is a better name.)
-3. Several group aggregation functions available.
-Should add signed maximum as an option here. 
+1. test_knockoff_stats should be better abstractified
 
 Thoughts:
 1. Adaptive module should have a class which has

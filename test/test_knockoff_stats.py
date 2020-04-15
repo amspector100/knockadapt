@@ -2,7 +2,8 @@ import numpy as np
 import unittest
 from .context import knockadapt
 
-from knockadapt import utilities, graphs, knockoff_stats
+from knockadapt import knockoff_stats as kstats
+from knockadapt import utilities, graphs
 from knockadapt.knockoff_stats import data_dependent_threshhold
 
 class TestGroupLasso(unittest.TestCase):
@@ -13,7 +14,7 @@ class TestGroupLasso(unittest.TestCase):
 		# Fake data
 		Z = np.array([-1, -2, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0])
 		groups = np.array([1, 1, 1, 2, 2, 2])
-		W = knockoff_stats.combine_Z_stats(Z, groups)
+		W = kstats.combine_Z_stats(Z, groups)
 		np.testing.assert_array_almost_equal(
 			W, np.array([4, 0]), decimal = 3,
 			err_msg = 'calc_LCD function incorrectly calculates group LCD'
@@ -22,13 +23,13 @@ class TestGroupLasso(unittest.TestCase):
 		# Again
 		Z2 = np.array([0, 1, 2, 3, -1, -2, -3, -4])
 		groups2 = np.array([1, 2, 3, 4])
-		W2 = knockoff_stats.combine_Z_stats(Z2, groups2, group_agg = 'avg')
+		W2 = kstats.combine_Z_stats(Z2, groups2, group_agg = 'avg')
 		np.testing.assert_array_almost_equal(
 			W2, np.array([-1, -1, -1, -1]),
 			err_msg = 'calc_LCD function incorrectly calculates group LCD'
 		)
 
-	def test_corr_diff(self):
+	def test_margcorr_statistic(self):
 
 		# Fake data (p = 5)
 		n = 10000
@@ -42,7 +43,8 @@ class TestGroupLasso(unittest.TestCase):
 		y = np.dot(X, beta.reshape(-1, 1))
 
 		# Correlations
-		W = knockoff_stats.marg_corr_diff(X, knockoffs, y, groups = None)
+		margcorr = kstats.MargCorrStatistic()
+		W = margcorr.fit(X, knockoffs, y, groups = None)
 
 		self.assertTrue(
 			np.abs(W[0] - 1/np.sqrt(2)) < 0.05, 
@@ -77,13 +79,15 @@ class TestGroupLasso(unittest.TestCase):
 			groups=groups,
 		)[:,:,0]
 		# Test lars solver
-		W, Z = knockoff_stats.lasso_statistic(
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
 			X,
 			knockoffs,
 			y,
-			return_Z=True,
 			use_lars=True,
 		)
+		W = lasso_stat.W
+		Z = lasso_stat.Z
 		T = data_dependent_threshhold(W, fdr = 0.2)
 		selections = (W >= T).astype('float32')
 		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
@@ -122,14 +126,16 @@ class TestGroupLasso(unittest.TestCase):
 		)[:,:,0]
 		# Repeat for LARS path statistic
 		# Test lars solver
-		W, Z = knockoff_stats.lasso_statistic(
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
 			X,
 			knockoffs,
 			y,
-			return_Z=True,
 			zstat='lars_path',
 			pair_agg='sm',
 		)
+		W = lasso_stat.W
+		Z = lasso_stat.Z
 		T = data_dependent_threshhold(W, fdr = 0.2)
 		selections = (W >= T).astype('float32')
 		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
@@ -138,7 +144,7 @@ class TestGroupLasso(unittest.TestCase):
 			msg = f"Power {power} for LARS path statistic in equicor case should be > 0.9"
 		)
 
-	def test_linear_coef_diff(self):
+	def test_ols_fit(self):
 
 		# Fake data (p = 5)
 		n = 1000
@@ -152,12 +158,12 @@ class TestGroupLasso(unittest.TestCase):
 		y = np.dot(X, beta.reshape(-1, 1))
 
 		# Correlations
-		W = knockoff_stats.linear_coef_diff(X, knockoffs, y, groups = groups)
+		lmodel = kstats.OLSStatistic()
+		W = lmodel.fit(X, knockoffs, y, groups = groups)
 
 		np.testing.assert_array_almost_equal(
 			W, np.array([2, 0]), decimal = 3
 		)
-
 
 
 	def test_gaussian_fit(self):
@@ -171,26 +177,52 @@ class TestGroupLasso(unittest.TestCase):
 		fake_knockoffs = np.random.randn(X.shape[0], X.shape[1])
 
 		# Get best model for pyglmnet
-		glasso1, rev_inds1 = knockoff_stats.fit_group_lasso(
-			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = True, y_dist = None,
-			max_iter = 20, tol = 5e-2, learning_rate = 3
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
+			X,
+			fake_knockoffs,
+			y,
+			groups=groups,
+			use_pyglm=True,
+			y_dist=None,
+			max_iter=20,
+			tol=5e-2,
+			learning_rate=3,
+			group_lasso=True
 		)
+		glasso1 = lasso_stat.model
+		rev_inds1 = lasso_stat.rev_inds
 		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
 		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
 		self.assertTrue(corr1 > 0.5,
 						msg = f'Pyglm fits gauissan very poorly (corr = {corr1} btwn real/fitted coeffs)'
 		)
+		score_type = lasso_stat.score_type
+		self.assertTrue(
+			score_type=='mse',
+			msg = f'Pyglm group_lasso has incorrect score type ({score_type}), expected mse'
+		)
 
 		# Test again, fitting regular lasso
-		glasso2, rev_inds2 = knockoff_stats.fit_lasso(
-			X, fake_knockoffs, y, y_dist = 'gaussian', max_iter = 50
+		lasso_stat2 = kstats.LassoStatistic()
+		lasso_stat2.fit(
+			X,
+			fake_knockoffs,
+			y,
+			groups=groups,
+			y_dist='gaussian',
+			max_iter=50,
+			group_lasso=False,
 		)
-		beta2 = glasso2.coef_[rev_inds2][0:p]
+		beta2 = lasso_stat2.model.coef_[lasso_stat2.rev_inds][0:p]
 		corr2 = np.corrcoef(beta2, beta)[0, 1]
-
 		self.assertTrue(corr2 > 0.5,
 						msg = f'SKlearn lasso fits gaussian very poorly (corr = {corr2} btwn real/fitted coeffs)'
+		)
+		score_type = lasso_stat2.score_type
+		self.assertTrue(
+			score_type=='mse_cv',
+			msg = f'Sklearn lasso has incorrect score type ({score_type}), expected mse_cv'
 		)
 
 
@@ -210,11 +242,19 @@ class TestGroupLasso(unittest.TestCase):
 		fake_knockoffs = X
 
 		# Get best model for pyglmnet
-		glasso1, rev_inds1 = knockoff_stats.fit_group_lasso(
-			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = True, y_dist = None,
-			max_iter = 20, tol = 5e-2, learning_rate = 3
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
+			X, fake_knockoffs, y, 
+			groups=groups,
+			use_pyglm=True,
+			y_dist=None,
+			max_iter=20,
+			tol=5e-2,
+			learning_rate=3,
+			group_lasso=True,
 		)
+		glasso1 = lasso_stat.model
+		rev_inds1 = lasso_stat.rev_inds
 		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
 		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
 		self.assertTrue(corr1 > 0.5,
@@ -222,11 +262,20 @@ class TestGroupLasso(unittest.TestCase):
 
 
 		# Get best model for group-lasso
-		glasso2, rev_inds2 = knockoff_stats.fit_group_lasso(
-			X, fake_knockoffs, y, groups = groups,
-			use_pyglm = False, max_iter = 20,
-			tol = 5e-2, learning_rate = 3
+		lasso_stat2 = kstats.LassoStatistic()
+		lasso_stat2.fit(
+			X,
+			fake_knockoffs,
+			y,
+			groups=groups,
+			use_pyglm=False,
+			max_iter=20,
+			tol=5e-2,
+			learning_rate=3,
+			group_lasso=True
 		)
+		glasso2 = lasso_stat2.model
+		rev_inds2 = lasso_stat2.rev_inds
 		beta_gl = glasso2.coef_[rev_inds2][0:p].reshape(p)
 		corr2 = np.corrcoef(beta_gl, beta)[0, 1]
 		self.assertTrue(corr2 > 0.5,
@@ -234,14 +283,25 @@ class TestGroupLasso(unittest.TestCase):
 
 
 		# Test again, fitting logistic (regular) lasso
-		glasso3, rev_inds3 = knockoff_stats.fit_lasso(
-			X = X, knockoffs = fake_knockoffs, y = y, y_dist = None,
-			max_iter = 50
+		lasso_stat3 = kstats.LassoStatistic()
+		lasso_stat3.fit(
+			X=X,
+			knockoffs=fake_knockoffs,
+			y=y,
+			y_dist=None,
+			max_iter=50,
 		)
+		glasso3 = lasso_stat3.model
+		rev_inds3 = lasso_stat3.rev_inds
 		beta3 = glasso3.coef_[0, rev_inds3][0:p]
 		corr3 = np.corrcoef(beta3, beta)[0, 1]
 		self.assertTrue(corr3 > 0.5,
 						msg = f'SKlearn lasso fits logistic very poorly (corr = {corr3} btwn real/fitted coeffs)'
+		)
+		score_type = lasso_stat3.score_type
+		self.assertTrue(
+			score_type=='accuracy_cv',
+			msg = f'Sklearn logistic lasso has incorrect score type ({score_type}), expected accuracy_cv'
 		)
 
 
@@ -262,14 +322,16 @@ class TestGroupLasso(unittest.TestCase):
 		# Run to make sure there are no errors for
 		# different pair_aggs
 		np.random.seed(110)
-		W_cd, Z_cd = knockoff_stats.lasso_statistic(
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
 			X = X, 
 			knockoffs = fake_knockoffs,
 			y = y, 
 			y_dist = None,
-			return_Z = True,
 			pair_agg='cd'
 		)
+		W_cd = lasso_stat.W
+		Z_cd = lasso_stat.Z
 		W_cd[np.abs(W_cd) < 10] = 0
 		Z_cd[np.abs(Z_cd) < 10] = 0
 		np.testing.assert_array_almost_equal(
@@ -281,14 +343,16 @@ class TestGroupLasso(unittest.TestCase):
 		# Run to make sure there are no errors for
 		# different pair_aggs
 		np.random.seed(110)
-		W_sm, Z_sm = knockoff_stats.lasso_statistic(
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
 			X = X, 
 			knockoffs = fake_knockoffs,
 			y = y, 
 			y_dist = None,
-			return_Z = True,
 			pair_agg='sm'
 		)
+		Z_sm = lasso_stat.Z
+		W_sm = lasso_stat.W
 		np.testing.assert_array_almost_equal(
 			W_sm, np.abs(Z_sm[0:p]), decimal=3,
 			err_msg = 'pair agg SM returns weird W stats'
@@ -297,14 +361,16 @@ class TestGroupLasso(unittest.TestCase):
 		# Run to make sure there are no errors for
 		# different pair_aggs
 		np.random.seed(110)
-		W_scd, Z_scd = knockoff_stats.lasso_statistic(
+		lasso_stat = kstats.LassoStatistic()
+		lasso_stat.fit(
 			X = X, 
 			knockoffs = fake_knockoffs,
 			y = y, 
 			y_dist = None,
-			return_Z = True,
 			pair_agg='scd'
 		)
+		W_scd = lasso_stat.W
+		Z_scd = lasso_stat.Z
 		W_scd[np.abs(W_scd) < 10] = 0
 		Z_scd[np.abs(Z_scd) < 10] = 0
 		np.testing.assert_array_almost_equal(

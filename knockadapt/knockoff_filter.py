@@ -1,5 +1,5 @@
 import numpy as np
-from . import knockoff_stats
+from . import knockoff_stats as kstats
 from .knockoffs import group_gaussian_knockoffs
 
 
@@ -48,7 +48,7 @@ class MXKnockoffFilter():
 
     def make_selections(self, W, fdr):
         """" Calculate data dependent threshhold and selections """
-        T = knockoff_stats.data_dependent_threshhold(W=W, fdr=fdr)
+        T = kstats.data_dependent_threshhold(W=W, fdr=fdr)
         selected_flags = (W >= T).astype("float32")
         return selected_flags
 
@@ -59,7 +59,7 @@ class MXKnockoffFilter():
         Sigma,
         groups=None,
         knockoffs=None,
-        feature_stat_fn='lasso',
+        feature_stat='lasso',
         fdr=0.10,
         feature_stat_kwargs={},
         knockoff_kwargs={"sdp_verbose": False},
@@ -78,10 +78,10 @@ class MXKnockoffFilter():
         calculate W-statistics in knockoffs. 
         Defaults to group lasso coefficient difference.
         :param fdr: Desired fdr.
-        :param feature_stat_fn: A function which takes X,
-        knockoffs, y, and groups, and returns a set of 
-        p anti-symmetric knockoff statistics. Can also
-        be one of "lasso", "ols", or "margcorr." 
+        :param feature_stat: A classname with a fit method.
+        The fit method must takes X, knockoffs, y, and groups,
+        and returns a set of p anti-symmetric knockoff 
+        statistics. Can also be one of "lasso", "ols", or "margcorr." 
         :param feature_stat_kwargs: Kwargs to pass to 
         the feature statistic.
         :param knockoff_kwargs: Kwargs to pass to the 
@@ -110,12 +110,12 @@ class MXKnockoffFilter():
             recycle_up_to = int(recycle_up_to)
 
         # Parse feature statistic function
-        if feature_stat_fn == 'lasso':
-            feature_stat_fn = knockoff_stats.lasso_statistic
-        elif feature_stat_fn == 'ols':
-            feature_stat_fn = knockoff_stats.linear_coef_diff
-        elif feature_stat_fn == 'margcorr':
-            feature_stat_fn = knockoff_stats.marg_corr_diff
+        if feature_stat == 'lasso':
+            feature_stat = kstats.LassoStatistic()
+        elif feature_stat == 'ols':
+            feature_stat = kstats.OLSStatistic()
+        elif feature_stat == 'margcorr':
+            feature_stat = kstats.MargCorrStatistic()
 
         # Sample knockoffs
         if knockoffs is None:
@@ -128,16 +128,21 @@ class MXKnockoffFilter():
             )
 
         # Feature statistics
-        self.W, self.Z = feature_stat_fn(
+        feature_stat.fit(
             X=X, 
             knockoffs=knockoffs,
             y=y, 
             groups=groups,
-            return_Z=True, 
             **feature_stat_kwargs
         )
+        # Inherit some attributes
+        self.fstat = feature_stat
+        self.Z = self.fstat.Z
+        self.W = self.fstat.W
+        self.score = self.fstat.score
+        self.score_type = self.fstat.score_type
 
-        selected_flags = self.make_selections(self.W, fdr)
+        self.selected_flags = self.make_selections(self.W, fdr)
 
         # Return
-        return selected_flags
+        return self.selected_flags

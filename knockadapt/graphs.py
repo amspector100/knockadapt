@@ -78,6 +78,7 @@ def daibarber2016_graph(
     coeff_size=3.5,
     coeff_dist=None,
     sign_prob=0.5,
+    beta=None,
     **kwargs,
 ):
     """ Same data-generating process as Dai and Barber 2016
@@ -112,14 +113,15 @@ def daibarber2016_graph(
     Q = chol2inv(Sigma)
 
     # Create beta
-    beta = create_sparse_coefficients(
-        p=p, 
-        sparsity=sparsity,
-        coeff_size=coeff_size,
-        groups=groups,
-        sign_prob=sign_prob,
-        coeff_dist=coeff_dist,
-    )
+    if beta is None:
+        beta = create_sparse_coefficients(
+            p=p, 
+            sparsity=sparsity,
+            coeff_size=coeff_size,
+            groups=groups,
+            sign_prob=sign_prob,
+            coeff_dist=coeff_dist,
+        )
 
     # Sample design matrix
     mu = np.zeros(p)
@@ -311,6 +313,7 @@ def sample_data(
                 coeff_dist=coeff_dist, 
                 sparsity=sparsity, 
                 sign_prob=sign_prob,
+                beta=beta,
                 **kwargs
             )
         else:

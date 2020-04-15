@@ -4,6 +4,7 @@ import unittest
 from .context import knockadapt
 
 from knockadapt import utilities, graphs, adaptive
+from knockadapt import knockoff_stats as kstats
 from knockadapt.adaptive import GroupKnockoffEval
 
 class TestGroupKnockoffEval(unittest.TestCase):
@@ -174,8 +175,9 @@ class TestGroupKnockoffEval(unittest.TestCase):
 
 		# This "feature statistic" is a hacky way to pass
 		# the gkval instance W values directly
-		def identity_statistic(X, **kwargs):
-			return X
+		class IdentityStatistic(kstats.FeatureStatistic):
+			def fit(self, X, **kwargs):
+				return X
 
 		# Create gkval instance for global null
 		gn_beta = np.array([0, 0, 0, 0, 0, 0, 0])
@@ -184,7 +186,7 @@ class TestGroupKnockoffEval(unittest.TestCase):
 		gn_groups = np.arange(0, p3, 1) + 1
 		self.gkval3 = GroupKnockoffEval(
 			self.corr_matrix2, q=0.4, non_nulls=gn_beta, 
-			feature_stat_fn = identity_statistic,
+			feature_stat = IdentityStatistic,
 		)
 		out = self.gkval3.eval_knockoff_instance(
 			X=gn_W, knockoffs=None, y=None, groups=gn_groups
