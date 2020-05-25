@@ -124,7 +124,8 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=100, p=100, method='ErdosRenyi', sparsity=0.2, y_dist='gaussian', reps=15
+			n=100, p=100, method='ErdosRenyi', sparsity=0.2, y_dist='gaussian', reps=15,
+			filter_kwargs={'feature_stat_kwargs':{'debias':True}}
 		)
 
 		# Scenario 3: Dai Barber

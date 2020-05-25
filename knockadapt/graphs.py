@@ -115,7 +115,7 @@ def daibarber2016_graph(
     # Create beta
     if beta is None:
         beta = create_sparse_coefficients(
-            p=p, 
+            p=p,
             sparsity=sparsity,
             coeff_size=coeff_size,
             groups=groups,
@@ -164,12 +164,7 @@ def create_correlation_tree(corr_matrix, method="average"):
 
 
 def create_sparse_coefficients(
-    p, 
-    sparsity=0.5,
-    groups=None, 
-    coeff_size=1,
-    coeff_dist=None,
-    sign_prob=0.5,
+    p, sparsity=0.5, groups=None, coeff_size=1, coeff_dist=None, sign_prob=0.5,
 ):
     """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
     which are then plus/minus coeff_size with equal probability.
@@ -218,15 +213,17 @@ def create_sparse_coefficients(
 
     # Possibly change the absolute values of beta
     if coeff_dist is not None:
-        beta_nonzeros = (beta != 0)
-        if str(coeff_dist).lower() == 'normal':
-            beta = (beta + np.random.randn(p))*beta_nonzeros
-        elif str(coeff_dist).lower() == 'uniform':
-            beta = beta*np.random.uniform(size=p)/2 + beta/2
-        elif str(coeff_dist).lower() == 'none':
+        beta_nonzeros = beta != 0
+        if str(coeff_dist).lower() == "normal":
+            beta = (beta + np.random.randn(p)) * beta_nonzeros
+        elif str(coeff_dist).lower() == "uniform":
+            beta = beta * np.random.uniform(size=p) / 2 + beta / 2
+        elif str(coeff_dist).lower() == "none":
             pass
         else:
-            raise ValueError(f"coeff_dist ({coeff_dist}) must be 'none', 'normal', or 'uniform'")
+            raise ValueError(
+                f"coeff_dist ({coeff_dist}) must be 'none', 'normal', or 'uniform'"
+            )
 
     beta = beta * signs
     return beta
@@ -307,14 +304,14 @@ def sample_data(
             Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
-                p=p, 
-                n=n, 
+                p=p,
+                n=n,
                 coeff_size=coeff_size,
-                coeff_dist=coeff_dist, 
-                sparsity=sparsity, 
+                coeff_dist=coeff_dist,
+                sparsity=sparsity,
                 sign_prob=sign_prob,
                 beta=beta,
-                **kwargs
+                **kwargs,
             )
         else:
             raise ValueError("Other methods not implemented yet")
@@ -329,7 +326,7 @@ def sample_data(
     # Create sparse coefficients
     if beta is None:
         beta = create_sparse_coefficients(
-            p=p, 
+            p=p,
             sparsity=sparsity,
             coeff_size=coeff_size,
             groups=groups,

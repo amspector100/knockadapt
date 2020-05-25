@@ -15,6 +15,7 @@ import itertools
 from functools import partial
 from multiprocessing import Pool
 
+
 def blockdiag_to_blocks(M, groups):
     """
     Given a matrix M, pulls out the diagonal blocks as specified by groups.
@@ -28,6 +29,7 @@ def blockdiag_to_blocks(M, groups):
         blocks.append(M[full_inds].copy())
     return blocks
 
+
 def fk_precision_trace(Sigma, S, invSigma=None):
     """ Computes inverse of trace of feature-knockoff
     precision matrix using numpy (no backprop) """
@@ -35,19 +37,20 @@ def fk_precision_trace(Sigma, S, invSigma=None):
     # Inverse of cov matrix
     if invSigma is None:
         invSigma = utilities.chol2inv(Sigma)
-        
+
     # Construct schurr complemenent of G
     diff = Sigma - S
     G_schurr = Sigma - np.dot(np.dot(diff, invSigma), diff)
 
     # Inverse of eigenvalues
-    trace_invG = (1/np.linalg.eigh(G_schurr)[0]).sum()
+    trace_invG = (1 / np.linalg.eigh(G_schurr)[0]).sum()
     return trace_invG
+
 
 def block_diag_sparse(*arrs):
     """ Given a list of 2D torch tensors, creates a sparse block-diagonal matrix
     See https://github.com/pytorch/pytorch/issues/31942
-    """ 
+    """
     bad_args = []
     for k, arr in enumerate(arrs):
         if isinstance(arr, nn.Parameter):
@@ -60,16 +63,15 @@ def block_diag_sparse(*arrs):
 
     shapes = torch.tensor([a.shape for a in arrs])
     out = torch.zeros(
-        torch.sum(shapes, dim=0).tolist(),
-        dtype=arrs[0].dtype, 
-        device=arrs[0].device
+        torch.sum(shapes, dim=0).tolist(), dtype=arrs[0].dtype, device=arrs[0].device
     )
     r, c = 0, 0
     for i, (rr, cc) in enumerate(shapes):
-        out[r:r + rr, c:c + cc] = arrs[i]
+        out[r : r + rr, c : c + cc] = arrs[i]
         r += rr
         c += cc
     return out
+
 
 class FKPrecisionTraceLoss(nn.Module):
     """
@@ -104,14 +106,13 @@ class FKPrecisionTraceLoss(nn.Module):
         # Groups MUST be sorted
         sorted_groups = np.sort(groups)
         if not np.all(groups == sorted_groups):
-            raise ValueError("Sigma and groups must be sorted prior to input"
-        )
+            raise ValueError("Sigma and groups must be sorted prior to input")
 
         # Save sigma and groups
         self.groups = torch.from_numpy(groups).long()
         self.group_sizes = torch.from_numpy(calc_group_sizes(groups)).long()
         self.Sigma = torch.from_numpy(Sigma).float()
-        #self.register_buffer('Sigma', torch.from_numpy(Sigma))
+        # self.register_buffer('Sigma', torch.from_numpy(Sigma))
 
         # Save inverse cov matrix
         if invSigma is None:
@@ -123,7 +124,7 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # Create new blocks
         if init_S is None:
-            blocks = [0.5*torch.eye(gj) for gj in self.group_sizes]
+            blocks = [0.5 * torch.eye(gj) for gj in self.group_sizes]
         elif isinstance(init_S, np.ndarray):
             blocks = blockdiag_to_blocks(init_S, groups)
             # Torch-ify and take sqrt
@@ -134,7 +135,9 @@ class FKPrecisionTraceLoss(nn.Module):
             num_blocks = len(init_S)
             num_groups = np.unique(groups).shape[0]
             if num_blocks != num_groups:
-                raise ValueError(f"Length of init_S {num_blocks} doesn't agree with num groups {num_groups}")
+                raise ValueError(
+                    f"Length of init_S {num_blocks} doesn't agree with num groups {num_groups}"
+                )
             # Torch-ify and take sqrt
             blocks = [torch.from_numpy(block) for block in init_S]
             blocks = [torch.cholesky(block) for block in blocks]
@@ -143,7 +146,7 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # Register the blocks as parameters
         for i, block in enumerate(self.blocks):
-            self.register_parameter(f'block{i}', block)
+            self.register_parameter(f"block{i}", block)
 
         self.update_sqrt_S()
         self.scale_sqrt_S(tol=1e-5, num_iter=10)
@@ -163,15 +166,15 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # Create schurr complement
         S = self.pull_S()
-        S = (1 - self.rec_prop)*S # Account for recycling calcing loss
+        S = (1 - self.rec_prop) * S  # Account for recycling calcing loss
         diff = self.Sigma - S
         G_schurr = self.Sigma - torch.mm(torch.mm(diff, self.invSigma), diff)
 
         # Take eigenvalues
         eigvals = torch.symeig(G_schurr, eigenvectors=True)
         eigvals = eigvals[0]
-        inv_eigvals = 1/eigvals
-        return inv_eigvals.sum() 
+        inv_eigvals = 1 / eigvals
+        return inv_eigvals.sum()
 
     def scale_sqrt_S(self, tol, num_iter):
         """ Scales sqrt_S such that 2 Sigma - S is PSD."""
@@ -183,12 +186,11 @@ class FKPrecisionTraceLoss(nn.Module):
             S = self.pull_S()
             # Find optimal scaling
             _, gamma = utilities.scale_until_PSD(
-                self.Sigma.numpy(), 
-                S.numpy(), tol=tol, num_iter=num_iter
+                self.Sigma.numpy(), S.numpy(), tol=tol, num_iter=num_iter
             )
             # Scale blocks
             for block in self.blocks:
-                block.data = np.sqrt(gamma)*block.data
+                block.data = np.sqrt(gamma) * block.data
             self.update_sqrt_S()
 
     def project(self, **kwargs):
@@ -214,6 +216,7 @@ class NonconvexSDPSolver:
     If None, creates a FKPrecisionTraceLoss class. 
     :param kwargs: Passed to FKPrecisionTraceLoss 
     """
+
     def __init__(self, Sigma, groups, losscalc=None, **kwargs):
 
         # Add Sigma
@@ -232,9 +235,7 @@ class NonconvexSDPSolver:
             self.losscalc = losscalc
         else:
             self.losscalc = FKPrecisionTraceLoss(
-                Sigma=self.sorted_Sigma,
-                groups=self.sorted_groups,
-                **kwargs
+                Sigma=self.sorted_Sigma, groups=self.sorted_groups, **kwargs
             )
 
         # Initialize cache of optimal S
@@ -255,14 +256,14 @@ class NonconvexSDPSolver:
             self.opt_S = self.losscalc.pull_S().clone().detach().numpy()
 
     def optimize(
-        self, 
-        lr=1e-2, 
+        self,
+        lr=1e-2,
         sdp_verbose=False,
         max_epochs=100,
         tol=1e-5,
         line_search_iter=10,
         cache_loss=True,
-        **kwargs
+        **kwargs,
     ):
         """
         :param lr: Initial learning rate (default 1e-2)
@@ -276,10 +277,10 @@ class NonconvexSDPSolver:
         """
         # Optimizer
         params = list(self.losscalc.parameters())
-        optimizer = torch.optim.Adam(params,lr=1e-2)
+        optimizer = torch.optim.Adam(params, lr=1e-2)
 
         for j in range(max_epochs):
-            
+
             # Step 1: Calculate loss (trace of feature-knockoff precision)
             loss = self.losscalc()
             if cache_loss:
@@ -291,10 +292,8 @@ class NonconvexSDPSolver:
             optimizer.step()
 
             # Step 3: Reproject to be PSD
-            if j % 10 == 0 or j == max_epochs-1:
-                self.losscalc.project(
-                    tol=tol, num_iter=line_search_iter
-                )
+            if j % 10 == 0 or j == max_epochs - 1:
+                self.losscalc.project(tol=tol, num_iter=line_search_iter)
 
                 # If this is optimal after reprojecting, save
                 with torch.no_grad():
@@ -316,7 +315,6 @@ class NonconvexSDPSolver:
         return S
 
 
-
 # def SDP_gradient_solver(
 #     Sigma,
 #     groups,
@@ -325,7 +323,7 @@ class NonconvexSDPSolver:
 
 # ):
 #     """ Projected gradient descent to solve the SDP.
-    
+
 #     TODO: possibly use diagnostic here: https://arxiv.org/pdf/1710.06382.pdf
 #     to reduce the learning rate appropriately. (page 7)
 
@@ -341,13 +339,13 @@ class NonconvexSDPSolver:
 #     # Initialize the model
 #     fk_precision_calc = FKPrecisionTraceLoss(
 #         Sigma=Sigma, groups=groups, **kwargs
-#     ) 
+#     )
 #     # Optimizer
 #     params = list(fk_precision_calc.parameters())
 #     optimizer = torch.optim.Adam(params,lr=1e-2)
 
 #     for j in range(max_epochs):
-        
+
 #         # Step 1: Calculate inverse of trace of grahm matrix
 #         # and step along the gradient
 #         loss = fk_precision_calc()
@@ -361,5 +359,3 @@ class NonconvexSDPSolver:
 
 #     S = fk_precision_calc.pull_S().detach().numpy()
 #     return S
-
-

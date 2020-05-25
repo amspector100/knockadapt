@@ -4,6 +4,7 @@ import scipy as sp
 
 ### Group helpers
 
+
 def preprocess_groups(groups):
     """ Turns a p-dimensional numpy array with m unique elements
     into a list of integers from 1 to m"""
@@ -37,6 +38,7 @@ def fetch_group_nonnulls(non_nulls, groups):
         group_nonnulls[j] = float(flag)
     return group_nonnulls
 
+
 def calc_group_sizes(groups):
     """
     :param groups: p-length array of integers between 1 and m, 
@@ -61,15 +63,18 @@ def calc_group_sizes(groups):
     group_sizes = np.zeros(m)
     for j in groups:
         group_sizes[j - 1] += 1
-    group_sizes = group_sizes.astype('int32')
+    group_sizes = group_sizes.astype("int32")
     return group_sizes
 
+
 ### Matrix helpers for S-matrix computation
+
 
 def chol2inv(X):
     """ Uses cholesky decomp to get inverse of matrix """
     triang = np.linalg.inv(np.linalg.cholesky(X))
     return np.dot(triang.T, triang)
+
 
 def shift_until_PSD(M, tol):
     """ Add the identity until a p x p matrix M has eigenvalues of at least tol"""
@@ -79,6 +84,7 @@ def shift_until_PSD(M, tol):
         M += (tol - mineig) * np.eye(p)
 
     return M
+
 
 def scale_until_PSD(Sigma, S, tol, num_iter):
     """ Takes a PSD matrix S and performs a binary search to 
@@ -106,6 +112,7 @@ def scale_until_PSD(Sigma, S, tol, num_iter):
 
     return S, gamma
 
+
 def permute_matrix_by_groups(groups):
     """
     Permute a (correlation) matrix according to a list of feature groups.
@@ -128,7 +135,9 @@ def permute_matrix_by_groups(groups):
 
     return inds, inv_inds
 
+
 ### Feature-statistic helpers
+
 
 def random_permutation_inds(length):
     """ Returns indexes which correspond to a random permutation,

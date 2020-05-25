@@ -313,7 +313,7 @@ class TestGroupLasso(unittest.TestCase):
 		X, y, beta, _, corr_matrix = graphs.sample_data(
 			n = n, p = p, y_dist = 'gaussian', 
 			coeff_size = 100, sign_prob = 1
-		)		
+		)       
 		groups = np.arange(1, p+1, 1)
 
 		# These are not real, just helpful syntatically
@@ -387,7 +387,7 @@ class TestGroupLasso(unittest.TestCase):
 		X, y, beta, _, corr_matrix = graphs.sample_data(
 			n = n, p = p, y_dist = 'gaussian', 
 			coeff_size = 100, sign_prob = 1
-		)		
+		)       
 		groups = np.arange(1, p+1, 1)
 
 		# These are not real, just helpful syntatically
@@ -425,7 +425,7 @@ class TestGroupLasso(unittest.TestCase):
 		)
 		
 		# 3. Test that throws correct error for non-sklearn backend
-		def bad_backend_cvscore():
+		def non_sklearn_backend_cvscore():
 			X, y, beta, _, corr_matrix = graphs.sample_data(
 				n = n, p = p, y_dist = 'binomial', 
 				coeff_size = 100, sign_prob = 1
@@ -445,10 +445,92 @@ class TestGroupLasso(unittest.TestCase):
 
 		self.assertRaisesRegex(
 			ValueError, "must be sklearn estimator",
-			bad_backend_cvscore
+			non_sklearn_backend_cvscore
 		)
 
+	def test_debiased_lasso(self):
 
+		# Create data generating process
+		n = 200
+		p = 20
+		rho = 0.3
+		np.random.seed(110)
+		X, y, beta, _, corr_matrix = graphs.sample_data(
+			n = n, p = p, y_dist = 'gaussian', 
+			coeff_size = 100, sign_prob = 0.5,
+			method = 'daibarber2016',
+			rho=rho
+		)       
+		groups = np.arange(1, p+1, 1)
+
+		# Create knockoffs
+		knockoffs, S = knockadapt.knockoffs.group_gaussian_knockoffs(
+			X=X, 
+			groups=groups,
+			Sigma=corr_matrix,
+			return_S=True,
+			verbose=False,
+			sdp_verbose=False,
+			S = (1-rho)*np.eye(p)
+		)
+		knockoffs = knockoffs[:, :, 0]
+		G = np.concatenate([
+				np.concatenate([corr_matrix, corr_matrix-S]),
+				np.concatenate([corr_matrix-S, corr_matrix])],
+				axis=1
+			)
+		Ginv = utilities.chol2inv(G)
+
+		# Debiased lasso - test accuracy
+		dlasso_stat = kstats.LassoStatistic()
+		dlasso_stat.fit(
+			X,
+			knockoffs,
+			y,
+			use_lars=False,
+			cv_score=False,
+			debias=True,
+			Ginv=Ginv
+		)
+		W = dlasso_stat.W
+		l2norm = np.power(W - beta, 2).mean()
+		self.assertTrue(l2norm > 1,
+			msg = f'Debiased lasso fits gauissan very poorly (l2norm = {l2norm} btwn real/fitted coeffs)'
+		)
+
+		# Test that this throws the correct errors
+		# first for Ginv
+		def debiased_lasso_sans_Ginv():
+			dlasso_stat.fit(
+				X,
+				knockoffs,
+				y,
+				use_lars=False,
+				cv_score=False,
+				debias=True,
+				Ginv=None
+			)
+		self.assertRaisesRegex(
+			ValueError, "Ginv must be provided",
+			debiased_lasso_sans_Ginv
+		)
+
+		# Second for logistic data
+		y = np.random.binomial(1, 0.5, n)
+		def binomial_debiased_lasso():
+			dlasso_stat.fit(
+				X,
+				knockoffs,
+				y,
+				use_lars=False,
+				cv_score=False,
+				debias=True,
+				Ginv=Ginv,
+			)
+		self.assertRaisesRegex(
+			ValueError, "Debiased lasso is not implemented for binomial data",
+			binomial_debiased_lasso
+		)
 
 
 class TestDataThreshhold(unittest.TestCase):

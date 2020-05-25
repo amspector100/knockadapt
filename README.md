@@ -8,7 +8,11 @@ This is currently under heavy development (it's in the early stages): docs/tests
 
 ## To run tests
 
-Run ``python3 -m pytest``
+- To run all tests, run ``python3 -m pytest`` 
+- To run a specific label, run ``pytest -v -m {label}``.
+- To select all labels except a particular one, run ``pytest -v -m "not {label}"`` (with the quotes).
+- To run a specific file, try pytest test/{file_name}.py. To run a specific test within the file, run pytest test/{file_name}.py::classname::test_method. You also don't have to specify
+the exact test_method, you get the idea.
 
 ## To do
 

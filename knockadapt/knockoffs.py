@@ -394,19 +394,21 @@ def solve_group_ASDP(
 
     return S
 
+
 def parse_method(method, groups, p):
     """ Decides which method to use to create the 
-    knockoff S matrix """ 
+    knockoff S matrix """
     if method is not None:
         return method
-    if np.all(groups == np.arange(1,p+1,1)):
-        method = 'tfkp'
+    if np.all(groups == np.arange(1, p + 1, 1)):
+        method = "tfkp"
     else:
         if p > 1000:
-            method = 'asdp'
+            method = "asdp"
         else:
-            method = 'sdp'
+            method = "sdp"
     return method
+
 
 def group_gaussian_knockoffs(
     X,
@@ -479,7 +481,7 @@ def group_gaussian_knockoffs(
     n = X.shape[0]
     p = X.shape[1]
     if groups is None:
-        groups = np.arange(1, p+1, 1)
+        groups = np.arange(1, p + 1, 1)
     if groups.shape[0] != p:
         raise ValueError(
             f"Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match"
@@ -524,7 +526,7 @@ def group_gaussian_knockoffs(
                 sdp_verbose=sdp_verbose,
                 **kwargs,
             )
-        elif method == 'tfkp':
+        elif method == "tfkp":
             S_init = solve_group_ASDP(
                 Sigma,
                 groups,
@@ -536,10 +538,7 @@ def group_gaussian_knockoffs(
                 **kwargs,
             )
             opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma,
-                groups=groups,
-                init_S=S,
-                rec_prop=rec_prop
+                Sigma=Sigma, groups=groups, init_S=S, rec_prop=rec_prop
             )
             S = opt.optimize(max_epochs=1000)
         else:
