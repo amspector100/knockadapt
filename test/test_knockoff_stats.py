@@ -296,6 +296,7 @@ class TestLinearModels(KStatVal):
 			seed=110,
 			min_power=0.9,
 			group_features=False,
+			max_l2norm=np.inf,
 		)
 
 		# Repeat for grouped features
@@ -581,7 +582,7 @@ class TestLinearModels(KStatVal):
 			coeff_size=5,
 			sparsity=0.5,
 			seed=110,
-			min_power=1,
+			min_power=0.9,
 			group_features=True,
 			max_l2norm=np.inf
 		)
