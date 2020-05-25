@@ -130,6 +130,8 @@ class MXKnockoffFilter:
 		elif feature_stat == 'dlasso':
 			feature_stat = kstats.LassoStatistic()
 			self.debias = True
+		elif feature_stat == 'ridge':
+			feature_stat = kstats.RidgeStatistic()
 		elif feature_stat == "ols":
 			feature_stat = kstats.OLSStatistic()
 		elif feature_stat == "margcorr":

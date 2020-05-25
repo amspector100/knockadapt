@@ -53,7 +53,7 @@ def parse_logistic_flag(kwargs):
 	return False
 
 
-def combine_Z_stats(Z, groups, pair_agg="cd", group_agg="sum"):
+def combine_Z_stats(Z, groups=None, pair_agg="cd", group_agg="sum"):
 	"""
 	Given a "Z" statistic for each feature AND each knockoff, returns
 	grouped W statistics. First combines each Z statistic and its 
@@ -215,6 +215,37 @@ def fit_lasso(X, knockoffs, y, y_dist=None, use_lars=False, **kwargs):
 	warnings.resetwarnings()
 
 	return gl, inds, rev_inds
+
+def fit_ridge(X, knockoffs, y, y_dist=None, **kwargs):
+
+	# Bind data
+	p = X.shape[1]
+	features = np.concatenate([X, knockoffs], axis=1)
+
+	# Randomize coordinates to ensure antisymmetry
+	inds, rev_inds = random_permutation_inds(2 * p)
+	features = features[:, inds]
+
+	# Fit lasso
+	warnings.filterwarnings("ignore")
+	if y_dist == "gaussian":
+		ridge = linear_model.RidgeCV(
+			alphas=DEFAULT_REG_VALS,
+			store_cv_values=True,
+			**kwargs,
+		).fit(features, y)
+	elif y_dist == "binomial":
+		ridge = linear_model.LogisticRegressionCV(
+			Cs=1 / DEFAULT_REG_VALS,
+			penalty="l2",
+			solver="liblinear",
+			**kwargs,
+		).fit(features, y)
+	else:
+		raise ValueError(f"y_dist must be one of gaussian, binomial, not {y_dist}")
+	warnings.resetwarnings()
+
+	return ridge, inds, rev_inds
 
 
 def fit_group_lasso(
@@ -406,6 +437,91 @@ class FeatureStatistic:
 			self.score_type = "mse"
 
 
+class RidgeStatistic(FeatureStatistic):
+	""" Ridge statistic wrapper class """
+
+	def __init__(self):
+
+		super().__init__()
+
+	def fit(
+		self,
+		X,
+		knockoffs,
+		y,
+		groups=None,
+		pair_agg='cd',
+		group_agg='avg',
+		cv_score=False,		
+		**kwargs
+		):
+		"""
+		Calculates Ridge statistics in one of several ways.
+		The procedure is as follows:
+			- First, uses the lasso to calculate a "Z" statistic 
+			for each feature AND each knockoff.
+			- Second, calculates a "W" statistic pairwise 
+			between each feature and its knockoff.
+			- Third, sums or averages the "W" statistics for each
+			group to obtain group W statistics.
+		:param X: n x p design matrix
+		:param knockoffs: n x p knockoff matrix
+		:param y: p length response numpy array
+		:param groups: p length numpy array of groups. If None,
+		defaults to giving each feature its own group.
+		:param str pair_agg: Specifies how to create pairwise W 
+		statistics. Two options: 
+			- "CD" (Difference of absolute vals of coefficients),
+			- "SM" (signed maximum).
+			- "SCD" (Simple difference of coefficients - NOT recommended)
+		:param str group_agg: Specifies how to combine pairwise W
+		statistics into grouped W statistics. Two options: "sum" (default)
+		and "avg".
+		:param cv_score: If true, score the feature statistic
+		using cross validation, at the (possible) cost of
+		quite a lot of extra computation.
+		:param kwargs: kwargs to ridge solver (sklearn by default)
+		"""
+
+		# Possibly set default groups
+		n = X.shape[0]
+		p = X.shape[1]
+		if groups is None:
+			groups = np.arange(1, p + 1, 1)
+
+		# Check if y_dist is gaussian, binomial, poisson
+		kwargs["y_dist"] = parse_y_dist(y)
+
+		# Step 1: Calculate Z stats by fitting ridge
+		self.model, self.inds, self.rev_inds = fit_ridge(
+			X,
+			knockoffs,
+			y,
+			**kwargs,
+		)
+
+		# Retrieve Z statistics and save cv scores
+		if kwargs["y_dist"] == 'gaussian':
+			Z = self.model.coef_[self.rev_inds]
+			self.score = self.model.cv_values_.mean(axis=1).min()
+			self.score_type = "mse_cv"
+		elif kwargs["y_dist"] == 'binomial':
+			Z = self.model.coef_[0, self.rev_inds]
+			self.score = self.model.scores_[1].mean(axis=0).max()
+			self.score_type = "accuracy_cv"
+		else:
+			raise ValueError(f"y_dist must be one of gaussian, binomial, not {kwargs['y_dist']}")
+
+		# Combine Z statistics
+		W_group = combine_Z_stats(Z, groups, pair_agg=pair_agg, group_agg=group_agg)
+
+		# Save values for later use
+		self.Z = Z
+		self.groups = groups
+		self.W = W_group
+		return W_group
+
+
 class LassoStatistic(FeatureStatistic):
 	""" Lasso Statistic wrapper class """
 
@@ -478,10 +594,7 @@ class LassoStatistic(FeatureStatistic):
 			groups = np.arange(1, p + 1, 1)
 
 		# Check if y_dist is gaussian, binomial, poisson
-		if "y_dist" not in kwargs:
-			kwargs["y_dist"] = parse_y_dist(y)
-		elif kwargs["y_dist"] is None:
-			kwargs["y_dist"] = parse_y_dist(y)
+		kwargs["y_dist"] = parse_y_dist(y)
 
 		# Step 1: Calculate Z statistics
 		zstat = str(zstat).lower()

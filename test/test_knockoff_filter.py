@@ -110,6 +110,12 @@ class TestMXKnockoffFilter(TestFdrControl):
 			filter_kwargs = {'feature_stat':'ols'}
 		)
 
+		# Erdos Renyi, but with Ridge Statistic
+		self.check_fdr_control(
+			n=100, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15,
+			filter_kwargs = {'feature_stat':'ridge'}
+		)
+
 		# Scenario 3: Dai Barber
 		self.check_fdr_control(
 			method='daibarber2016', rho=0.6, sparsity=0, y_dist='binomial', reps=15
@@ -118,7 +124,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 	def test_sparse_control(self):
 		""" Test FDR control under global null """
 
-		# Scenario 1: AR1 a = 1, b = 1, global null
+		# Scenario 1: AR1 a = 1, b = 1, 
 		self.check_fdr_control(
 			n=300, p=100, method='AR1', sparsity=0.2, y_dist ='binomial', reps=15,		)
 

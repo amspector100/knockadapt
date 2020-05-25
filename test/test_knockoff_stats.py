@@ -6,10 +6,110 @@ from knockadapt import knockoff_stats as kstats
 from knockadapt import utilities, graphs
 from knockadapt.knockoff_stats import data_dependent_threshhold
 
-class TestGroupLasso(unittest.TestCase):
-	""" Tests fitting of group lasso """
+DEFAULT_SAMPLE_KWARGS = {
+	'coeff_size':5,
+	'method':'daibarber2016',
+	'gamma':0,
+	'sparsity':0.5,
+}
 
-	def test_LCD(self):
+class KStatVal(unittest.TestCase):
+
+	def check_linear_model_fit(
+		self,
+		fstat,
+		fstat_name,
+		fstat_kwargs={},
+		min_power=0.8,
+		max_l2norm=9,
+		seed=110,
+		y_dist='gaussian',
+		group_features=False,
+		**sample_kwargs
+	):
+		""" fstat should be a class instance inheriting from FeatureStatistic """
+
+		# Add defaults to sample kwargs
+		if 'method' not in sample_kwargs:
+			sample_kwargs['method'] = 'daibarber2016'
+		if 'gamma' not in sample_kwargs:
+			sample_kwargs['gamma'] = 1
+		if 'n' not in sample_kwargs:
+			sample_kwargs['n'] = 200
+		if 'p' not in sample_kwargs:
+			sample_kwargs['p'] = 50
+		if 'rho' not in sample_kwargs:
+			sample_kwargs['rho'] = 0.5
+		n = sample_kwargs['n']
+		p = sample_kwargs['p']
+		rho = sample_kwargs['rho']
+
+		# Create data generating process
+		np.random.seed(seed)
+		X, y, beta, _, corr_matrix = graphs.sample_data(**sample_kwargs)       
+
+		# XtXinv = np.linalg.inv(np.dot(X.T, X))
+		# Xty = np.dot(X.T, y)
+		# print(np.dot(XtXinv, Xty))
+
+		# Create groups
+		if group_features:
+			groups = np.random.randint(1, p+1, size=(p,))
+			groups = utilities.preprocess_groups(groups)
+		else:
+			groups = np.arange(1, p+1, 1)
+
+		# Create knockoffs
+		knockoffs, S = knockadapt.knockoffs.group_gaussian_knockoffs(
+			X=X, 
+			groups=groups,
+			Sigma=corr_matrix,
+			return_S=True,
+			verbose=False,
+			sdp_verbose=False,
+			S = (1-rho)*np.eye(p)
+		)
+		knockoffs = knockoffs[:, :, 0]
+
+		# Fit and extract coeffs/T
+		fstat.fit(
+			X,
+			knockoffs,
+			y,
+			groups=groups,
+			**fstat_kwargs,
+		)
+		W = fstat.W
+		T = data_dependent_threshhold(W, fdr = 0.2)
+
+		# Test L2 norm 
+		m = np.unique(groups).shape[0]
+		if m == p:
+			pair_W = W
+		else:
+			pair_W = kstats.combine_Z_stats(fstat.Z, pair_agg='cd')
+		l2norm = np.power(pair_W - np.abs(beta), 2)
+		l2norm = l2norm.mean()
+		self.assertTrue(l2norm < max_l2norm,
+			msg = f'{fstat_name} fits {y_dist} data very poorly (l2norm = {l2norm} btwn real {beta} / fitted {pair_W} coeffs)'
+		)
+
+		# Test power for non-grouped setting.
+		# (For group setting, power will be much lower.)
+		selections = (W >= T).astype('float32')
+		group_nnulls = utilities.fetch_group_nonnulls(beta, groups)
+		power = ((group_nnulls != 0)*selections).sum()/np.sum(group_nnulls != 0)
+		fdp = ((group_nnulls == 0)*selections).sum()/max(np.sum(selections), 1)
+		self.assertTrue(
+			power >= min_power,
+			msg = f"Power {power} for {fstat_name} in equicor case (n={n},p={p},rho={rho}, y_dist {y_dist}, grouped={group_features}) should be > {min_power}. W stats are {W}, beta is {beta}"
+		)
+
+class TestLinearModels(KStatVal):
+	""" Tests fitting of ols, lasso, ridge, margcorr """
+
+	def test_combine_Z_stats(self):
+		""" Tests the combine_Z_stats function """
 
 		# Fake data
 		Z = np.array([-1, -2, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0])
@@ -54,256 +154,179 @@ class TestGroupLasso(unittest.TestCase):
 	def test_lars_solver_fit(self):
 		""" Tests power of lars lasso solver """
 
-		# Get DGP, knockoffs, S matrix
-		np.random.seed(1)
-		p = 100
-		n = 150
-		rho = 0.7
-		X, y, beta, Q, V = graphs.sample_data(
-			method='daibarber2016',
-			rho=rho,
-			gamma=1,
-			sparsity=0.5,
-			coeff_size=5,
-			n=n,
-			p=p,
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='LARS solver',
+			fstat_kwargs={'use_lars':True},
+			n=150,
+			p=100,
+			rho=0.7,
 			sign_prob=0,
-			coeff_dist="uniform"
+			coeff_size=5,
+			coeff_dist="uniform",
+			sparsity=0.5,
+			seed=1,
 		)
-		S = (1-rho)*np.eye(p)
-		groups = np.arange(1, p+1, 1)
-		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
-			X=X,
-			Sigma=V,
-			S=S,
-			groups=groups,
-		)[:,:,0]
-		# Test lars solver
-		lasso_stat = kstats.LassoStatistic()
-		lasso_stat.fit(
-			X,
-			knockoffs,
-			y,
-			use_lars=True,
-		)
-		W = lasso_stat.W
-		Z = lasso_stat.Z
-		T = data_dependent_threshhold(W, fdr = 0.2)
-		selections = (W >= T).astype('float32')
-		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
-		fdp = ((beta == 0)*selections).sum()/max(np.sum(selections), 1)
-		self.assertTrue(
-			power==1.0,
-			msg = f"Power {power} for LARS solver in equicor case should be 1"
-		)
-
-
 
 	def test_lars_path_fit(self):
 		""" Tests power of lars path statistic """
 		# Get DGP, knockoffs, S matrix
-		np.random.seed(110)
-		p = 100
-		n = 300
-		rho = 0.7
-		X, y, beta, Q, V = graphs.sample_data(
-			method='daibarber2016',
-			rho=rho,
-			gamma=1,
-			sparsity=0.5,
-			coeff_size=5,
-			n=n,
-			p=p,
+
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='LARS path statistic',
+			fstat_kwargs={'zstat':'lars_path', 'pair_agg':'sm'},
+			n=300,
+			p=100,
+			rho=0.7,
 			sign_prob=0.5,
-		)
-		S = (1-rho)*np.eye(p)
-		groups = np.arange(1, p+1, 1)
-		knockoffs = knockadapt.knockoffs.group_gaussian_knockoffs(
-			X=X,
-			Sigma=V,
-			S=S,
-			groups=groups,
-		)[:,:,0]
-		# Repeat for LARS path statistic
-		# Test lars solver
-		lasso_stat = kstats.LassoStatistic()
-		lasso_stat.fit(
-			X,
-			knockoffs,
-			y,
-			zstat='lars_path',
-			pair_agg='sm',
-		)
-		W = lasso_stat.W
-		Z = lasso_stat.Z
-		T = data_dependent_threshhold(W, fdr = 0.2)
-		selections = (W >= T).astype('float32')
-		power = ((beta != 0)*selections).sum()/np.sum(beta != 0)
-		self.assertTrue(
-			power>0.9,
-			msg = f"Power {power} for LARS path statistic in equicor case should be > 0.9"
+			coeff_size=5,
+			coeff_dist="uniform",
+			sparsity=0.5,
+			seed=110,
+			min_power=0.8,
+			max_l2norm=np.inf,
 		)
 
 	def test_ols_fit(self):
+		""" Good old OLS """
 
-		# Fake data (p = 5)
-		n = 1000
-		p = 5
-		X = np.random.randn(n, p)
-		knockoffs = np.random.randn(n, p)
-		groups = np.array([1, 1, 2, 2, 2])
-
-		# Calc y
-		beta = np.array([1, 1, 0, 0, 0])
-		y = np.dot(X, beta.reshape(-1, 1))
-
-		# Correlations
-		lmodel = kstats.OLSStatistic()
-		W = lmodel.fit(X, knockoffs, y, groups = groups)
-
-		np.testing.assert_array_almost_equal(
-			W, np.array([2, 0]), decimal = 3
+		self.check_linear_model_fit(
+			fstat=kstats.OLSStatistic(),
+			fstat_name='OLS solver',
+			n=150,
+			p=50,
+			rho=0.2,
+			coeff_size=100,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.8,
 		)
 
+	def test_pyglm_group_lasso_fit(self):
 
-	def test_gaussian_fit(self):
-
-		n = 500
-		p = 200
-		np.random.seed(110)
-		X, y, beta, Q, corr_matrix, groups = graphs.daibarber2016_graph(
-			n = n, p = p, y_dist = 'gaussian'
-		)
-		fake_knockoffs = np.random.randn(X.shape[0], X.shape[1])
-
-		# Get best model for pyglmnet
-		lasso_stat = kstats.LassoStatistic()
-		lasso_stat.fit(
-			X,
-			fake_knockoffs,
-			y,
-			groups=groups,
-			use_pyglm=True,
-			y_dist=None,
-			max_iter=20,
-			tol=5e-2,
-			learning_rate=3,
-			group_lasso=True
-		)
-		glasso1 = lasso_stat.model
-		rev_inds1 = lasso_stat.rev_inds
-		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
-		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
-		self.assertTrue(corr1 > 0.5,
-						msg = f'Pyglm fits gauissan very poorly (corr = {corr1} btwn real/fitted coeffs)'
-		)
-		score_type = lasso_stat.score_type
-		self.assertTrue(
-			score_type=='mse',
-			msg = f'Pyglm group_lasso has incorrect score type ({score_type}), expected mse'
+		pyglm_kwargs = {
+			'use_pyglm':True,
+			'max_iter':20,
+			'tol':5e-2,
+			'learning_rate':3,
+			'group_lasso':True
+		}
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Pyglm solver',
+			fstat_kwargs=pyglm_kwargs,
+			n=500,
+			p=200,
+			rho=0.2,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=1,
+			group_features=True,
+			max_l2norm=np.inf,
 		)
 
-		# Test again, fitting regular lasso
-		lasso_stat2 = kstats.LassoStatistic()
-		lasso_stat2.fit(
-			X,
-			fake_knockoffs,
-			y,
-			groups=groups,
-			y_dist='gaussian',
-			max_iter=50,
-			group_lasso=False,
-		)
-		beta2 = lasso_stat2.model.coef_[lasso_stat2.rev_inds][0:p]
-		corr2 = np.corrcoef(beta2, beta)[0, 1]
-		self.assertTrue(corr2 > 0.5,
-						msg = f'SKlearn lasso fits gaussian very poorly (corr = {corr2} btwn real/fitted coeffs)'
-		)
-		score_type = lasso_stat2.score_type
-		self.assertTrue(
-			score_type=='mse_cv',
-			msg = f'Sklearn lasso has incorrect score type ({score_type}), expected mse_cv'
-		)
+		# Repeat for logistic case
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Pyglm solver',
+			fstat_kwargs=pyglm_kwargs,
+			n=500,
+			p=100,
+			rho=0.2,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=1,
+			group_features=True,
+			y_dist='binomial',
+			max_l2norm=np.inf,
+		)		
 
+	def test_vanilla_group_lasso_fit(self):
 
-	def test_logistic_fit(self):
-		""" Tests logistic fit of group lasso on an easy case
-		(dai barber dataset). If this test fails, knockoffs will
-		have pretty atrocious power on binary outcomes. """
-
-		n = 300
-		p = 100
-		np.random.seed(110)
-		X, y, beta, Q, corr_matrix, groups = graphs.daibarber2016_graph(
-			n = n, p = p, y_dist = 'binomial'
-		)
-
-		# These are not real - just helpful syntactically
-		fake_knockoffs = X
-
-		# Get best model for pyglmnet
-		lasso_stat = kstats.LassoStatistic()
-		lasso_stat.fit(
-			X, fake_knockoffs, y, 
-			groups=groups,
-			use_pyglm=True,
-			y_dist=None,
-			max_iter=20,
-			tol=5e-2,
-			learning_rate=3,
-			group_lasso=True,
-		)
-		glasso1 = lasso_stat.model
-		rev_inds1 = lasso_stat.rev_inds
-		beta_pyglm = glasso1.beta_[rev_inds1][0:p]
-		corr1 = np.corrcoef(beta_pyglm, beta)[0, 1]
-		self.assertTrue(corr1 > 0.5,
-						msg = f'Pyglm fits logistic very poorly (corr = {corr1} btwn real/fitted coeffs)')
-
-
-		# Get best model for group-lasso
-		lasso_stat2 = kstats.LassoStatistic()
-		lasso_stat2.fit(
-			X,
-			fake_knockoffs,
-			y,
-			groups=groups,
-			use_pyglm=False,
-			max_iter=20,
-			tol=5e-2,
-			learning_rate=3,
-			group_lasso=True
-		)
-		glasso2 = lasso_stat2.model
-		rev_inds2 = lasso_stat2.rev_inds
-		beta_gl = glasso2.coef_[rev_inds2][0:p].reshape(p)
-		corr2 = np.corrcoef(beta_gl, beta)[0, 1]
-		self.assertTrue(corr2 > 0.5,
-						msg = f'group-lasso fits logistic very poorly (corr = {corr2} btwn real/fitted coeffs)')
-
-
-		# Test again, fitting logistic (regular) lasso
-		lasso_stat3 = kstats.LassoStatistic()
-		lasso_stat3.fit(
-			X=X,
-			knockoffs=fake_knockoffs,
-			y=y,
-			y_dist=None,
-			max_iter=50,
-		)
-		glasso3 = lasso_stat3.model
-		rev_inds3 = lasso_stat3.rev_inds
-		beta3 = glasso3.coef_[0, rev_inds3][0:p]
-		corr3 = np.corrcoef(beta3, beta)[0, 1]
-		self.assertTrue(corr3 > 0.5,
-						msg = f'SKlearn lasso fits logistic very poorly (corr = {corr3} btwn real/fitted coeffs)'
-		)
-		score_type = lasso_stat3.score_type
-		self.assertTrue(
-			score_type=='accuracy_cv',
-			msg = f'Sklearn logistic lasso has incorrect score type ({score_type}), expected accuracy_cv'
+		glasso_kwargs = {
+			'use_pyglm':False,
+			'group_lasso':True
+		}
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Vanilla group lasso solver',
+			fstat_kwargs=glasso_kwargs,
+			n=500,
+			p=200,
+			rho=0.2,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=1,
+			group_features=True,
+			max_l2norm=np.inf,
 		)
 
+		# Repeat for logistic case
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Vanilla group lasso solver',
+			fstat_kwargs=glasso_kwargs,
+			n=300,
+			p=100,
+			rho=0.2,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=1,
+			group_features=True,
+			y_dist='binomial',
+			max_l2norm=np.inf,
+		)
+
+	def test_lasso_fit(self):
+
+		# Lasso fit for Gaussian data
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Sklearn lasso',
+			n=160,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.9,
+			group_features=False,
+		)
+
+		# Repeat for grouped features
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Sklearn lasso',
+			n=160,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.4,
+			group_features=True,
+			max_l2norm=np.inf
+		)
+
+		# Repeat for logistic features
+		self.check_linear_model_fit(
+			fstat=kstats.LassoStatistic(),
+			fstat_name='Sklearn lasso',
+			n=300,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.8,
+			group_features=True,
+			max_l2norm=np.inf
+		)
 
 	def test_antisymmetric_fns(self):
 
@@ -530,6 +553,52 @@ class TestGroupLasso(unittest.TestCase):
 		self.assertRaisesRegex(
 			ValueError, "Debiased lasso is not implemented for binomial data",
 			binomial_debiased_lasso
+		)
+
+	def test_ridge_fit(self):
+
+		# Ridge fit for Gaussian data
+		self.check_linear_model_fit(
+			fstat=kstats.RidgeStatistic(),
+			fstat_name='Sklearn ridge',
+			n=160,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.9,
+			group_features=False,
+		)
+
+		# Repeat for grouped features
+		self.check_linear_model_fit(
+			fstat=kstats.RidgeStatistic(),
+			fstat_name='Sklearn ridge',
+			n=160,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=1,
+			group_features=True,
+			max_l2norm=np.inf
+		)
+
+		# Repeat for logistic features
+		self.check_linear_model_fit(
+			fstat=kstats.RidgeStatistic(),
+			fstat_name='Sklearn ridge',
+			n=150,
+			p=100,
+			rho=0.7,
+			coeff_size=5,
+			sparsity=0.5,
+			seed=110,
+			min_power=0.85,
+			group_features=False,
+			max_l2norm=9
 		)
 
 
