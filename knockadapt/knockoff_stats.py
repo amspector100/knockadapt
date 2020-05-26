@@ -3,7 +3,7 @@ import numpy as np
 
 # Model-fitters
 import sklearn
-from sklearn import linear_model, model_selection
+from sklearn import linear_model, model_selection, ensemble
 from group_lasso import GroupLasso, LogisticGroupLasso
 from pyglmnet import GLMCV
 
@@ -232,6 +232,7 @@ def fit_ridge(X, knockoffs, y, y_dist=None, **kwargs):
 		ridge = linear_model.RidgeCV(
 			alphas=DEFAULT_REG_VALS,
 			store_cv_values=True,
+			scoring='neg_mean_squared_error',
 			**kwargs,
 		).fit(features, y)
 	elif y_dist == "binomial":
@@ -503,7 +504,7 @@ class RidgeStatistic(FeatureStatistic):
 		# Retrieve Z statistics and save cv scores
 		if kwargs["y_dist"] == 'gaussian':
 			Z = self.model.coef_[self.rev_inds]
-			self.score = self.model.cv_values_.mean(axis=1).min()
+			self.score = -1*self.model.cv_values_.mean(axis=1).min()
 			self.score_type = "mse_cv"
 		elif kwargs["y_dist"] == 'binomial':
 			Z = self.model.coef_[0, self.rev_inds]
@@ -770,6 +771,46 @@ class OLSStatistic(FeatureStatistic):
 		)
 
 		return W
+
+
+class RandomForestStatistic(FeatureStatistic):
+
+	def fit(self, X, knockoffs, y, groups=None, cv_score=False, **kwargs):
+
+		# Bind data
+		p = X.shape[1]
+		features = np.concatenate([X, knockoffs], axis=1)
+
+		# Randomize coordinates to make sure everything is symmetric
+		self.inds, self.rev_inds = random_permutation_inds(2 * p)
+		features = features[:, self.inds]
+
+		# By default, all variables are their own group
+		if groups is None:
+			groups = np.arange(0, p, 1)
+		self.groups = groups
+
+		# Parse y_dist, initialize model
+		y_dist = parse_y_dist(y)
+		if y_dist == 'gaussian':
+			self.model = ensemble.RandomForestRegressor(**kwargs)
+		else:
+			self.model = ensemble.RandomForestClassifier(**kwargs)
+
+		# Fit model, get Z statistics
+		self.model.fit(features, y)
+		self.Z = self.model.feature_importances_[self.rev_inds]
+
+		# Get W statistics
+		self.W = combine_Z_stats(self.Z, self.groups, **kwargs)
+
+		# Possibly score model
+		self.score_model(
+			features=features, y=y, cv_score=cv_score
+		)
+
+		return self.W
+
 
 
 def data_dependent_threshhold(W, fdr=0.10, offset=1):

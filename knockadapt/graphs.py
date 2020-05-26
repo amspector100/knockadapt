@@ -88,7 +88,7 @@ def daibarber2016_graph(
      Defaults to 0.1 (the daibarber2016 default).
     :param rho: Within-group correlation
     :param gamma: The between-group correlation = rho * gamma
-    :param **kwargs: Args passed to sample_glm_response function.
+    :param **kwargs: Args passed to sample_response function.
     """
 
     # Set default values
@@ -127,7 +127,7 @@ def daibarber2016_graph(
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean=mu, cov=Sigma, size=n)
     # Sample y
-    y = sample_glm_response(X, beta, **kwargs)
+    y = sample_response(X, beta, **kwargs)
 
     return X, y, beta, Q, Sigma, groups + 1
 
@@ -229,18 +229,55 @@ def create_sparse_coefficients(
     return beta
 
 
-def sample_glm_response(X, beta, y_dist="gaussian"):
+def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
     """ Given a design matrix and coefficients (beta), samples
-    a response y """
+    a response y.
+    :param cond_mean: How to calculate the conditional mean. Four options:
+        1. Linear (np.dot(X, beta))
+        2. Cubic (np.dot(X**3, beta) - np.dot(X, beta))
+        3. trunclinear ((X * beta >= 1).sum(axis = 1))
+        Stands for truncated linear.
+        4. pairint: pairs up non-null coefficients according to the
+        order of beta, multiplies them and their beta values, then
+        sums. "pairint" stands for pairwise-interactions.
+    :param y_dist: If gaussian, y is the conditional mean plus
+    gaussian noise. If binomial, Pr(y=1) = softmax(cond_mean). """
 
     n = X.shape[0]
+    p = X.shape[1]
+
+    if cond_mean == 'linear':
+        cond_mean = np.dot(X, beta)
+    elif cond_mean == 'cubic':
+        cond_mean = np.dot(np.power(X, 3), beta) - np.dot(X, beta)
+    elif cond_mean == 'trunclinear':
+        cond_mean = ((X * beta >= 1) * np.sign(beta)).sum(axis = 1)
+    elif cond_mean == 'pairint':
+        # Pair up the coefficients
+        pairs = [[]]
+        for j in range(p):
+            if beta[j] != 0:
+                if len(pairs[-1]) < 2:
+                    pairs[-1].append(j)
+                else:
+                    pairs.append([j])
+
+        # Multiply pairs and add to cond_mean
+        cond_mean = np.zeros(n)
+        for pair in pairs:
+            interaction_term = np.ones(n)
+            for j in pair:
+                interaction_term = interaction_term * beta[j]
+                interaction_term = interaction_term * X[:, j]
+            cond_mean += interaction_term
+    else:
+        raise ValueError(f"cond_mean must be one of 'linear', 'cubic', 'trunclinear', 'pairint', not {cond_mean}")
 
     # Create y, one of two families
     if y_dist == "gaussian":
-        y = np.dot(X, beta) + np.random.standard_normal((n))
+        y = cond_mean + np.random.standard_normal((n))
     elif y_dist == "binomial":
-        inner_product = np.dot(X, beta)
-        probs = 1 / (1 + np.exp(-1 * inner_product))
+        probs = 1 / (1 + np.exp(-1 * cond_mean))
         y = stats.bernoulli.rvs(probs)
     else:
         raise ValueError(f"y_dist must be one of 'gaussian', 'binomial', not {y_dist}")
@@ -296,12 +333,6 @@ def sample_data(
         elif method == "ar1":
             corr_matrix = AR1(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
-        elif method == "identity":
-            corr_matrix = 1e-3 * stats.norm.rvs(size=(p, p))
-            corr_matrix = np.dot(corr_matrix.T, corr_matrix)
-            corr_matrix -= np.diagflat(np.diag(corr_matrix))
-            corr_matrix += np.eye(p)
-            Q = chol2inv(corr_matrix)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
                 p=p,
@@ -338,7 +369,7 @@ def sample_data(
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
 
-    y = sample_glm_response(X=X, beta=beta, y_dist=y_dist)
+    y = sample_response(X=X, beta=beta, y_dist=y_dist)
 
     return X, y, beta, Q, corr_matrix
 

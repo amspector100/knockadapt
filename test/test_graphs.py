@@ -29,7 +29,7 @@ class TestSampleData(unittest.TestCase):
 		# sampling ys
 		N = 5000
 		X_repeated = np.repeat(X[0], N).reshape(p, N).T
-		ys = graphs.sample_glm_response(
+		ys = graphs.sample_response(
 			X_repeated, beta, y_dist = 'binomial'
 		)
 
@@ -76,6 +76,57 @@ class TestSampleData(unittest.TestCase):
 		selected_groups = np.unique(groups[beta != 0]).shape[0]
 		self.assertTrue(selected_groups == expected_nonnull_groups,
 						msg = 'group sparsity parameter does not choose coeffs within a group' )
+
+	def test_y_response(self):
+
+		# Sample design matrix, beta
+		#np.random.seed(100)
+		n = 100000
+		p = 10
+		X = np.random.randn(n,p)
+		beta = graphs.create_sparse_coefficients(
+			p=p,
+			sparsity=0.5,
+			coeff_size=1,
+			sign_prob=0.5,
+			coeff_dist="none"
+		)
+		beta[0] = 1
+		beta[1] = -1
+
+		# Test if a feature has the expected marginal covariance w y
+		def test_cov(feature, y, name, expected=1):
+			ycov = (feature*y).mean()
+			var = (feature**2).mean()
+			coef = ycov / var
+			self.assertTrue(
+				np.abs(coef - expected) < 0.05,
+				msg = f'when sampling y, {name} cond_mean yields unexpected results ({coef} vs {expected})'
+			)
+
+		# Cond mean 1: linear. 
+		y = graphs.sample_response(X, beta, cond_mean='linear')
+		test_cov(X[:, 0], y, name='linear')
+
+		# Cond mean 2: cubic
+		y = graphs.sample_response(X, beta, cond_mean='cubic')
+		feature = np.power(X[:, 0], 3) - X[:, 0]
+		test_cov(feature, y, name='cubic')
+
+		# Cond mean 3: trunclinear
+		y = graphs.sample_response(X, beta, cond_mean='trunclinear')
+		feature = (X[:, 0] >= 1)
+		mean1 = y[feature].mean()
+		mean2 = y[~feature].mean()
+		self.assertTrue(
+			np.abs(mean1 - mean2 - 1) < 0.05,
+			msg = f'when sampling y, trunclinear cond_mean yields unexpected results for conditional means {mean1} vs {mean2+1}'
+		)
+
+		# Cond mean 4: pairwise interactions
+		y = graphs.sample_response(X, beta, cond_mean='pairint')
+		feature = X[:, 0]*X[:, 1]
+		test_cov(feature, y, name='pairint', expected=-1)
 
 	def test_coeff_dist(self):
 
