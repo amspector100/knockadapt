@@ -23,7 +23,6 @@ class KStatVal(unittest.TestCase):
 		min_power=0.8,
 		max_l2norm=9,
 		seed=110,
-		y_dist='gaussian',
 		group_features=False,
 		**sample_kwargs
 	):
@@ -40,13 +39,17 @@ class KStatVal(unittest.TestCase):
 			sample_kwargs['p'] = 50
 		if 'rho' not in sample_kwargs:
 			sample_kwargs['rho'] = 0.5
+		if 'y_dist' not in sample_kwargs:
+			sample_kwargs['y_dist'] = 'gaussian'
 		n = sample_kwargs['n']
 		p = sample_kwargs['p']
 		rho = sample_kwargs['rho']
+		y_dist = sample_kwargs['y_dist']
+
 
 		# Create data generating process
 		np.random.seed(seed)
-		X, y, beta, _, corr_matrix = graphs.sample_data(**sample_kwargs)       
+		X, y, beta, _, corr_matrix = graphs.sample_data(**sample_kwargs)
 
 		# XtXinv = np.linalg.inv(np.dot(X.T, X))
 		# Xty = np.dot(X.T, y)
@@ -105,8 +108,8 @@ class KStatVal(unittest.TestCase):
 			msg = f"Power {power} for {fstat_name} in equicor case (n={n},p={p},rho={rho}, y_dist {y_dist}, grouped={group_features}) should be > {min_power}. W stats are {W}, beta is {beta}"
 		)
 
-class TestLinearModels(KStatVal):
-	""" Tests fitting of ols, lasso, ridge, margcorr """
+class TestFeatureStatistics(KStatVal):
+	""" Tests fitting of ols, lasso, ridge, margcorr, random forest """
 
 	def test_combine_Z_stats(self):
 		""" Tests the combine_Z_stats function """
@@ -222,7 +225,7 @@ class TestLinearModels(KStatVal):
 			coeff_size=5,
 			sparsity=0.5,
 			seed=110,
-			min_power=1,
+			min_power=0.5,
 			group_features=True,
 			max_l2norm=np.inf,
 		)
@@ -238,7 +241,7 @@ class TestLinearModels(KStatVal):
 			coeff_size=5,
 			sparsity=0.5,
 			seed=110,
-			min_power=1,
+			min_power=0.5,
 			group_features=True,
 			y_dist='binomial',
 			max_l2norm=np.inf,
@@ -260,7 +263,7 @@ class TestLinearModels(KStatVal):
 			coeff_size=5,
 			sparsity=0.5,
 			seed=110,
-			min_power=1,
+			min_power=0.5,
 			group_features=True,
 			max_l2norm=np.inf,
 		)
@@ -276,7 +279,7 @@ class TestLinearModels(KStatVal):
 			coeff_size=5,
 			sparsity=0.5,
 			seed=110,
-			min_power=1,
+			min_power=0.5,
 			group_features=True,
 			y_dist='binomial',
 			max_l2norm=np.inf,
@@ -288,7 +291,7 @@ class TestLinearModels(KStatVal):
 		self.check_linear_model_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
-			n=160,
+			n=200,
 			p=100,
 			rho=0.7,
 			coeff_size=5,
@@ -303,7 +306,7 @@ class TestLinearModels(KStatVal):
 		self.check_linear_model_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
-			n=160,
+			n=200,
 			p=100,
 			rho=0.7,
 			coeff_size=5,
@@ -318,7 +321,7 @@ class TestLinearModels(KStatVal):
 		self.check_linear_model_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
-			n=300,
+			n=350,
 			p=100,
 			rho=0.7,
 			coeff_size=5,
@@ -600,6 +603,59 @@ class TestLinearModels(KStatVal):
 			min_power=0.85,
 			group_features=False,
 			max_l2norm=9
+		)
+
+	def test_randomforest_fit(self):
+
+		# RF power on trunclinear data
+		self.check_linear_model_fit(
+			fstat=kstats.RandomForestStatistic(),
+			fstat_name='Random forest regression',
+			n=5000,
+			p=100,
+			rho=0.5,
+			coeff_size=10,
+			sparsity=0.2,
+			seed=110,
+			min_power=0.5,
+			group_features=False,
+			cond_mean='trunclinear',
+			max_l2norm=np.inf, # L2 norm makes no sense here
+		)
+
+		# Repeat for logistic features
+		self.check_linear_model_fit(
+			fstat=kstats.RandomForestStatistic(),
+			fstat_name='Random forest classification',
+			n=1000,
+			p=100,
+			rho=0.7,
+			coeff_size=1,
+			sparsity=0.2,
+			seed=110,
+			min_power=0.5,
+			group_features=False,
+			y_dist='binomial',
+			cond_mean='linear',
+			max_l2norm=np.inf, # L2 norm makes no sense here
+		)
+
+		# Repeat for pairwise interactions
+		self.check_linear_model_fit(
+			fstat=kstats.RandomForestStatistic(),
+			fstat_name='Random forest classification',
+			n=4000,
+			p=100,
+			rho=0.5,
+			coeff_size=1,
+			sparsity=0.2,
+			seed=110,
+			gamma=0,
+			method='daibarber2016',
+			min_power=0.5,
+			group_features=False,
+			cond_mean='pairint',
+			max_l2norm=np.inf, # L2 norm makes no sense here
 		)
 
 

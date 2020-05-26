@@ -297,6 +297,7 @@ def sample_data(
     sparsity=0.5,
     groups=None,
     y_dist="gaussian",
+    cond_mean='linear',
     sign_prob=0.5,
     **kwargs,
 ):
@@ -369,7 +370,7 @@ def sample_data(
     mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
 
-    y = sample_response(X=X, beta=beta, y_dist=y_dist)
+    y = sample_response(X=X, beta=beta, y_dist=y_dist, cond_mean=cond_mean)
 
     return X, y, beta, Q, corr_matrix
 
