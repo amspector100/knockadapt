@@ -164,6 +164,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 		# Scenario 1: AR1 a = 1, b = 1, global null
 		self.check_fdr_control(
 			n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', cond_mean='pairint', reps=15,
+			filter_kwargs = {'feature_stat':'randomforest'}
 		)
 
 		# Scenario 2: Erdos Renyi

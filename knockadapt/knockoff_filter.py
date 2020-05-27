@@ -136,6 +136,8 @@ class MXKnockoffFilter:
 			feature_stat = kstats.OLSStatistic()
 		elif feature_stat == "margcorr":
 			feature_stat = kstats.MargCorrStatistic()
+		elif feature_stat == 'randomforest':
+			feature_stat = kstats.RandomForestStatistic()
 
 		# Sample knockoffs
 		if knockoffs is None:
