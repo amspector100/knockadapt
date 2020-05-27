@@ -276,5 +276,30 @@ class TestSampleData(unittest.TestCase):
 			err_msg=f'random AR1 gen has unexpected avg rho {mean_rho} vs {expected} '
 		)
 
+	def test_dot_corr_matrices(self):
+
+		d = 1000
+		p = 4
+		_,_,_,_,Sigma = graphs.sample_data(
+			p=p, d=d, method='wishart'
+		)
+		np.testing.assert_almost_equal(
+			Sigma, np.eye(p), 
+			decimal=1,
+			err_msg = f'random Wishart generation {Sigma} unexpectedly deviates from the identity'
+		)
+
+		# Repeat for the uniform case
+		_,_,_,_,Sigma = graphs.sample_data(
+			p=p, d=d, method='uniformdot'
+		)
+		expected = 0.25 * np.eye(p) + 0.75 * np.ones((p, p))
+		np.testing.assert_almost_equal(
+			Sigma, expected, 
+			decimal=1,
+			err_msg = f'random unifdot generation {Sigma} unexpectedly deviates from the {expected}'
+		)
+
+
 if __name__ == '__main__':
 	unittest.main()

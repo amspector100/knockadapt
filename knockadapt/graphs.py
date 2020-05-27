@@ -12,6 +12,27 @@ import scipy.spatial.distance as ssd
 # Graphing
 import matplotlib.pyplot as plt
 
+def Wishart(d=100, p=100, tol=1e-2):
+    """
+    Let W be a random d x p matrix with i.i.d. Gaussian
+    entries. Then Sigma = cov2corr(W^T W).
+    """
+
+    W = np.random.randn(d, p)
+    V = np.dot(W.T, W)
+    V = cov2corr(V)
+    return cov2corr(shift_until_PSD(V, tol=tol))
+
+def UniformDot(d=100, p=100, tol=1e-2):
+    """
+    Let U be a random d x p matrix with i.i.d. uniform
+    entries. Then Sigma = cov2corr(U^T U)
+    """
+    U = np.random.uniform(size=(d, p))
+    V = np.dot(U.T, U)
+    V = cov2corr(V)
+    return cov2corr(shift_until_PSD(V, tol=tol))
+
 
 def AR1(p=30, a=1, b=1, tol=1e-3, rho=None):
     """ Generates correlation matrix for AR(1) Gaussian process,
@@ -345,6 +366,12 @@ def sample_data(
                 beta=beta,
                 **kwargs,
             )
+        elif method == 'wishart':
+            corr_matrix = Wishart(p=p, **kwargs)
+            Q = chol2inv(corr_matrix)
+        elif method == 'uniformdot':
+            corr_matrix = UniformDot(p=p, **kwargs)
+            Q = chol2inv(corr_matrix)
         else:
             raise ValueError("Other methods not implemented yet")
 
