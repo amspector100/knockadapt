@@ -403,7 +403,79 @@ class FeatureStatistic:
 		self.groups = None  # Grouping of features for group knockoffs
 		self.W = None  # W statistic
 
-	def score_model(self, features, y, cv_score, logistic_flag=False):
+	def swap_feature_importances(self, features, y):
+		"""
+		Given a model of the features and y, calculates feature importances
+		as follows.
+
+		For feature i, replace the feature with its knockoff and calculate
+		the relative increase in the loss. Similarly, for knockoff i, 
+		replace the knockoffs with its feature and calculate the relative
+		increase in the	loss.
+
+		:param features: n x p numpy array, where n is the number of data 
+		points and p is the number of features.
+		:param y: n length numpy array of the response
+		"""
+
+		# Parse aspects of the DGP
+		n = features.shape[0]
+		p = int(features.shape[1] / 2)
+		y_dist = parse_y_dist(y)
+
+		# Baseline predictive power
+		base_loss = self.score_model(features, y, y_dist=y_dist)
+
+		# Iteratively replace columns with their knockoffs/features
+		Z_swap = np.zeros(2*p)
+		for i in range(p):
+			for knockoff in [0,1]:
+
+				# Unshuffle features and replace column
+				new_features = features[:, self.rev_inds].copy()
+				col = i + knockoff * p # The column we calculate the score for
+				partner = i + (1 - knockoff) * p # its corresponding feature/knockoff
+				new_features[:, col] = new_features[:, partner]
+				new_features = new_features[:, self.inds] # Reshuffle cols for model
+
+				# Calculate loss
+				Z_swap[col] = self.score_model(new_features, y, y_dist=y_dist)
+
+		return Z_swap
+
+	def score_model(self, features, y, y_dist=None):
+
+		# Make sure model exists
+		if self.model is None:
+			raise ValueError(
+				"Must train self.model before calling model_training_loss"
+			)
+
+		# Parse y distribution
+		if y_dist is None:
+			y_dist = parse_y_dist(y)
+
+		# MSE for gaussian data
+		if y_dist == 'gaussian':
+			preds = self.model.predict(features)
+			loss = np.power(preds - y, 2).mean()
+		# Negative log-likelihood for binomial data
+		elif y_dist == 'binomial':
+			preds = self.model.predict(features)
+			accuracy = (preds == y).mean()
+			loss = 1 - accuracy
+			# log_probs = self.model.predict_log_proba(features)
+			# log_probs[log_probs == -np.inf] = -10 # Numerical errors
+			# # TODO: should normalize
+			# loss = -1*log_probs[:, y.astype('int32')].mean()
+		else:
+			raise ValueError(f"Unexpected y_dist = {y_dist}")
+
+		return loss
+
+
+
+	def cv_score_model(self, features, y, cv_score, logistic_flag=False):
 
 		# Possibly, compute CV MSE/Accuracy, although this
 		# can be very expensive (e.g. for LARS solver)
@@ -433,9 +505,14 @@ class FeatureStatistic:
 					f"Model is of {type(self.model)}, must be sklearn estimator for cvscoring"
 				)
 		else:
-			preds = self.model.predict(features)
-			self.score = np.power(preds - y, 2).mean()
-			self.score_type = "mse"
+			if logistic_flag:
+				y_dist = 'binomial'
+				self.score_type = 'log_likelihood'
+			else:
+				y_dist = 'gaussian'
+				self.score_type = "mse"
+			self.score = -1*self.score_model(features, y, y_dist=y_dist)
+
 
 
 class RidgeStatistic(FeatureStatistic):
@@ -659,7 +736,7 @@ class LassoStatistic(FeatureStatistic):
 			# Else compute the score
 			else:
 				features = np.concatenate([X, knockoffs], axis=1)[:, inds]
-				self.score_model(
+				self.cv_score_model(
 					features=features,
 					y=y,
 					cv_score=cv_score,
@@ -766,7 +843,7 @@ class OLSStatistic(FeatureStatistic):
 		self.W = W
 
 		# Score model
-		self.score_model(
+		self.cv_score_model(
 			features=features, y=y, cv_score=cv_score,
 		)
 
@@ -799,13 +876,13 @@ class RandomForestStatistic(FeatureStatistic):
 
 		# Fit model, get Z statistics
 		self.model.fit(features, y)
-		self.Z = self.model.feature_importances_[self.rev_inds]
+		self.Z = self.swap_feature_importances(features, y)
 
 		# Get W statistics
 		self.W = combine_Z_stats(self.Z, self.groups, **kwargs)
 
 		# Possibly score model
-		self.score_model(
+		self.cv_score_model(
 			features=features, y=y, cv_score=cv_score
 		)
 

@@ -611,7 +611,7 @@ class TestFeatureStatistics(KStatVal):
 		self.check_linear_model_fit(
 			fstat=kstats.RandomForestStatistic(),
 			fstat_name='Random forest regression',
-			n=5000,
+			n=2000,
 			p=100,
 			rho=0.5,
 			coeff_size=10,
@@ -627,16 +627,16 @@ class TestFeatureStatistics(KStatVal):
 		self.check_linear_model_fit(
 			fstat=kstats.RandomForestStatistic(),
 			fstat_name='Random forest classification',
-			n=1000,
+			n=10000,
 			p=100,
-			rho=0.7,
-			coeff_size=1,
+			rho=0.5,
+			coeff_size=10,
 			sparsity=0.2,
 			seed=110,
 			min_power=0.5,
 			group_features=False,
 			y_dist='binomial',
-			cond_mean='linear',
+			cond_mean='trunclinear',
 			max_l2norm=np.inf, # L2 norm makes no sense here
 		)
 
