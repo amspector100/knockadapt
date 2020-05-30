@@ -163,13 +163,25 @@ class TestMXKnockoffFilter(TestFdrControl):
 
 		# Scenario 1: AR1 a = 1, b = 1, global null
 		self.check_fdr_control(
-			n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', cond_mean='pairint', reps=15,
+			n=300,
+			p=50,
+			method='AR1',
+			sparsity=0.5,
+			y_dist='gaussian', 
+			cond_mean='pairint',
+			reps=15,
 			filter_kwargs = {'feature_stat':'randomforest'}
 		)
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=100, p=50, method='ErdosRenyi', sparsity=0.5, y_dist='binomial', cond_mean='pairint', reps=15,
+			n=100,
+			p=50,
+			method='ErdosRenyi',
+			sparsity=0.5,
+			y_dist='binomial',
+			cond_mean='pairint',
+			reps=15,
 		)
 
 	def test_recycling_control(self):

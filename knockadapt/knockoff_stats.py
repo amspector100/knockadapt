@@ -423,9 +423,6 @@ class FeatureStatistic:
 		p = int(features.shape[1] / 2)
 		y_dist = parse_y_dist(y)
 
-		# Baseline predictive power
-		base_loss = self.score_model(features, y, y_dist=y_dist)
-
 		# Iteratively replace columns with their knockoffs/features
 		Z_swap = np.zeros(2*p)
 		for i in range(p):
@@ -442,6 +439,58 @@ class FeatureStatistic:
 				Z_swap[col] = self.score_model(new_features, y, y_dist=y_dist)
 
 		return Z_swap
+
+	def swap_path_feature_importances(self, features, y, step_size=0.5, max_lambda=5):
+		"""
+		See http://proceedings.mlr.press/v89/gimenez19a/gimenez19a.pdf
+		"""
+
+		# Parse aspects of the DGP
+		n = features.shape[0]
+		p = int(features.shape[1] / 2)
+		y_dist = parse_y_dist(y)
+
+		# Baseline loss
+		baseline_loss = self.score_model(features, y, y_dist=y_dist)
+
+
+		# Iteratively replace columns with their knockoffs/features
+		lambda_vals = []
+		lambd = step_size
+		while lambd <= max_lambda:
+			lambda_vals.append(lambd)
+			lambd += step_size
+		lambda_vals = np.array(lambda_vals)
+
+		# DP approach to calculating area
+		Z_swap_lambd_prev = np.zeros(2 * p) + baseline_loss 
+		Z_swap_int = np.zeros(2 * p)
+		for lambd in lambda_vals:
+			for i in range(p):
+				for knockoff in [0,1]:
+
+					# Unshuffle features and replace column
+					new_features = features[:, self.rev_inds].copy()
+					col = i + knockoff * p # The column we calculate the score for
+					partner = i + (1 - knockoff) * p # its corresponding feature/knockoff
+					
+					# Calc new col as linear interpolation btwn col and partner
+					fk_diff = new_features[:, partner] -  new_features[:, col]
+					new_col = new_features[:, col] + lambd * (fk_diff)
+
+					# Set new column and reshuffle
+					new_features[:, col] = new_col
+					new_features = new_features[:, self.inds] # Reshuffle 
+
+					# Calculate area under curve
+					loss = self.score_model(new_features, y, y_dist=y_dist)
+					avg_trapezoid_height = (Z_swap_lambd_prev[col] + loss)/2
+					Z_swap_int[col] += step_size * avg_trapezoid_height
+
+					# Cache for DP
+					Z_swap_lambd_prev[col] = loss
+
+		return Z_swap_int
 
 	def score_model(self, features, y, y_dist=None):
 
@@ -852,7 +901,30 @@ class OLSStatistic(FeatureStatistic):
 
 class RandomForestStatistic(FeatureStatistic):
 
-	def fit(self, X, knockoffs, y, groups=None, cv_score=False, **kwargs):
+	def fit(
+		self,
+		X,
+		knockoffs,
+		y,
+		groups=None,
+		cv_score=False,
+		feature_importance='swap',
+		pair_agg="cd",
+		group_agg="sum",
+		**kwargs
+	):
+		"""
+		:param feature_importance: How to calculate feature 
+		importances. Three options:
+			- "sklearn": Use sklearn feature importances. These
+			are very poor measures of feature importance, but
+			very fast.
+			- "swap": The default swap-statistic from 
+			http://proceedings.mlr.press/v89/gimenez19a/gimenez19a.pdf
+			- "swapint": The swap-integral defined from
+			http://proceedings.mlr.press/v89/gimenez19a/gimenez19a.pdf
+		"""
+
 
 		# Bind data
 		p = X.shape[1]
@@ -869,6 +941,9 @@ class RandomForestStatistic(FeatureStatistic):
 
 		# Parse y_dist, initialize model
 		y_dist = parse_y_dist(y)
+		# Avoid future warnings
+		if 'n_estimators' not in kwargs:
+			kwargs['n_estimators'] = 50
 		if y_dist == 'gaussian':
 			self.model = ensemble.RandomForestRegressor(**kwargs)
 		else:
@@ -876,10 +951,22 @@ class RandomForestStatistic(FeatureStatistic):
 
 		# Fit model, get Z statistics
 		self.model.fit(features, y)
-		self.Z = self.swap_feature_importances(features, y)
+		feature_importance = str(feature_importance).lower()
+		if feature_importance == 'default':
+			self.Z = self.model.feature_importances_[self.rev_inds]
+		elif feature_importance == 'swap':
+			self.Z = self.swap_feature_importances(features, y)
+		elif feature_importance == 'swapint':
+			self.Z = self.swap_path_feature_importances(features, y)
+		else:
+			raise ValueError(
+				f"feature_importance {feature_importance} must be one of 'swap', 'swapint', 'default'"
+			)
 
 		# Get W statistics
-		self.W = combine_Z_stats(self.Z, self.groups, **kwargs)
+		self.W = combine_Z_stats(
+			self.Z, self.groups, pair_agg=pair_agg, group_agg=group_agg
+		)
 
 		# Possibly score model
 		self.cv_score_model(

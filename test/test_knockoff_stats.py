@@ -15,7 +15,7 @@ DEFAULT_SAMPLE_KWARGS = {
 
 class KStatVal(unittest.TestCase):
 
-	def check_linear_model_fit(
+	def check_kstat_fit(
 		self,
 		fstat,
 		fstat_name,
@@ -157,7 +157,7 @@ class TestFeatureStatistics(KStatVal):
 	def test_lars_solver_fit(self):
 		""" Tests power of lars lasso solver """
 
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='LARS solver',
 			fstat_kwargs={'use_lars':True},
@@ -175,7 +175,7 @@ class TestFeatureStatistics(KStatVal):
 		""" Tests power of lars path statistic """
 		# Get DGP, knockoffs, S matrix
 
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='LARS path statistic',
 			fstat_kwargs={'zstat':'lars_path', 'pair_agg':'sm'},
@@ -194,7 +194,7 @@ class TestFeatureStatistics(KStatVal):
 	def test_ols_fit(self):
 		""" Good old OLS """
 
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.OLSStatistic(),
 			fstat_name='OLS solver',
 			n=150,
@@ -215,7 +215,7 @@ class TestFeatureStatistics(KStatVal):
 			'learning_rate':3,
 			'group_lasso':True
 		}
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Pyglm solver',
 			fstat_kwargs=pyglm_kwargs,
@@ -231,7 +231,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for logistic case
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Pyglm solver',
 			fstat_kwargs=pyglm_kwargs,
@@ -253,7 +253,7 @@ class TestFeatureStatistics(KStatVal):
 			'use_pyglm':False,
 			'group_lasso':True
 		}
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Vanilla group lasso solver',
 			fstat_kwargs=glasso_kwargs,
@@ -269,7 +269,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for logistic case
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Vanilla group lasso solver',
 			fstat_kwargs=glasso_kwargs,
@@ -288,7 +288,7 @@ class TestFeatureStatistics(KStatVal):
 	def test_lasso_fit(self):
 
 		# Lasso fit for Gaussian data
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
 			n=200,
@@ -303,7 +303,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for grouped features
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
 			n=200,
@@ -318,7 +318,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for logistic features
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.LassoStatistic(),
 			fstat_name='Sklearn lasso',
 			n=350,
@@ -562,7 +562,7 @@ class TestFeatureStatistics(KStatVal):
 	def test_ridge_fit(self):
 
 		# Ridge fit for Gaussian data
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RidgeStatistic(),
 			fstat_name='Sklearn ridge',
 			n=160,
@@ -576,7 +576,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for grouped features
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RidgeStatistic(),
 			fstat_name='Sklearn ridge',
 			n=160,
@@ -591,7 +591,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for logistic features
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RidgeStatistic(),
 			fstat_name='Sklearn ridge',
 			n=150,
@@ -608,7 +608,7 @@ class TestFeatureStatistics(KStatVal):
 	def test_randomforest_fit(self):
 
 		# RF power on trunclinear data
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RandomForestStatistic(),
 			fstat_name='Random forest regression',
 			n=2000,
@@ -624,7 +624,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for logistic features
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RandomForestStatistic(),
 			fstat_name='Random forest classification',
 			n=10000,
@@ -641,7 +641,7 @@ class TestFeatureStatistics(KStatVal):
 		)
 
 		# Repeat for pairwise interactions
-		self.check_linear_model_fit(
+		self.check_kstat_fit(
 			fstat=kstats.RandomForestStatistic(),
 			fstat_name='Random forest classification',
 			n=4000,
@@ -657,6 +657,52 @@ class TestFeatureStatistics(KStatVal):
 			cond_mean='pairint',
 			max_l2norm=np.inf, # L2 norm makes no sense here
 		)
+
+	def test_feature_importances(self):
+		""" Just makes sure the other efature importance measures don't error """
+
+		# Check that these feature importance scores throw
+		# no errors
+		self.check_kstat_fit(
+			fstat=kstats.RandomForestStatistic(),
+			fstat_name='Random forest regression',
+			fstat_kwargs={'feature_importance':'default'},
+			n=50,
+			p=10,
+			sparsity=1,
+			min_power=0,
+			max_l2norm=np.inf,
+		)
+		self.check_kstat_fit(
+			fstat=kstats.RandomForestStatistic(),
+			fstat_name='Random forest regression',
+			fstat_kwargs={'feature_importance':'swapint'},
+			n=50,
+			p=10,
+			sparsity=1,
+			min_power=0,
+			max_l2norm=np.inf,
+		)
+
+		# Check that correct error is thrown for bad
+		# feature importance score
+		def bad_feature_importance_type():
+			self.check_kstat_fit(
+				fstat=kstats.RandomForestStatistic(),
+				fstat_name='Random forest regression',
+				fstat_kwargs={'feature_importance':'undefined'},
+				n=50,
+				p=10,
+				sparsity=1,
+				min_power=0,
+				max_l2norm=np.inf,
+			)
+
+		self.assertRaisesRegex(
+			ValueError, "feature_importance undefined must be one of",
+			bad_feature_importance_type
+		)
+
 
 
 class TestDataThreshhold(unittest.TestCase):
