@@ -199,6 +199,13 @@ class TestMXKnockoffFilter(TestFdrControl):
 		)
 
 	@pytest.mark.slow
+	def test_deeppink_control(self):
+		self.check_fdr_control(
+			reps=15, n=5000, p=150, method='AR1', sparsity=0.5, y_dist='gaussian', 
+			filter_kwargs={'feature_stat':'deeppink'},
+		)
+
+	@pytest.mark.slow
 	def test_lars_control(self):
 
 		# Scenario 1: daibarber2016
