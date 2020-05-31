@@ -658,7 +658,7 @@ class TestFeatureStatistics(KStatVal):
 			max_l2norm=np.inf, # L2 norm makes no sense here
 		)
 
-	def test_feature_importances(self):
+	def test_randomforest_feature_importances(self):
 		""" Just makes sure the other efature importance measures don't error """
 
 		# Check that these feature importance scores throw
@@ -703,6 +703,98 @@ class TestFeatureStatistics(KStatVal):
 			bad_feature_importance_type
 		)
 
+	def test_deeppink_fit(self):
+
+		# RF power on trunclinear data
+		self.check_kstat_fit(
+			fstat=kstats.DeepPinkStatistic(),
+			fstat_name='Deeppink regression',
+			n=1000,
+			p=100,
+			rho=0.5,
+			coeff_size=5,
+			sparsity=0.2,
+			seed=110,
+			min_power=0.5,
+			group_features=False,
+			cond_mean='cubic',
+			max_l2norm=np.inf, # L2 norm makes no sense here
+		)
+
+		# Repeat for logistic features
+		self.check_kstat_fit(
+			fstat=kstats.DeepPinkStatistic(),
+			fstat_name='Deeppink classification',
+			n=4000,
+			p=100,
+			rho=0.5,
+			gamma=1,
+			coeff_size=5,
+			sparsity=0.2,
+			seed=110,
+			min_power=0.2,
+			group_features=False,
+			y_dist='binomial',
+			cond_mean='cubic',
+			max_l2norm=np.inf, # L2 norm makes no sense here
+		)
+	
+	def test_deeppink_feature_importances(self):
+
+		# Check that these feature importance scores throw
+		# no errors
+		self.check_kstat_fit(
+			fstat=kstats.DeepPinkStatistic(),
+			fstat_name='Deep pink regression',
+			fstat_kwargs={'feature_importance':'unweighted'},
+			n=50,
+			p=10,
+			sparsity=1,
+			min_power=0,
+			y_dist='binomial',
+			max_l2norm=np.inf,
+		)
+		self.check_kstat_fit(
+			fstat=kstats.DeepPinkStatistic(),
+			fstat_name='Deep pink classification',
+			fstat_kwargs={'feature_importance':'swap'},
+			n=50,
+			p=10,
+			sparsity=1,
+			min_power=0,
+			y_dist='binomial',
+			max_l2norm=np.inf,
+		)
+		self.check_kstat_fit(
+			fstat=kstats.DeepPinkStatistic(),
+			fstat_name='Deep pink classification',
+			fstat_kwargs={'feature_importance':'swapint'},
+			n=50,
+			p=5,
+			sparsity=1,
+			min_power=0,
+			y_dist='binomial',
+			max_l2norm=np.inf,
+		)
+
+		# Check that correct error is thrown for bad
+		# feature importance score
+		def bad_feature_importance_type():
+			self.check_kstat_fit(
+				fstat=kstats.DeepPinkStatistic(),
+				fstat_name='Deep pink regression',
+				fstat_kwargs={'feature_importance':'undefined'},
+				n=50,
+				p=10,
+				sparsity=1,
+				min_power=0,
+				max_l2norm=np.inf,
+			)
+
+		self.assertRaisesRegex(
+			ValueError, "feature_importance undefined must be one of",
+			bad_feature_importance_type
+		)
 
 
 class TestDataThreshhold(unittest.TestCase):

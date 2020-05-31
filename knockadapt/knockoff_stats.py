@@ -7,6 +7,7 @@ from sklearn import linear_model, model_selection, ensemble
 from group_lasso import GroupLasso, LogisticGroupLasso
 from pyglmnet import GLMCV
 
+from . import deeppink
 from .utilities import calc_group_sizes, random_permutation_inds
 
 DEFAULT_REG_VALS = np.logspace(-4, 4, base=10, num=20)
@@ -961,6 +962,96 @@ class RandomForestStatistic(FeatureStatistic):
 		else:
 			raise ValueError(
 				f"feature_importance {feature_importance} must be one of 'swap', 'swapint', 'default'"
+			)
+
+		# Get W statistics
+		self.W = combine_Z_stats(
+			self.Z, self.groups, pair_agg=pair_agg, group_agg=group_agg
+		)
+
+		# Possibly score model
+		self.cv_score_model(
+			features=features, y=y, cv_score=cv_score
+		)
+
+		return self.W
+
+class DeepPinkStatistic(FeatureStatistic):
+
+	def fit(
+		self,
+		X,
+		knockoffs,
+		y,
+		feature_importance='deeppink',
+		groups=None,
+		pair_agg="cd",
+		group_agg="sum",
+		cv_score=False,
+		train_kwargs={'verbose':False},
+		**kwargs
+	):
+		"""
+		:param feature_importance: How to calculate feature 
+		importances. Three options:
+			- "deeppink": Use the deeppink feature importance
+			defined in https://arxiv.org/abs/1809.01185
+			- "unweighted": Use the Z weights from the deeppink
+			paper without weighting them using the layers from
+			the MLP. Deeppink usually outperforms this feature
+			importance (but not always).
+			- "swap": The default swap-statistic from 
+			http://proceedings.mlr.press/v89/gimenez19a/gimenez19a.pdf
+			- "swapint": The swap-integral defined from
+			http://proceedings.mlr.press/v89/gimenez19a/gimenez19a.pdf
+		Defaults to deeppink, which is both the most powerful and the 
+		most computationally efficient.
+		"""
+		# Bind data 
+		n = X.shape[0]
+		p = X.shape[1]
+		features = np.concatenate([X, knockoffs], axis=1)
+
+		# Randomize coordinates to make sure everything is symmetric
+		self.inds = np.arange(0, 2*p, 1)
+		self.rev_inds = np.arange(0, 2*p, 1)
+
+
+		# By default, all variables are their own group
+		if groups is None:
+			groups = np.arange(0, p, 1)
+		self.groups = groups
+
+		# Parse y_dist, hidden_sizes, initialize model
+		y_dist = parse_y_dist(y)
+		if 'hidden_sizes' not in kwargs:
+			kwargs['hidden_sizes'] = [min(n, p)]
+		self.model = deeppink.DeepPinkModel(
+			p=p, 
+			inds=self.inds,
+			rev_inds=self.inds,
+			**kwargs
+		)
+		# Train model
+		self.model.train()
+		self.model = deeppink.train_deeppink(
+			self.model, features, y, **train_kwargs
+		)
+		self.model.eval()
+
+		# Get Z statistics
+		feature_importance = str(feature_importance).lower()
+		if feature_importance == 'deeppink':
+			self.Z = self.model.feature_importances()
+		elif feature_importance == 'unweighted':
+			self.Z = self.model.feature_importances(weight_scores=False)
+		elif feature_importance == 'swap':
+			self.Z = self.swap_feature_importances(features, y)
+		elif feature_importance == 'swapint':
+			self.Z = self.swap_path_feature_importances(features, y)
+		else:
+			raise ValueError(
+				f"feature_importance {feature_importance} must be one of 'deeppink', 'unweighted', 'swap', 'swapint'"
 			)
 
 		# Get W statistics

@@ -138,6 +138,8 @@ class MXKnockoffFilter:
 			feature_stat = kstats.MargCorrStatistic()
 		elif feature_stat == 'randomforest':
 			feature_stat = kstats.RandomForestStatistic()
+		elif feature_stat == 'deeppink':
+			feature_stat = kstats.DeepPinkStatistic()
 
 		# Sample knockoffs
 		if knockoffs is None:
