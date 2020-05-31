@@ -944,7 +944,7 @@ class RandomForestStatistic(FeatureStatistic):
 		y_dist = parse_y_dist(y)
 		# Avoid future warnings
 		if 'n_estimators' not in kwargs:
-			kwargs['n_estimators'] = 50
+			kwargs['n_estimators'] = 10
 		if y_dist == 'gaussian':
 			self.model = ensemble.RandomForestRegressor(**kwargs)
 		else:
