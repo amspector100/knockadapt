@@ -63,7 +63,7 @@ class KStatVal(unittest.TestCase):
 			groups = np.arange(1, p+1, 1)
 
 		# Create knockoffs
-		knockoffs, S = knockadapt.knockoffs.group_gaussian_knockoffs(
+		knockoffs, S = knockadapt.knockoffs.gaussian_MX_knockoffs(
 			X=X, 
 			groups=groups,
 			Sigma=corr_matrix,
@@ -491,7 +491,7 @@ class TestFeatureStatistics(KStatVal):
 		groups = np.arange(1, p+1, 1)
 
 		# Create knockoffs
-		knockoffs, S = knockadapt.knockoffs.group_gaussian_knockoffs(
+		knockoffs, S = knockadapt.knockoffs.gaussian_MX_knockoffs(
 			X=X, 
 			groups=groups,
 			Sigma=corr_matrix,

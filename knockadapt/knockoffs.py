@@ -401,7 +401,7 @@ def parse_method(method, groups, p):
     if method is not None:
         return method
     if np.all(groups == np.arange(1, p + 1, 1)):
-        method = "tfkp"
+        method = "mcv"
     else:
         if p > 1000:
             method = "asdp"
@@ -410,7 +410,7 @@ def parse_method(method, groups, p):
     return method
 
 
-def group_gaussian_knockoffs(
+def gaussian_MX_knockoffs(
     X,
     Sigma,
     groups=None,
@@ -447,10 +447,10 @@ def group_gaussian_knockoffs(
         while keeping knockoffs valid.
         - 'asdp': Same as SDP, but to increase speed, approximates correlation
         matrix as a block-diagonal matrix.
-        - 'tfkp': minimizes trace of feature-knockoff precision matrix. Solves this
+        - 'mcv': minimizes trace of feature-knockoff precision matrix. Solves this
         (nonconvex) problem with projected gradient, using either SDP or ASDP 
         to initialize. 
-    The default is to use TFKP for non-group knockoffs, and to use the group-SDP
+    The default is to use mcv for non-group knockoffs, and to use the group-SDP
     for grouped knockoffs. In both cases we use the ASDP if p > 1000.
     :param objective: How to optimize the S matrix if using SDP.
     There are several options:
@@ -470,7 +470,7 @@ def group_gaussian_knockoffs(
     :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
     :param rec_prop: The proportion of knockoffs you are planning to recycle
     (see Barber and Candes 2018, https://arxiv.org/abs/1602.03574). If 
-    method = 'tfkp',then the method takes this into account and should 
+    method = 'mcv',then the method takes this into account and should 
     dramatically increase the power of recycled knockoffs, especially in
     sparsely-correlated, high-dimensional settings.
     :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
@@ -526,7 +526,7 @@ def group_gaussian_knockoffs(
                 sdp_verbose=sdp_verbose,
                 **kwargs,
             )
-        elif method == "tfkp":
+        elif method == "mcv":
             S_init = solve_group_ASDP(
                 Sigma,
                 groups,
@@ -543,7 +543,201 @@ def group_gaussian_knockoffs(
             S = opt.optimize(max_epochs=1000)
         else:
             raise ValueError(
-                f'Method must be one of "equicorrelated", "sdp", "asdp", "tfkp" not {method}'
+                f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
+            )
+    else:
+        pass
+
+    # Check to make sure the methods worked
+    min_eig1 = np.linalg.eigh(2 * Sigma - S)[0].min()
+    if verbose:
+        print(f"Minimum eigenvalue of 2Sigma - S is {min_eig1}")
+    if min_eig1 < -1e-3:
+        raise np.linalg.LinAlgError(
+            f"Minimum eigenvalue of 2Sigma - S is {min_eig1}, meaning FDR control violations are extremely likely"
+        )
+
+    # Calculate MX knockoff moments...
+    invSigma_S = np.dot(invSigma, S)
+    mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
+    # TODO: if we replace "X" inside the dot with "X - true mu"
+    # then we can add a population mu parameter
+    Vk = 2 * S - np.dot(S, invSigma_S)
+
+    # Account for numerical errors
+    min_eig = np.linalg.eigh(Vk)[0].min()
+    if verbose:
+        print(f"Minimum eigenvalue of Vk is {min_eig}")
+    if min_eig < sample_tol:
+        if verbose:
+            warnings.warn(
+                f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
+            )
+        Vk = shift_until_PSD(Vk, sample_tol)
+
+    # ...and sample MX knockoffs!
+    knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=Vk, size=copies * n)
+
+    # (Save this for testing later)
+    first_row = knockoffs[0, 0:n].copy()
+
+    # Some annoying reshaping...
+    knockoffs = knockoffs.flatten(order="C")
+    knockoffs = knockoffs.reshape(p, n, copies, order="F")
+    knockoffs = np.transpose(knockoffs, [1, 0, 2])
+
+    # (Test we have reshaped correctly)
+    new_first_row = knockoffs[0, 0:n, 0]
+    np.testing.assert_array_almost_equal(
+        first_row,
+        new_first_row,
+        err_msg="Critical error - reshaping failed in knockoff generator",
+    )
+
+    # Add mu
+    mu = np.expand_dims(mu, axis=2)
+    knockoffs = knockoffs + mu
+
+    # For caching/debugging
+    if return_S:
+        return knockoffs, S
+
+    return knockoffs
+
+
+def FX_knockoffs(
+    X,
+    groups=None,
+    invSigma=None,
+    copies=1,
+    sample_tol=1e-5,
+    sdp_tol=1e-2,
+    S=None,
+    method=None,
+    objective="pnorm",
+    return_S=False,
+    verbose=True,
+    sdp_verbose=True,
+    rec_prop=0,
+    **kwargs,
+):
+    """ Constructs group Gaussian MX knockoffs:
+    This is not particularly efficient yet...
+    :param X: numpy array of dimension n x p 
+    :param Sigma: true covariance matrix of X, of dimension p x p
+    :param method: 'equicorrelated' or 'sdp', how to construct
+     the true Cov(X, tilde(X)), where tilde(X) is the knockoffs.
+    :param groups: numpy array of length p, list of groups of X
+    :param copies: integer number of knockoff copies of each observation to draw
+    :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
+    and will be constructed by knockoff generator.
+    :param method: How to constructe S matrix. There are three options:
+        - 'equicorrelated': In this construction, the correlation between 
+        each feature and its knockoff is the same (gamma). Minimizes this 
+        gamma while preserving validity. See Dai and Barber 2016 for the
+        group equicorrelated construction.
+        - 'sdp': solves a convex semidefinite program to minimize the 
+        (absolute) correlation between the features and their knockoffs
+        while keeping knockoffs valid.
+        - 'asdp': Same as SDP, but to increase speed, approximates correlation
+        matrix as a block-diagonal matrix.
+        - 'mcv': minimizes trace of feature-knockoff precision matrix. Solves this
+        (nonconvex) problem with projected gradient, using either SDP or ASDP 
+        to initialize. 
+    The default is to use mcv for non-group knockoffs, and to use the group-SDP
+    for grouped knockoffs. In both cases we use the ASDP if p > 1000.
+    :param objective: How to optimize the S matrix if using SDP.
+    There are several options:
+        - 'abs': minimize sum(abs(Sigma - S))
+        between groups and the group knockoffs.
+        - 'pnorm': minimize Lp-th matrix norm.
+        Equivalent to abs when p = 1.
+        - 'norm': minimize different type of matrix norm
+        (see norm_type below).
+    :param sample_tol: Minimum eigenvalue allowed for cov matrix of knockoffs.
+    Keep this extremely small (1e-5): it's just to prevent linalg errors downstream.
+    :param sdp_tol: Minimum eigenvalue allowed for grahm matrix of knockoff 
+    generations. This is used as a constraint in the SDP formulation. Keep this
+    small but not inconsequential (1e-2) as if this gets too small, the 
+    feature-knockoff combinations may become unidentifiable.
+    :param bool verbose: If true, will print stuff as it goes
+    :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
+    :param rec_prop: The proportion of knockoffs you are planning to recycle
+    (see Barber and Candes 2018, https://arxiv.org/abs/1602.03574). If 
+    method = 'mcv',then the method takes this into account and should 
+    dramatically increase the power of recycled knockoffs, especially in
+    sparsely-correlated, high-dimensional settings.
+    :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
+    
+    returns: copies x n x p numpy array of knockoffs"""
+
+    # I follow the notation of Katsevich et al. 2019
+    n = X.shape[0]
+    p = X.shape[1]
+    if groups is None:
+        groups = np.arange(1, p + 1, 1)
+    if groups.shape[0] != p:
+        raise ValueError(
+            f"Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match"
+        )
+
+    # Parse which method to use if not supplied
+    method = parse_method(method, groups, p)
+
+    # Get precision matrix
+    if invSigma is None:
+        invSigma = chol2inv(Sigma)
+    else:
+        product = np.dot(invSigma.T, Sigma)
+        if np.abs(product - np.eye(p)).sum() > sample_tol:
+            raise ValueError(
+                "Inverse Sigma provided was not actually the inverse of Sigma"
+            )
+
+    # Calculate group-block diagonal matrix S
+    # using SDP, equicorrelated, or (maybe) ASDP
+    method = str(method).lower()
+    if S is None:
+        if method == "sdp":
+            if verbose:
+                print(f"Solving SDP for S with p = {p}")
+            S = solve_group_SDP(
+                Sigma,
+                groups,
+                objective=objective,
+                sdp_verbose=sdp_verbose,
+                tol=sdp_tol,
+                **kwargs,
+            )
+        elif method == "equicorrelated":
+            S = equicorrelated_block_matrix(Sigma, groups, **kwargs)
+        elif method == "asdp":
+            S = solve_group_ASDP(
+                Sigma,
+                groups,
+                objective=objective,
+                verbose=verbose,
+                sdp_verbose=sdp_verbose,
+                **kwargs,
+            )
+        elif method == "mcv":
+            S_init = solve_group_ASDP(
+                Sigma,
+                groups,
+                objective=objective,
+                verbose=verbose,
+                sdp_verbose=sdp_verbose,
+                max_block=500,
+                tol=sample_tol,
+                **kwargs,
+            )
+            opt = nonconvex_sdp.NonconvexSDPSolver(
+                Sigma=Sigma, groups=groups, init_S=S, rec_prop=rec_prop
+            )
+            S = opt.optimize(max_epochs=1000)
+        else:
+            raise ValueError(
+                f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
             )
     else:
         pass

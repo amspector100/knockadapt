@@ -163,8 +163,8 @@ class TestSDP(CheckSMatrix):
 		)
 		self.check_S_properties(corr_matrix, S_triv, trivial_groups)
 
-		# Repeat for group_gaussian_knockoffs method
-		_, S_triv2 = knockoffs.group_gaussian_knockoffs(
+		# Repeat for gaussian_MX_knockoffs method
+		_, S_triv2 = knockoffs.gaussian_MX_knockoffs(
 			X = X, Sigma = corr_matrix, groups = trivial_groups, 
 			return_S = True, sdp_verbose = False, verbose = False,
 			method = 'sdp'
@@ -179,7 +179,7 @@ class TestSDP(CheckSMatrix):
 		_,_,_,_, expected_out, _ = graphs.daibarber2016_graph(
 			n = n, p = p, gamma = 0
 		)
-		_, S_harder = knockoffs.group_gaussian_knockoffs(
+		_, S_harder = knockoffs.gaussian_MX_knockoffs(
 			X = X, Sigma = corr_matrix, groups = groups, 
 			return_S = True, sdp_verbose = False, verbose = False,
 			method = 'sdp'
@@ -191,7 +191,7 @@ class TestSDP(CheckSMatrix):
 		self.check_S_properties(corr_matrix, S_harder, groups)
 
 		# Repeat for ASDP
-		_, S_harder_ASDP = knockoffs.group_gaussian_knockoffs(
+		_, S_harder_ASDP = knockoffs.gaussian_MX_knockoffs(
 			X = X, Sigma = corr_matrix, groups = groups, method = 'ASDP',
 			return_S = True, sdp_verbose = False, verbose = False
 		)
@@ -252,7 +252,7 @@ class TestSDP(CheckSMatrix):
 		)
 
 
-class TestKnockoffs(unittest.TestCase):
+class TestMXKnockoffs(unittest.TestCase):
 	""" Tests whether knockoffs have correct distribution empirically"""
 
 	def test_method_parser(self):
@@ -265,13 +265,13 @@ class TestKnockoffs(unittest.TestCase):
 			"parse method fails to return non-None methods"
 		)
 
-		# Default is TFKP
+		# Default is mcv
 		p = 1000
 		groups = np.arange(1, p+1, 1)
 		out2 = knockoffs.parse_method(None, groups, p)
 		self.assertTrue(
-			out2 == 'tfkp', 
-			"parse method fails to return tfkp by default"
+			out2 == 'mcv', 
+			"parse method fails to return mcv by default"
 		)
 
 		# Otherwise SDP
@@ -302,7 +302,7 @@ class TestKnockoffs(unittest.TestCase):
 		S_bad = np.eye(p)
 
 		def fdr_vio_knockoffs():
-			knockoffs.group_gaussian_knockoffs(
+			knockoffs.gaussian_MX_knockoffs(
 				X = X, 
 				Sigma = corr_matrix,
 				S=S_bad,
@@ -319,7 +319,7 @@ class TestKnockoffs(unittest.TestCase):
 	def test_ungrouped_knockoffs(self):
 
 
-		# Test knockoff construction for TFKP and SDP
+		# Test knockoff construction for MCV and SDP
 		# on equicorrelated matrices
 		n = 100000
 		copies = 3
@@ -328,14 +328,14 @@ class TestKnockoffs(unittest.TestCase):
 
 			for gamma in [0, 0.5, 1]:
 
-				for method in ['tfkp', 'sdp']:
+				for method in ['mcv', 'sdp']:
 
 					X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
 						n = n, p = p, gamma = gamma, rho = rho
 					)
 					# S matrix
 					trivial_groups = np.arange(0, p, 1) + 1
-					all_knockoffs, S = knockoffs.group_gaussian_knockoffs(
+					all_knockoffs, S = knockoffs.gaussian_MX_knockoffs(
 						X = X, 
 						Sigma = corr_matrix,
 						groups = trivial_groups, 

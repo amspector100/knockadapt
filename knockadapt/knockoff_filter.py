@@ -1,7 +1,7 @@
 import numpy as np
 from . import utilities
 from . import knockoff_stats as kstats
-from .knockoffs import group_gaussian_knockoffs
+from .knockoffs import gaussian_MX_knockoffs
 
 
 class MXKnockoffFilter:
@@ -19,7 +19,7 @@ class MXKnockoffFilter:
 			_sdp_degen = False
 
 		# Initial sample
-		knockoffs, S = group_gaussian_knockoffs(
+		knockoffs, S = gaussian_MX_knockoffs(
 			X=X, groups=groups, Sigma=Sigma, return_S=True, **knockoff_kwargs,
 		)
 		knockoffs = knockoffs[:, :, 0]
