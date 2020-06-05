@@ -1,12 +1,17 @@
 import numpy as np
 from . import utilities
 from . import knockoff_stats as kstats
-from .knockoffs import gaussian_MX_knockoffs
+from .knockoffs import gaussian_knockoffs
 
 
-class MXKnockoffFilter:
-	def __init__(self):
+class KnockoffFilter:
+	"""
+	:param fixedX: If True, creates fixed-X knockoffs.
+	Defaults to False (model-X knockoffs).
+	"""
+	def __init__(self, fixedX=False):
 		self.debias = False
+		self.fixedX = fixedX
 
 	def sample_knockoffs(
 		self, X, Sigma, groups, knockoff_kwargs, recycle_up_to,
@@ -18,8 +23,12 @@ class MXKnockoffFilter:
 		else:
 			_sdp_degen = False
 
+		# If fixedX, signal this to knockoff kwargs
+		if self.fixedX:
+			knockoff_kwargs['fixedX'] = True
+
 		# Initial sample
-		knockoffs, S = gaussian_MX_knockoffs(
+		knockoffs, S = gaussian_knockoffs(
 			X=X, groups=groups, Sigma=Sigma, return_S=True, **knockoff_kwargs,
 		)
 		knockoffs = knockoffs[:, :, 0]
@@ -67,7 +76,7 @@ class MXKnockoffFilter:
 		self,
 		X,
 		y,
-		Sigma,
+		Sigma=None,
 		groups=None,
 		knockoffs=None,
 		feature_stat="lasso",
@@ -79,7 +88,8 @@ class MXKnockoffFilter:
 		"""
 		:param X: n x p design matrix
 		:param y: p-length response array
-		:param Sigma: p x p covariance matrix of X
+		:param Sigma: p x p covariance matrix of X. Alternatively,
+		this can be None if fitting fixedX knockoffs.
 		:param groups: Grouping of features, p-length
 		array of integers from 1 to m (with m <= p).
 		:param knockoffs: n x p array of knockoffs.
@@ -109,7 +119,7 @@ class MXKnockoffFilter:
 		# Preliminaries
 		self.Sigma = Sigma
 		n = X.shape[0]
-		p = Sigma.shape[0]
+		p = X.shape[1]
 		if groups is None:
 			groups = np.arange(1, p + 1, 1)
 
@@ -151,6 +161,7 @@ class MXKnockoffFilter:
 				recycle_up_to=recycle_up_to,
 			)
 			if self.debias:
+				# This is only computed if self.debias is True
 				feature_stat_kwargs["Ginv"] = self.Ginv
 				feature_stat_kwargs['debias'] = True
 

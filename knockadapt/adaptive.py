@@ -4,7 +4,7 @@ import scipy.cluster.hierarchy as hierarchy
 
 from . import utilities
 from . import knockoff_stats
-from .knockoffs import gaussian_MX_knockoffs
+from .knockoffs import gaussian_knockoffs
 from .knockoff_stats import LassoStatistic, data_dependent_threshhold
 
 
@@ -276,7 +276,7 @@ class GroupKnockoffEval:
             testX = X[recycle_up_to:]
 
             # Generate second half knockoffs
-            test_knockoffs = gaussian_MX_knockoffs(
+            test_knockoffs = gaussian_knockoffs(
                 testX, self.sigma, groups, copies=copies, **knockoff_kwargs
             )
 
@@ -286,7 +286,7 @@ class GroupKnockoffEval:
 
         # Else, vanilla Knockoff generation
         else:
-            all_knockoffs = gaussian_MX_knockoffs(
+            all_knockoffs = gaussian_knockoffs(
                 X, self.sigma, groups, copies=copies, **knockoff_kwargs
             )
 

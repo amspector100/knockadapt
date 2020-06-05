@@ -3,6 +3,7 @@ import numpy as np
 import cvxpy as cp
 import scipy as sp
 from scipy import stats
+import scipy.linalg
 
 from .utilities import chol2inv, calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
@@ -21,7 +22,7 @@ def TestIfCorrMatrix(Sigma):
     """ Tests if a square matrix is a correlation matrix """
     p = Sigma.shape[0]
     diag = np.diag(Sigma)
-    if np.sum(np.abs(diag - np.ones(p))) > p * 1e-3:
+    if np.sum(np.abs(diag - np.ones(p))) > p * 1e-2:
         raise ValueError("Sigma is not a correlation matrix. Scale it properly first.")
 
 
@@ -410,9 +411,10 @@ def parse_method(method, groups, p):
     return method
 
 
-def gaussian_MX_knockoffs(
+def gaussian_knockoffs(
     X,
-    Sigma,
+    fixedX=False,
+    Sigma=None,
     groups=None,
     invSigma=None,
     copies=1,
@@ -427,17 +429,16 @@ def gaussian_MX_knockoffs(
     rec_prop=0,
     **kwargs,
 ):
-    """ Constructs group Gaussian MX knockoffs:
-    This is not particularly efficient yet...
+    """ Constructs group Gaussian MX knockoffs.
     :param X: numpy array of dimension n x p 
+    :param fixedX: If true, calculate fixedX knockoffs. Otherwise
+    compute model-X (MX) knockoffs.
     :param Sigma: true covariance matrix of X, of dimension p x p
-    :param method: 'equicorrelated' or 'sdp', how to construct
-     the true Cov(X, tilde(X)), where tilde(X) is the knockoffs.
     :param groups: numpy array of length p, list of groups of X
     :param copies: integer number of knockoff copies of each observation to draw
     :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
     and will be constructed by knockoff generator.
-    :param method: How to constructe S matrix. There are three options:
+    :param method: How to construct S matrix. There are three options:
         - 'equicorrelated': In this construction, the correlation between 
         each feature and its knockoff is the same (gamma). Minimizes this 
         gamma while preserving validity. See Dai and Barber 2016 for the
@@ -486,6 +487,26 @@ def gaussian_MX_knockoffs(
         raise ValueError(
             f"Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match"
         )
+
+    # For FX knockoffs, check dimensionality and also scale X
+    if fixedX:
+        if n < 2*p:
+            raise np.linalg.LinAlgError(
+                f"FX knockoffs can't be generated with n ({n}) < 2p ({2*p})"
+            )
+        scale = np.sqrt(np.diag(np.dot(X.T, X)).reshape(1, -1))
+        X = X / scale # We will rescale knockoffs later
+
+    # For now, throw value error if Sigma is not supplied for fixedX
+    if Sigma is None:
+        if not fixedX:
+            # TODO: infer covariance matrix
+            raise ValueError(
+                f"When fixedX is False, Sigma must be provided"
+            )
+        # For fixed-X knockoffs, Sigma = XTX
+        else:
+            Sigma = np.dot(X.T, X)
 
     # Parse which method to use if not supplied
     method = parse_method(method, groups, p)
@@ -545,8 +566,6 @@ def gaussian_MX_knockoffs(
             raise ValueError(
                 f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
             )
-    else:
-        pass
 
     # Check to make sure the methods worked
     min_eig1 = np.linalg.eigh(2 * Sigma - S)[0].min()
@@ -557,46 +576,22 @@ def gaussian_MX_knockoffs(
             f"Minimum eigenvalue of 2Sigma - S is {min_eig1}, meaning FDR control violations are extremely likely"
         )
 
-    # Calculate MX knockoff moments...
-    invSigma_S = np.dot(invSigma, S)
-    mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
-    # TODO: if we replace "X" inside the dot with "X - true mu"
-    # then we can add a population mu parameter
-    Vk = 2 * S - np.dot(S, invSigma_S)
-
-    # Account for numerical errors
-    min_eig = np.linalg.eigh(Vk)[0].min()
-    if verbose:
-        print(f"Minimum eigenvalue of Vk is {min_eig}")
-    if min_eig < sample_tol:
-        if verbose:
-            warnings.warn(
-                f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
-            )
-        Vk = shift_until_PSD(Vk, sample_tol)
-
-    # ...and sample MX knockoffs!
-    knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=Vk, size=copies * n)
-
-    # (Save this for testing later)
-    first_row = knockoffs[0, 0:n].copy()
-
-    # Some annoying reshaping...
-    knockoffs = knockoffs.flatten(order="C")
-    knockoffs = knockoffs.reshape(p, n, copies, order="F")
-    knockoffs = np.transpose(knockoffs, [1, 0, 2])
-
-    # (Test we have reshaped correctly)
-    new_first_row = knockoffs[0, 0:n, 0]
-    np.testing.assert_array_almost_equal(
-        first_row,
-        new_first_row,
-        err_msg="Critical error - reshaping failed in knockoff generator",
-    )
-
-    # Add mu
-    mu = np.expand_dims(mu, axis=2)
-    knockoffs = knockoffs + mu
+    if not fixedX:
+        knockoffs = produce_MX_gaussian_knockoffs(
+            X=X, 
+            invSigma=invSigma,
+            S=S,
+            sample_tol=sample_tol,
+            copies=copies
+        )
+    else:
+        knockoffs = produce_FX_gaussian_knockoffs(
+            X=X,
+            invSigma=invSigma,
+            S=S,
+            copies=copies,
+            scale=scale,
+        )
 
     # For caching/debugging
     if return_S:
@@ -604,154 +599,48 @@ def gaussian_MX_knockoffs(
 
     return knockoffs
 
+def produce_FX_gaussian_knockoffs(X, invSigma, S, scale, copies=1):
+    """
+    See equation (1.4) of https://arxiv.org/pdf/1404.5609.pdf
+    """
 
-def FX_knockoffs(
-    X,
-    groups=None,
-    invSigma=None,
-    copies=1,
-    sample_tol=1e-5,
-    sdp_tol=1e-2,
-    S=None,
-    method=None,
-    objective="pnorm",
-    return_S=False,
-    verbose=True,
-    sdp_verbose=True,
-    rec_prop=0,
-    **kwargs,
-):
-    """ Constructs group Gaussian MX knockoffs:
-    This is not particularly efficient yet...
-    :param X: numpy array of dimension n x p 
-    :param Sigma: true covariance matrix of X, of dimension p x p
-    :param method: 'equicorrelated' or 'sdp', how to construct
-     the true Cov(X, tilde(X)), where tilde(X) is the knockoffs.
-    :param groups: numpy array of length p, list of groups of X
-    :param copies: integer number of knockoff copies of each observation to draw
-    :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
-    and will be constructed by knockoff generator.
-    :param method: How to constructe S matrix. There are three options:
-        - 'equicorrelated': In this construction, the correlation between 
-        each feature and its knockoff is the same (gamma). Minimizes this 
-        gamma while preserving validity. See Dai and Barber 2016 for the
-        group equicorrelated construction.
-        - 'sdp': solves a convex semidefinite program to minimize the 
-        (absolute) correlation between the features and their knockoffs
-        while keeping knockoffs valid.
-        - 'asdp': Same as SDP, but to increase speed, approximates correlation
-        matrix as a block-diagonal matrix.
-        - 'mcv': minimizes trace of feature-knockoff precision matrix. Solves this
-        (nonconvex) problem with projected gradient, using either SDP or ASDP 
-        to initialize. 
-    The default is to use mcv for non-group knockoffs, and to use the group-SDP
-    for grouped knockoffs. In both cases we use the ASDP if p > 1000.
-    :param objective: How to optimize the S matrix if using SDP.
-    There are several options:
-        - 'abs': minimize sum(abs(Sigma - S))
-        between groups and the group knockoffs.
-        - 'pnorm': minimize Lp-th matrix norm.
-        Equivalent to abs when p = 1.
-        - 'norm': minimize different type of matrix norm
-        (see norm_type below).
-    :param sample_tol: Minimum eigenvalue allowed for cov matrix of knockoffs.
-    Keep this extremely small (1e-5): it's just to prevent linalg errors downstream.
-    :param sdp_tol: Minimum eigenvalue allowed for grahm matrix of knockoff 
-    generations. This is used as a constraint in the SDP formulation. Keep this
-    small but not inconsequential (1e-2) as if this gets too small, the 
-    feature-knockoff combinations may become unidentifiable.
-    :param bool verbose: If true, will print stuff as it goes
-    :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
-    :param rec_prop: The proportion of knockoffs you are planning to recycle
-    (see Barber and Candes 2018, https://arxiv.org/abs/1602.03574). If 
-    method = 'mcv',then the method takes this into account and should 
-    dramatically increase the power of recycled knockoffs, especially in
-    sparsely-correlated, high-dimensional settings.
-    :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
-    
-    returns: copies x n x p numpy array of knockoffs"""
+    # Calculate C matrix
+    n, p = X.shape
+    #invSigma_S = np.dot(invSigma, S)
+    CTC = 2*S - np.dot(S, np.dot(invSigma, S))
+    C = scipy.linalg.cholesky(CTC)
 
-    # I follow the notation of Katsevich et al. 2019
-    n = X.shape[0]
-    p = X.shape[1]
-    if groups is None:
-        groups = np.arange(1, p + 1, 1)
-    if groups.shape[0] != p:
-        raise ValueError(
-            f"Groups dimension ({groups.shape[0]}) and data dimension ({p}) do not match"
-        )
+    # Calculate U matrix
+    Q,_ = scipy.linalg.qr(
+        np.concatenate([X, np.zeros((n,p))], axis=1)
+    )
+    U = Q[:,p:2*p]
 
-    # Parse which method to use if not supplied
-    method = parse_method(method, groups, p)
+    # Randomize if copies > 1
+    knockoff_base = np.dot(X, np.eye(p) - np.dot(invSigma, S))
+    if copies > 1:
+        knockoffs = []
+        for j in range(copies):
 
-    # Get precision matrix
-    if invSigma is None:
-        invSigma = chol2inv(Sigma)
+            # Multiply U by random orthonormal matrix
+            Qj, _ = scipy.linalg.qr(np.random.randn(p,p))
+            Uj = np.dot(U, Qj)
+
+            # Calculate knockoffs
+            knockoff_j = knockoff_base + np.dot(Uj, C)
+            knockoffs.append(knockoff_j * scale)
     else:
-        product = np.dot(invSigma.T, Sigma)
-        if np.abs(product - np.eye(p)).sum() > sample_tol:
-            raise ValueError(
-                "Inverse Sigma provided was not actually the inverse of Sigma"
-            )
+        # Calculate knockoffs and return
+        knockoffs = [(knockoff_base + np.dot(U, C)) * scale]
 
-    # Calculate group-block diagonal matrix S
-    # using SDP, equicorrelated, or (maybe) ASDP
-    method = str(method).lower()
-    if S is None:
-        if method == "sdp":
-            if verbose:
-                print(f"Solving SDP for S with p = {p}")
-            S = solve_group_SDP(
-                Sigma,
-                groups,
-                objective=objective,
-                sdp_verbose=sdp_verbose,
-                tol=sdp_tol,
-                **kwargs,
-            )
-        elif method == "equicorrelated":
-            S = equicorrelated_block_matrix(Sigma, groups, **kwargs)
-        elif method == "asdp":
-            S = solve_group_ASDP(
-                Sigma,
-                groups,
-                objective=objective,
-                verbose=verbose,
-                sdp_verbose=sdp_verbose,
-                **kwargs,
-            )
-        elif method == "mcv":
-            S_init = solve_group_ASDP(
-                Sigma,
-                groups,
-                objective=objective,
-                verbose=verbose,
-                sdp_verbose=sdp_verbose,
-                max_block=500,
-                tol=sample_tol,
-                **kwargs,
-            )
-            opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma, groups=groups, init_S=S, rec_prop=rec_prop
-            )
-            S = opt.optimize(max_epochs=1000)
-        else:
-            raise ValueError(
-                f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
-            )
-    else:
-        pass
+    knockoffs = np.stack(knockoffs, axis=-1)
+    return knockoffs
 
-    # Check to make sure the methods worked
-    min_eig1 = np.linalg.eigh(2 * Sigma - S)[0].min()
-    if verbose:
-        print(f"Minimum eigenvalue of 2Sigma - S is {min_eig1}")
-    if min_eig1 < -1e-3:
-        raise np.linalg.LinAlgError(
-            f"Minimum eigenvalue of 2Sigma - S is {min_eig1}, meaning FDR control violations are extremely likely"
-        )
 
-    # Calculate MX knockoff moments...
+def produce_MX_gaussian_knockoffs(X, invSigma, S, sample_tol, copies):
+
+   # Calculate MX knockoff moments...
+    n, p = X.shape
     invSigma_S = np.dot(invSigma, S)
     mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
     # TODO: if we replace "X" inside the dot with "X - true mu"
@@ -760,13 +649,10 @@ def FX_knockoffs(
 
     # Account for numerical errors
     min_eig = np.linalg.eigh(Vk)[0].min()
-    if verbose:
-        print(f"Minimum eigenvalue of Vk is {min_eig}")
     if min_eig < sample_tol:
-        if verbose:
-            warnings.warn(
-                f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
-            )
+        warnings.warn(
+            f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
+        )
         Vk = shift_until_PSD(Vk, sample_tol)
 
     # ...and sample MX knockoffs!
@@ -791,9 +677,4 @@ def FX_knockoffs(
     # Add mu
     mu = np.expand_dims(mu, axis=2)
     knockoffs = knockoffs + mu
-
-    # For caching/debugging
-    if return_S:
-        return knockoffs, S
-
     return knockoffs
