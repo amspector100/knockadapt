@@ -26,6 +26,7 @@ class KnockoffFilter:
 		# If fixedX, signal this to knockoff kwargs
 		if self.fixedX:
 			knockoff_kwargs['fixedX'] = True
+			Sigma = None
 
 		# Initial sample
 		knockoffs, S = gaussian_knockoffs(
