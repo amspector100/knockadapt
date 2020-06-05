@@ -7,7 +7,7 @@ from .context import knockadapt
 from knockadapt import utilities
 from knockadapt import graphs
 from knockadapt.knockoffs import solve_group_SDP
-from knockadapt.knockoff_filter import MXKnockoffFilter
+from knockadapt.knockoff_filter import KnockoffFilter
 
 class TestFdrControl(unittest.TestCase):
 
@@ -18,6 +18,7 @@ class TestFdrControl(unittest.TestCase):
 			alpha=0.05,
 			filter_kwargs={},
 			S=None,
+			fixedX=False,
 			**kwargs
 		):
 
@@ -42,9 +43,9 @@ class TestFdrControl(unittest.TestCase):
 		for name, groups in zip([name1, name2], [groups1, groups2]):
 				
 			# Solve SDP
-			if S is None:
+			if S is None and not fixedX:
 				S = solve_group_SDP(Sigma, groups=groups)
-			invSigma = utilities.chol2inv(Sigma)
+				invSigma = utilities.chol2inv(Sigma)
 			group_nonnulls = utilities.fetch_group_nonnulls(beta, groups)
 
 			# Container for fdps
@@ -65,18 +66,31 @@ class TestFdrControl(unittest.TestCase):
 				else:
 					y_dist = 'gaussian'
 
-				# Run MX knockoff filter
-				mxfilter = MXKnockoffFilter()
-				selections = mxfilter.forward(
+				# Run (MX) knockoff filter 
+				if fixedX:
+					Sigma_arg = None
+					invSigma_arg = None
+				else:
+					Sigma_arg = Sigma
+					invSigma_arg = invSigma
+				knockoff_filter = KnockoffFilter(fixedX=fixedX)
+				selections = knockoff_filter.forward(
 					X=X, 
 					y=y, 
-					Sigma=Sigma, 
+					Sigma=Sigma_arg, 
 					groups=groups,
-					knockoff_kwargs={'S':S, 'invSigma':invSigma, 'verbose':False},
+					knockoff_kwargs={
+						'S':S, 
+						'invSigma':invSigma_arg,
+						'verbose':False,
+						'sdp_verbose':False,
+						'max_epochs':100,
+						'eps':0.05,
+					},
 					fdr=q,
 					**filter_kwargs,
 				)
-				del mxfilter
+				del knockoff_filter
 
 				# Calculate fdp
 				fdp = np.sum(selections*(1-group_nonnulls))/max(1, np.sum(selections))
@@ -85,6 +99,7 @@ class TestFdrControl(unittest.TestCase):
 			fdps = np.array(fdps)
 			fdr = fdps.mean()
 			fdr_se = fdps.std()/np.sqrt(reps)
+			print(fdr, fdr_se)
 
 			norm_quant = stats.norm.ppf(1-alpha)
 
@@ -93,8 +108,8 @@ class TestFdrControl(unittest.TestCase):
 				msg = f'MX filter FDR is {fdr} with SE {fdr_se} with q = {q} for DGP {name}'
 			)
 
-class TestMXKnockoffFilter(TestFdrControl):
-	""" Tests MX knockoff filter """
+class TestKnockoffFilter(TestFdrControl):
+	""" Tests knockoff filter (mostly MX, some FX tests) """
 
 	def test_gnull_control(self):
 		""" Test FDR control under global null """
@@ -199,6 +214,14 @@ class TestMXKnockoffFilter(TestFdrControl):
 		)
 
 	@pytest.mark.slow
+	def test_fxknockoff_control(self):
+
+		# Scenario 1: AR1, recycle, lasso, p = 50
+		self.check_fdr_control(
+			fixedX=True, reps=15, n=500, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', 
+		)
+
+	@pytest.mark.slow
 	def test_deeppink_control(self):
 		self.check_fdr_control(
 			reps=15, n=5000, p=150, method='AR1', sparsity=0.5, y_dist='gaussian', 
@@ -232,7 +255,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 	@pytest.mark.quick
 	def test_selection_procedure(self):
 
-		mxfilter = MXKnockoffFilter()
+		mxfilter = KnockoffFilter()
 		W1 = np.concatenate([np.ones(10), -0.4*np.ones(100)])
 		selections = mxfilter.make_selections(W1, fdr=0.1)
 		num_selections = np.sum(selections)
@@ -255,7 +278,7 @@ class TestMXKnockoffFilter(TestFdrControl):
 	@pytest.mark.quick
 	def test_sdp_degen(self):
 
-		mxfilter = MXKnockoffFilter()
+		mxfilter = KnockoffFilter()
 		p=50
 		n=100
 		rho=0.8
