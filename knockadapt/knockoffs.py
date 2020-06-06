@@ -104,12 +104,58 @@ def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter
 
     return S
 
+def solve_SDP(
+    Sigma,
+    verbose=False,
+    sdp_verbose=False,
+    num_iter=10,
+    tol=1e-2,
+    **kwargs
+):
+    """ 
+    Much faster solution to SDP without grouping
+    """
+
+    # Constants and variables
+    p = Sigma.shape[0]
+    cp_Sigma = cp.Constant(Sigma)
+    S = cp.Variable(p)
+    I = cp.Constant(np.eye(p))
+
+    # Constraints
+    constraints = []
+    constraints += [cp.diag(S) >> 0]
+    constraints += [2*cp_Sigma - cp.diag(S) >> 0]
+    constraints += [S <= 1]
+
+    # Objective
+    objective = cp.Maximize(cp.sum(S))
+
+    # Solve
+    problem = cp.Problem(objective, constraints)
+    problem.solve(verbose=sdp_verbose, **kwargs)
+    if S is None:
+        raise ValueError(
+            "SDP formulation is infeasible. Try decreasing the tol parameter."
+        )
+
+    # Scale to make this PSD using binary search
+    S = np.diag(S.value)
+    S, gamma = scale_until_PSD(Sigma, S, tol=tol, num_iter=num_iter)
+    if verbose:
+        mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
+        print(
+            f"After ASDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
+        )
+
+    return S
 
 def solve_group_SDP(
     Sigma,
-    groups,
+    groups=None,
+    verbose=False,
     sdp_verbose=False,
-    objective="pnorm",
+    objective="abs",
     norm_type=2,
     num_iter=10,
     tol=1e-2,
@@ -117,14 +163,15 @@ def solve_group_SDP(
 ):
     """ Solves the group SDP problem: extends the
     formulation from Barber and Candes 2015/
-    Candes et al 2018 (MX Knockoffs)
+    Candes et al 2018 (MX Knockoffs). Note this will be 
+    much faster with equal-sized groups and objective="abs."
     :param Sigma: true covariance (correlation) matrix, 
     p by p numpy array.
     :param groups: numpy array of length p with
     integer values between 1 and m. 
     :param verbose: if True, print progress of solver
-    :param objective: How to optimize the S matrix. 
-    There are several options:
+    :param objective: How to optimize the S matrix for 
+    group knockoffs. There are several options:
         - 'abs': minimize sum(abs(Sigma - S))
         between groups and the group knockoffs.
         - 'pnorm': minimize Lp-th matrix norm.
@@ -145,6 +192,11 @@ def solve_group_SDP(
     # By default we lower the convergence epsilon a bit for drastic speedup.
     if "eps" not in kwargs:
         kwargs["eps"] = 5e-3
+
+    # Default groups
+    p = Sigma.shape[0]
+    if groups is None:
+        groups = np.arange(1, p+1, 1)
 
     # Test corr matrix
     TestIfCorrMatrix(Sigma)
@@ -167,9 +219,18 @@ def solve_group_SDP(
     tol = min(maxtol, tol)
 
     # Figure out sizes of groups
-    p = Sigma.shape[0]
     m = groups.max()
     group_sizes = utilities.calc_group_sizes(groups)
+
+    # Possibly solve non-grouped SDP
+    if objective == 'abs' and m == p:
+        return solve_SDP(
+            Sigma=Sigma,
+            verbose=verbose,
+            sdp_verbose=sdp_verbose,
+            num_iter=num_iter,
+            tol=tol,
+        )
 
     # Sort the covariance matrix according to the groups
     inds, inv_inds = utilities.permute_matrix_by_groups(groups)
@@ -293,6 +354,7 @@ def solve_group_ASDP(
     p = Sigma.shape[0]
 
     # Possibly automatically choose alpha
+    # TO DO - pick these groups better (hier clustering)
     if alpha is None and Sigma_groups is None:
         group_sizes = calc_group_sizes(groups)
         max_group = group_sizes.max()
@@ -424,8 +486,8 @@ def gaussian_knockoffs(
     method=None,
     objective="pnorm",
     return_S=False,
-    verbose=True,
-    sdp_verbose=True,
+    verbose=False,
+    sdp_verbose=False,
     rec_prop=0,
     max_epochs=1000,
     **kwargs,

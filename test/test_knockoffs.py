@@ -131,7 +131,7 @@ class TestEquicorrelated(CheckSMatrix):
         V = np.dot(V.T, V) + 0.1*np.eye(p)
         V = cov2corr(V)
 
-        # Create for various groups
+        # Create random groups
         groups = np.random.randint(1, p, size=(p))
         groups = utilities.preprocess_groups(groups)
         S = knockoffs.equicorrelated_block_matrix(Sigma=V, groups=groups)
@@ -202,6 +202,19 @@ class TestSDP(CheckSMatrix):
         )
         self.check_S_properties(corr_matrix, S_harder_ASDP, groups)
 
+
+    def test_equicorr_SDP(self):
+
+        # Test non-group SDP on equicorrelated cov matrix
+        p = 100
+        rho = 0.8
+        V = rho*np.ones((p,p)) + (1-rho)*np.eye(p)
+        S = knockoffs.solve_group_SDP(V, verbose=True)
+        expected = (2 - 2*rho) * np.eye(p)
+        np.testing.assert_almost_equal(
+            S, expected, decimal = 2,
+            err_msg = 'solve_SDP does not produce optimal S matrix (equicorrelated graph)'
+        )
 
     def test_sdp_tolerance(self):
 
