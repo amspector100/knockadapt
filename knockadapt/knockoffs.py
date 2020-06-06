@@ -4,8 +4,9 @@ import cvxpy as cp
 import scipy as sp
 from scipy import stats
 import scipy.linalg
+import sklearn.covariance
 
-from .utilities import chol2inv, calc_group_sizes, preprocess_groups
+from .utilities import calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
 from . import utilities
 from . import nonconvex_sdp
@@ -50,7 +51,7 @@ def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):
         group_sigma = Sigma[full_inds]
 
         # Take square root of inverse
-        inv_group_sigma = chol2inv(group_sigma)
+        inv_group_sigma = utilities.chol2inv(group_sigma)
         sqrt_inv_group_sigma = sp.linalg.sqrtm(inv_group_sigma)
 
         # Fill in D
@@ -120,13 +121,13 @@ def solve_SDP(
     p = Sigma.shape[0]
     cp_Sigma = cp.Constant(Sigma)
     S = cp.Variable(p)
-    I = cp.Constant(np.eye(p))
+    I = cp.Constant(np.diag(Sigma))
 
     # Constraints
     constraints = []
     constraints += [cp.diag(S) >> 0]
     constraints += [2*cp_Sigma - cp.diag(S) >> 0]
-    constraints += [S <= 1]
+    constraints += [S <= I]
 
     # Objective
     objective = cp.Maximize(cp.sum(S))
@@ -171,7 +172,9 @@ def solve_group_SDP(
     integer values between 1 and m. 
     :param verbose: if True, print progress of solver
     :param objective: How to optimize the S matrix for 
-    group knockoffs. There are several options:
+    group knockoffs. (For ungrouped knockoffs, using the 
+    objective = 'abs' is strongly recommended.)
+    There are several options:
         - 'abs': minimize sum(abs(Sigma - S))
         between groups and the group knockoffs.
         - 'pnorm': minimize Lp-th matrix norm.
@@ -415,7 +418,6 @@ def solve_group_ASDP(
                 Sigma=Sigma_blocks[i], groups=group_blocks[i], **kwargs
             )
             S_blocks.append(S_block)
-
     else:
         # Partial function for proper mapping
         partial_group_SDP = partial(solve_group_SDP, **kwargs)
@@ -431,6 +433,7 @@ def solve_group_ASDP(
             S_blocks = thepool.starmap(partial_group_SDP, all_arguments)
 
     S_sorted = sp.linalg.block_diag(*S_blocks)
+
 
     # Create indexes to unsort S
     inds_and_groups = [(i, group) for i, group in enumerate(Sigma_groups)]
@@ -472,10 +475,28 @@ def parse_method(method, groups, p):
             method = "sdp"
     return method
 
+def estimate_covariance(X, tol):
+    """ Estimates covariance matrix of X. Applies
+    LW shrinkage estimator when minimum eigenvalue
+    is below a certain tolerance.
+    :param X: n x p data matrix
+    :param tol: threshhold for minimum eigenvalue
+    :returns: Sigma, invSigma
+    """
+    Sigma = np.cov(X.T)
+    mineig = np.linalg.eigh(Sigma)[0].min()
+    if mineig < tol: # Possibly shrink Sigma
+        LWest = sklearn.covariance.LedoitWolf()
+        LWest.fit(X)
+        Sigma = LWest.covariance_
+        invSigma = LWest.precision_
+        return Sigma, invSigma
+    return Sigma, utilities.chol2inv(Sigma)
 
 def gaussian_knockoffs(
     X,
     fixedX=False,
+    mu=None,
     Sigma=None,
     groups=None,
     invSigma=None,
@@ -496,6 +517,7 @@ def gaussian_knockoffs(
     :param X: numpy array of dimension n x p 
     :param fixedX: If true, calculate fixedX knockoffs. Otherwise
     compute model-X (MX) knockoffs.
+    :param mu: true mean of X, of dimension p.
     :param Sigma: true covariance matrix of X, of dimension p x p
     :param groups: numpy array of length p, list of groups of X
     :param copies: integer number of knockoff copies of each observation to draw
@@ -558,29 +580,45 @@ def gaussian_knockoffs(
             raise np.linalg.LinAlgError(
                 f"FX knockoffs can't be generated with n ({n}) < 2p ({2*p})"
             )
-        scale = np.sqrt(np.diag(np.dot(X.T, X)).reshape(1, -1))
-        X = X / scale # We will rescale knockoffs later
 
-    # For now, throw value error if Sigma is not supplied for fixedX
-    if Sigma is None:
-        if not fixedX:
-            # TODO: infer covariance matrix
-            raise ValueError(
-                f"When fixedX is False, Sigma must be provided"
-            )
-        # For fixed-X knockoffs, Sigma = XTX
-        else:
-            Sigma = np.dot(X.T, X)
+    # Scale X and (possibly) infer covariance matrix
+    if fixedX:
+        scale = np.sqrt(np.diag(np.dot(X.T, X)))
+        X = X / scale.reshape(1, -1)
+        Sigma = np.dot(X.T, X)
+
+    # Possibly estimate mu, Sigma for MX 
+    if Sigma is None and not fixedX: 
+        Sigma, invSigma = estimate_covariance(X, tol=sdp_tol)
+
+    # Scale for MX case (no shifting required)
+    if not fixedX:
+        # Scale X
+        scale = np.sqrt(np.diag(Sigma))
+        X = X / scale.reshape(1, -1)
+
+        # Scale Sigma / invSigma 
+        scale_matrix = np.outer(scale, scale)
+        Sigma = Sigma / scale_matrix
+        if invSigma is not None:
+            invSigma = invSigma * scale_matrix
+
+    # Infer (and adjust) mu parameter
+    if mu is None:
+        mu = X.mean(axis=0)
+    else:
+        mu = mu / scale
 
     # Parse which method to use if not supplied
     method = parse_method(method, groups, p)
 
     # Get precision matrix
     if invSigma is None:
-        invSigma = chol2inv(Sigma)
+        invSigma = utilities.chol2inv(Sigma)
     else:
-        product = np.dot(invSigma.T, Sigma)
-        if np.abs(product - np.eye(p)).sum() > sample_tol:
+        product = np.dot(Sigma, invSigma)
+        max_error = np.abs(product - np.eye(p)).max()
+        if max_error > sample_tol:
             raise ValueError(
                 "Inverse Sigma provided was not actually the inverse of Sigma"
             )
@@ -618,7 +656,7 @@ def gaussian_knockoffs(
                 objective=objective,
                 verbose=verbose,
                 sdp_verbose=sdp_verbose,
-                max_block=500,
+                max_block=100,
                 tol=sample_tol,
                 **kwargs,
             )
@@ -643,18 +681,22 @@ def gaussian_knockoffs(
     if not fixedX:
         knockoffs = produce_MX_gaussian_knockoffs(
             X=X, 
+            mu=mu,
             invSigma=invSigma,
             S=S,
             sample_tol=sample_tol,
-            copies=copies
+            copies=copies,
         )
+        # Scale back to original dist
+        scale = scale.reshape(1, -1, 1)
+        knockoffs = scale*knockoffs
     else:
         knockoffs = produce_FX_gaussian_knockoffs(
             X=X,
             invSigma=invSigma,
             S=S,
             copies=copies,
-            scale=scale,
+            scale=scale
         )
 
     # For caching/debugging
@@ -701,14 +743,12 @@ def produce_FX_gaussian_knockoffs(X, invSigma, S, scale, copies=1):
     return knockoffs
 
 
-def produce_MX_gaussian_knockoffs(X, invSigma, S, sample_tol, copies):
+def produce_MX_gaussian_knockoffs(X, mu, invSigma, S, sample_tol, copies):
 
    # Calculate MX knockoff moments...
     n, p = X.shape
     invSigma_S = np.dot(invSigma, S)
-    mu = X - np.dot(X, invSigma_S)  # This is a bottleneck??
-    # TODO: if we replace "X" inside the dot with "X - true mu"
-    # then we can add a population mu parameter
+    mu_k = X - np.dot(X - mu, invSigma_S)  # This is a bottleneck??
     Vk = 2 * S - np.dot(S, invSigma_S)
 
     # Account for numerical errors
@@ -739,6 +779,6 @@ def produce_MX_gaussian_knockoffs(X, invSigma, S, sample_tol, copies):
     )
 
     # Add mu
-    mu = np.expand_dims(mu, axis=2)
-    knockoffs = knockoffs + mu
+    mu_k = np.expand_dims(mu_k, axis=2)
+    knockoffs = knockoffs + mu_k
     return knockoffs

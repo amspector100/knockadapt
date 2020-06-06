@@ -102,7 +102,6 @@ def scale_until_PSD(Sigma, S, tol, num_iter):
     for j in range(num_iter):
         gamma = (lower_bound + upper_bound) / 2
         V = 2 * Sigma - gamma * S
-        print(V)
         mineig = np.linalg.eigh(V)[0].min()
         if mineig < tol:
             upper_bound = gamma

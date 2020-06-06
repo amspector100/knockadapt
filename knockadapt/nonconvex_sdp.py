@@ -173,7 +173,7 @@ class FKPrecisionTraceLoss(nn.Module):
         # Take eigenvalues
         eigvals = torch.symeig(G_schurr, eigenvectors=True)
         eigvals = eigvals[0]
-        inv_eigvals = 1 / eigvals
+        inv_eigvals = 1 / eigvals # TODO: Add tolerance 
         return inv_eigvals.sum()
 
     def scale_sqrt_S(self, tol, num_iter):

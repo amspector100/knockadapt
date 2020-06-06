@@ -266,7 +266,25 @@ class TestSDP(CheckSMatrix):
         )
 
 class TestUtilFunctions(unittest.TestCase):
-    """ Tests a couple of the block-diagonal utility functions"""
+    """ Tests a couple of simple utility functions"""
+
+    def test_covariance_estimation(self):
+
+        # Random data
+        np.random.seed(110)
+        n = 50
+        p = 100
+        rho = 0.3
+        V = (1-rho)*np.eye(p) + (rho)*np.ones((p,p))
+        X,_,_,_,_ = graphs.sample_data(n=n, corr_matrix=V)
+
+        # Estimate covariance matrix
+        Vest,_ = knockoffs.estimate_covariance(X, tol=1e-2)
+        frobenius = np.sqrt(np.power(Vest - V, 2).mean())
+        self.assertTrue(
+            frobenius < 0.2,
+            f"High-dimension covariance estimation is horrible"
+        )
 
     def test_blockdiag_to_blocks(self):
 
@@ -533,7 +551,76 @@ class TestNonconvexSDP(CheckSMatrix):
             msg=f"For ERenyi (p={p}), noncnvx has higher loss {new_loss} v. convex baseline {init_loss}"
         )
 
-class TestKnockoffGen(unittest.TestCase):
+
+class CheckValidKnockoffs(unittest.TestCase):
+
+    def check_valid_mxknockoffs(
+        self, 
+        X,
+        mu=None,
+        Sigma=None,
+        msg='',
+        **kwargs
+    ):
+
+        # S matrix
+        all_knockoffs, S = knockoffs.gaussian_knockoffs(
+            X=X,
+            mu=mu,
+            Sigma=Sigma,
+            return_S=True,
+            sdp_verbose=False, 
+            verbose=False,
+            sdp_tol=1e-2,
+            **kwargs
+        )
+
+        # Extract knockoffs
+        Xk = all_knockoffs[:, :, -1]
+
+        # Test knockoff mean
+        if mu is None:
+            mu = X.mean(axis=0)
+        outmsg = "Knockoffs have incorrect means "
+        outmsg += f"for MX knockoffs for {msg}"
+        np.testing.assert_array_almost_equal(
+            Xk.mean(axis=0), mu, 2, outmsg
+        )
+
+
+        # Sigma should be
+        if Sigma is None:
+            Sigma, _ = knockoffs.estimate_covariance(X, tol=1e-2)
+
+        # Also rescale X/Xk so S makes sense
+        scale = np.sqrt(np.diag(Sigma))
+        X = X / scale.reshape(1, -1)
+        if mu is None:
+            mu = X.mean(axis=0)
+        else:
+            mu = mu / scale 
+        Xk = Xk / scale.reshape(1, -1)
+        Sigma = Sigma / np.outer(scale, scale)
+
+ 
+        # Empirical FK correlation matrix
+        features = np.concatenate([X, Xk], axis = 1)
+        G_hat = np.cov(features.T)
+
+        # Calculate population version
+        G = np.concatenate(
+            [np.concatenate([Sigma, Sigma-S]),
+            np.concatenate([Sigma-S, Sigma])],
+            axis=1
+        )
+
+        # Test G has correct structure
+        outmsg = f"Feature-knockoff cov matrix has incorrect values "
+        outmsg += f"for MX knockoffs for {msg} graph "
+        np.testing.assert_array_almost_equal(G_hat, G, 2, outmsg)
+
+
+class TestKnockoffGen(CheckValidKnockoffs):
     """ Tests whether knockoffs have correct distribution empirically"""
 
     def test_method_parser(self):
@@ -575,7 +662,7 @@ class TestKnockoffGen(unittest.TestCase):
     def test_error_raising(self):
 
         # Generate data
-        n = 10
+        n = 100
         p = 100
         X,_,_,_, corr_matrix, groups = graphs.daibarber2016_graph(
             n = n, p = p, gamma = 1, rho = 0.8
@@ -612,64 +699,77 @@ class TestKnockoffGen(unittest.TestCase):
             fx_knockoffs_low_n, 
         )
 
-        # Test unsupplied Sigma
-        def mx_nosigma():
-            knockoffs.gaussian_knockoffs(
-                X=X, fixedX=False,
-            )
-
-        self.assertRaisesRegex(
-            ValueError,
-            "When fixedX is False, Sigma must be provided",
-            mx_nosigma, 
-        )
-
     def test_MX_knockoff_dist(self):
 
         # Test knockoff construction for MCV and SDP
         # on equicorrelated matrices
+        np.random.seed(110)
         n = 100000
         copies = 3
-        p = 10
+        p = 5
+
+        # Check with a non-correlation matrix
+        V = 4*graphs.AR1(p=p, rho=0.5)
+        mu = np.random.randn(p)
+        print(f"true mu: {mu}")
+        X,_,_,_,_ = graphs.sample_data(
+            corr_matrix=V, n=n, mu=mu, p=p,
+        )
+        print(f"X mean: {X.mean(axis=0)}")
+
+
+        # Check validity for oracle cov matrix
+        self.check_valid_mxknockoffs(
+            X,
+            mu=mu,
+            Sigma=V,
+            copies=1,
+            msg=f'ORACLE 3*AR1(rho=0.5)'
+        )
+
+        # Check validity for estimated cov matrix
+        self.check_valid_mxknockoffs(
+            X,
+            copies=3,
+            msg=f'ESTIMATED 3*AR1(rho=0.5)'
+        )
+
+
+        # Check for many types of data
         for rho in [0.1, 0.9]:
             for gamma in [0.5, 1]:
                 for method in ['mcv', 'sdp']:
+
+                    mu = 10*np.random.randn(p)
                     X,_,_,_, corr_matrix,_ = graphs.daibarber2016_graph(
-                        n = n, p = p, gamma = gamma, rho = rho
+                        n=n,
+                        p=p,
+                        gamma=gamma,
+                        rho=rho,
+                        mu=mu
                     )
-                    # S matrix
-                    all_knockoffs, S = knockoffs.gaussian_knockoffs(
-                        X=X,
+
+                    # Check validity for oracle correlation matrix
+                    self.check_valid_mxknockoffs(
+                        X,
+                        mu=mu,
                         Sigma=corr_matrix,
                         copies=copies,
-                        method=method, 
-                        return_S=True,
-                        sdp_verbose=True, 
-                        verbose=True
+                        msg=f'daibarber graph, rho = {rho}, gamma = {gamma}'
                     )
 
-                    # Calculate empirical covariance matrix
-                    knockoff_copy = all_knockoffs[:, :, 0]
-                    features = np.concatenate([X, knockoff_copy], axis = 1)
-                    G_hat = np.corrcoef(features, rowvar=False)
-
-                    # Calculate population version
-                    G = np.concatenate(
-                        [np.concatenate([corr_matrix, corr_matrix-S]),
-                        np.concatenate([corr_matrix-S, corr_matrix])],
-                        axis=1
+                    # Check validity for estimation
+                    self.check_valid_mxknockoffs(
+                        X,
+                        copies=copies,
+                        msg=f'ESTIMATED daibarber graph, rho = {rho}, gamma = {gamma}'
                     )
-
-                    # Test G has correct structure
-                    msg = f"Feature-knockoff cov matrix has incorrect values"
-                    msg += f"for daibarber graph, MX knockoffs, rho = {rho}, gamma = {gamma}"
-                    np.testing.assert_array_almost_equal(G_hat, G, 2, msg)
 
 
     def test_FX_knockoff_dist(self):
         # Test knockoff construction for MCV and SDP
         # on equicorrelated matrices
-        n = 1000
+        n = 500
         p = 5
         for rho in [0.1, 0.9]:
             for gamma in [0.5, 1]:
@@ -687,13 +787,13 @@ class TestKnockoffGen(unittest.TestCase):
                         method=method, 
                         return_S=True,
                         sdp_verbose=False, 
-                        verbose=True
+                        verbose=False
                     )
 
                     # Scale properly so we can calculate
                     scale = np.sqrt(np.diag(np.dot(X.T, X)).reshape(1, -1))
                     X = X / scale
-                    knockoff_copy = all_knockoffs[:, :, 0] / scale
+                    knockoff_copy = all_knockoffs[:, :, -1] / scale
 
                     # # Compute empirical (scaled) cov matrix
                     features = np.concatenate([X, knockoff_copy], axis = 1)
@@ -708,7 +808,7 @@ class TestKnockoffGen(unittest.TestCase):
                     )
 
                     # Test G has correct structure
-                    msg = f"Feature-knockoff cov matrix has incorrect values"
+                    msg = f"Feature-knockoff cov matrix has incorrect values "
                     msg += f"for daibarber graph, FX knockoffs, rho = {rho}, gamma = {gamma}"
                     np.testing.assert_array_almost_equal(G_hat, G, 5, msg)
 

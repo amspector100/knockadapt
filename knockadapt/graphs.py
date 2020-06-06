@@ -100,6 +100,7 @@ def daibarber2016_graph(
     coeff_dist=None,
     sign_prob=0.5,
     beta=None,
+    mu=None,
     **kwargs,
 ):
     """ Same data-generating process as Dai and Barber 2016
@@ -109,6 +110,8 @@ def daibarber2016_graph(
      Defaults to 0.1 (the daibarber2016 default).
     :param rho: Within-group correlation
     :param gamma: The between-group correlation = rho * gamma
+    :param beta: If supplied, the linear response
+    :param mu: The p-dimensional mean of the covariates. Defaults to 0.
     :param **kwargs: Args passed to sample_response function.
     """
 
@@ -145,7 +148,8 @@ def daibarber2016_graph(
         )
 
     # Sample design matrix
-    mu = np.zeros(p)
+    if mu is None:
+        mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean=mu, cov=Sigma, size=n)
     # Sample y
     y = sample_response(X, beta, **kwargs)
@@ -310,8 +314,9 @@ def sample_data(
     p=100,
     n=50,
     method="ErdosRenyi",
-    Q=None,
+    mu=None,
     corr_matrix=None,
+    Q=None,
     beta=None,
     coeff_size=1,
     coeff_dist=None,
@@ -332,6 +337,8 @@ def sample_data(
     response itself is standard normal).
     :param method: How to generate the covariance matrix.
     One of 'ErdosRenyi', 'AR1', 'identity', 'daibarber2016'
+    :param mu: If supplied, a p-dimensional vector of means for
+    the covariates. Defaults to zero.
     :param Q: p x p precision matrix. If supplied, will not generate
     a new covariance matrix.
     :param corr_matrix: p x p correlation matrix. If supplied, will 
@@ -394,7 +401,8 @@ def sample_data(
         )
 
     # Sample design matrix
-    mu = np.zeros(p)
+    if mu is None:
+        mu = np.zeros(p)
     X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
 
     y = sample_response(X=X, beta=beta, y_dist=y_dist, cond_mean=cond_mean)

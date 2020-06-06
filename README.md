@@ -16,14 +16,16 @@ the exact test_method, you get the idea.
 
 ## To do
 
-### Abstratification 
+### Knockoff Construction
 
-- Probably the knockoff_stats page could be better abstract-ified
+1. Add hierarchical clustering to ASDP group-making
 
-Knockoff stats:
-1. test_knockoff_stats should be better abstractified
+### Graphs
 
-Thoughts:
+1. DGP class? instead of returning like 6 things?
+
+### Abstratification
+
 1. Adaptive module should have a class which has
 sample_split, double_dipping procedure, so they're 
 
@@ -37,8 +39,3 @@ filter package (e.g., add a mu option for group gaussian knockoffs)
 
 1. Finish test_eval_knockoff_instance and all tests below this
 2. Possibly move power calculation to its own function? so we can test it separately?
-
-## Bugs that must be dealt with
-1. weird stdout flush error in experiments
-2. SVD error in multivariate normal sampling - 
-this is low-priority
