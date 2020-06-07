@@ -277,7 +277,11 @@ class GroupKnockoffEval:
 
             # Generate second half knockoffs
             test_knockoffs = gaussian_knockoffs(
-                testX, self.sigma, groups, copies=copies, **knockoff_kwargs
+                X=testX, 
+                Sigma=self.sigma,
+                groups=groups,
+                copies=copies,
+                **knockoff_kwargs
             )
 
             # Recycle first half and combine
@@ -287,15 +291,12 @@ class GroupKnockoffEval:
         # Else, vanilla Knockoff generation
         else:
             all_knockoffs = gaussian_knockoffs(
-                X, self.sigma, groups, copies=copies, **knockoff_kwargs
+                X=X,
+                Sigma=self.sigma,
+                groups=groups,
+                copies=copies,
+                **knockoff_kwargs
             )
-
-            # # Delete all this plz
-            # all_knockoffs = all_knockoffs[150:]
-            # rec = np.repeat(X[0:150], copies).reshape(-1, self.p, copies)
-            # all_knockoffs = np.concatenate(
-            #     (rec, all_knockoffs), axis = 0
-            # )
 
         return all_knockoffs
 
