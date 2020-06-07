@@ -45,6 +45,7 @@ class TestFdrControl(unittest.TestCase):
 			# Solve SDP
 			if S is None and not fixedX:
 				S = solve_group_SDP(Sigma, groups=groups)
+			if not fixedX:
 				invSigma = utilities.chol2inv(Sigma)
 			group_nonnulls = utilities.fetch_group_nonnulls(beta, groups)
 
