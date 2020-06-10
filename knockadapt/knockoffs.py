@@ -732,6 +732,7 @@ def gaussian_knockoffs(
             S=S,
             sample_tol=sample_tol,
             copies=copies,
+            verbose=verbose
         )
         # Scale back to original dist
         scale = scale.reshape(1, -1, 1)
@@ -789,7 +790,7 @@ def produce_FX_gaussian_knockoffs(X, invSigma, S, scale, copies=1):
     return knockoffs
 
 
-def produce_MX_gaussian_knockoffs(X, mu, invSigma, S, sample_tol, copies):
+def produce_MX_gaussian_knockoffs(X, mu, invSigma, S, sample_tol, copies, verbose):
 
    # Calculate MX knockoff moments...
     n, p = X.shape
@@ -799,7 +800,7 @@ def produce_MX_gaussian_knockoffs(X, mu, invSigma, S, sample_tol, copies):
 
     # Account for numerical errors
     min_eig = np.linalg.eigh(Vk)[0].min()
-    if min_eig < sample_tol:
+    if min_eig < sample_tol and verbose:
         warnings.warn(
             f"Minimum eigenvalue of Vk is {min_eig}, under tolerance {sample_tol}"
         )
