@@ -220,8 +220,10 @@ class NonconvexSDPSolver:
     def __init__(self, Sigma, groups, losscalc=None, **kwargs):
 
         # Add Sigma
+        self.p = Sigma.shape[0]
         self.Sigma = Sigma
         self.groups = groups
+        self.opt_S = None # Output initialization
 
         # Sort by groups for ease of computation
         inds, inv_inds = utilities.permute_matrix_by_groups(groups)
@@ -248,10 +250,12 @@ class NonconvexSDPSolver:
         # Initialize attributes which save losses over time
         self.all_losses = []
         self.projected_losses = []
+        self.improvements = []
 
     def cache_S(self, new_loss):
         # Cache optimal solution
         with torch.no_grad():
+            self.prev_opt_S = self.opt_S
             self.opt_loss = new_loss
             self.opt_S = self.losscalc.pull_S().clone().detach().numpy()
 
@@ -262,7 +266,7 @@ class NonconvexSDPSolver:
         max_epochs=100,
         tol=1e-5,
         line_search_iter=10,
-        cache_loss=True,
+        convergence_tol=1e-5,
         **kwargs,
     ):
         """
@@ -272,24 +276,25 @@ class NonconvexSDPSolver:
         :param tol: Mimimum eigenvalue allowed for PSD matrices
         :param line_search_iter: Number of line searches to do
         when scaling sqrt_S.
-        :param cache: If true, cache the loss at each iteration
-        for later analysis.
+        :param convergence_tol: After each projection, we calculate
+        improvement = 2/3 * ||prev_opt_S - opt_S||_1 + 1/3 * (improvement)
+        When improvement < convergence_tol, we return.
         """
         # Optimizer
         params = list(self.losscalc.parameters())
         optimizer = torch.optim.Adam(params, lr=1e-2)
-
+        improvement = convergence_tol + 1
         for j in range(max_epochs):
 
             # Step 1: Calculate loss (trace of feature-knockoff precision)
             loss = self.losscalc()
-            if cache_loss:
-                self.all_losses.append(loss.item())
+            self.all_losses.append(loss.item())
 
             # Step 2: Step along the graient
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
+
 
             # Step 3: Reproject to be PSD
             if j % 10 == 0 or j == max_epochs - 1:
@@ -300,10 +305,21 @@ class NonconvexSDPSolver:
                     new_loss = self.losscalc()
                 if new_loss < self.opt_loss and new_loss >= 0:
                     self.cache_S(new_loss)
+                else:
+                    self.prev_opt_S = self.opt_S
 
-                # Possibly cache loss
-                if cache_loss:
-                    self.projected_losses.append(new_loss.item())
+                # Cache projected loss
+                self.projected_losses.append(new_loss.item())
+
+                # Calculate improvement
+                if j != 0:
+                    diff = np.abs(self.prev_opt_S - self.opt_S).sum()
+                    improvement = 2*(diff)/3 + improvement/3
+                self.improvements.append(improvement)
+
+                # Break if improvement is small
+                if improvement < convergence_tol:
+                    break
 
         # Shift, scale, and return
         sorted_S = self.opt_S
