@@ -699,6 +699,38 @@ class TestKnockoffGen(CheckValidKnockoffs):
             fx_knockoffs_low_n, 
         )
 
+    def test_consistency_of_inferring_sigma(self):
+        """ Checks that the same knockoffs are produced
+        whether you infer the covariance matrix first and
+        pass it to the gaussian_knockoffs generator, or
+        you let the generator do the work for you
+        """
+
+        n = 25
+        p = 300
+        rho = 0.5
+        X,_,_,_,_ = graphs.sample_data(
+            n=n, p=p, rho=rho, method='AR1'
+        )
+
+        # Method 1: infer cov first
+        V, _ = knockoffs.estimate_covariance(X, tol=1e-2)
+        np.random.seed(110)
+        Xk1 = knockoffs.gaussian_knockoffs(
+            X=X, Sigma=V, method='sdp', max_epochs=1
+        )
+
+        # Method 2: Infer during
+        np.random.seed(110)
+        Xk2 = knockoffs.gaussian_knockoffs(
+            X=X, method='sdp', max_epochs=1
+        )
+        np.testing.assert_array_almost_equal(
+            Xk1, Xk2, 5, err_msg='Knockoff gen is inconsistent'
+        )
+
+
+
     def test_MX_knockoff_dist(self):
 
         # Test knockoff construction for MCV and SDP

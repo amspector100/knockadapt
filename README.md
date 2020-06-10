@@ -16,6 +16,11 @@ the exact test_method, you get the idea.
 
 ## To do
 
+### FX Knockoff Support
+
+1. Knockoff Filter + Debiased Lasso
+2. Need to think about whether we'll actually scale X
+
 ### Knockoff Construction
 
 1. Add hierarchical clustering to ASDP group-making

@@ -19,6 +19,7 @@ class TestFdrControl(unittest.TestCase):
 			filter_kwargs={},
 			S=None,
 			fixedX=False,
+			infer_sigma=False,
 			**kwargs
 		):
 
@@ -68,16 +69,19 @@ class TestFdrControl(unittest.TestCase):
 					y_dist = 'gaussian'
 
 				# Run (MX) knockoff filter 
-				if fixedX:
+				if fixedX or infer_sigma:
+					mu_arg = None
 					Sigma_arg = None
 					invSigma_arg = None
 				else:
+					mu_arg = np.zeros(p)
 					Sigma_arg = Sigma
 					invSigma_arg = invSigma
 				knockoff_filter = KnockoffFilter(fixedX=fixedX)
 				selections = knockoff_filter.forward(
 					X=X, 
 					y=y, 
+					mu=mu_arg,
 					Sigma=Sigma_arg, 
 					groups=groups,
 					knockoff_kwargs={
@@ -100,7 +104,6 @@ class TestFdrControl(unittest.TestCase):
 			fdps = np.array(fdps)
 			fdr = fdps.mean()
 			fdr_se = fdps.std()/np.sqrt(reps)
-			print(fdr, fdr_se)
 
 			norm_quant = stats.norm.ppf(1-alpha)
 
@@ -213,6 +216,19 @@ class TestKnockoffFilter(TestFdrControl):
 			reps=15, n=300, p=50, method='AR1', sparsity=0.5, y_dist='gaussian', 
 			filter_kwargs={'recycle_up_to':28},
 		)
+
+	@pytest.mark.slow
+	def test_inferred_mx_control(self):
+		self.check_fdr_control(
+			reps=15, n=200, p=100, method='AR1', sparsity=0, y_dist='gaussian', 
+			infer_sigma=True
+		)
+
+		self.check_fdr_control(
+			reps=15, n=200, p=150, method='ErdosRenyi', sparsity=0, y_dist='gaussian', 
+			infer_sigma=True
+		)
+
 
 	@pytest.mark.slow
 	def test_fxknockoff_control(self):

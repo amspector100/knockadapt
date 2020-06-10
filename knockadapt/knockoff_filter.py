@@ -1,7 +1,7 @@
 import numpy as np
 from . import utilities
 from . import knockoff_stats as kstats
-from .knockoffs import gaussian_knockoffs
+from .knockoffs import gaussian_knockoffs, estimate_covariance
 
 
 class KnockoffFilter:
@@ -12,9 +12,13 @@ class KnockoffFilter:
 	def __init__(self, fixedX=False):
 		self.debias = False
 		self.fixedX = fixedX
+		if self.debias and self.fixedX:
+			raise ValueError(
+				"Debiased lasso not yet implemented for FX knockoffs"
+			)
 
 	def sample_knockoffs(
-		self, X, Sigma, groups, knockoff_kwargs, recycle_up_to,
+		self, X, mu, Sigma, groups, knockoff_kwargs, recycle_up_to,
 	):
 
 		# SDP degen flag (for internal use)
@@ -30,7 +34,12 @@ class KnockoffFilter:
 
 		# Initial sample
 		knockoffs, S = gaussian_knockoffs(
-			X=X, groups=groups, Sigma=Sigma, return_S=True, **knockoff_kwargs,
+			X=X, 
+			groups=groups,
+			mu=mu,
+			Sigma=Sigma,
+			return_S=True,
+			**knockoff_kwargs,
 		)
 		knockoffs = knockoffs[:, :, 0]
 
@@ -77,6 +86,7 @@ class KnockoffFilter:
 		self,
 		X,
 		y,
+		mu=None,
 		Sigma=None,
 		groups=None,
 		knockoffs=None,
@@ -89,8 +99,8 @@ class KnockoffFilter:
 		"""
 		:param X: n x p design matrix
 		:param y: p-length response array
-		:param Sigma: p x p covariance matrix of X. Alternatively,
-		this can be None if fitting fixedX knockoffs.
+		:param Sigma: p x p covariance matrix of X. Defaults to None
+		for FX knockoffs or 
 		:param groups: Grouping of features, p-length
 		array of integers from 1 to m (with m <= p).
 		:param knockoffs: n x p array of knockoffs.
@@ -117,8 +127,16 @@ class KnockoffFilter:
 		For more on recycling, see https://arxiv.org/abs/1602.03574
 		"""
 
-		# Preliminaries
+		# Preliminaries - infer covariance matrix for MX 
+		if Sigma is None and not self.fixedX:
+			if 'sdp_tol' in knockoff_kwargs:
+				tol = knockoff_kwargs['sdp_tol']
+			else:
+				tol = 1e-2
+			Sigma, _ = estimate_covariance(X, tol)
 		self.Sigma = Sigma
+
+		# Save n, p, groups
 		n = X.shape[0]
 		p = X.shape[1]
 		if groups is None:
@@ -156,6 +174,7 @@ class KnockoffFilter:
 		if knockoffs is None:
 			knockoffs = self.sample_knockoffs(
 				X=X,
+				mu=mu,
 				Sigma=Sigma,
 				groups=groups,
 				knockoff_kwargs=knockoff_kwargs,

@@ -1,6 +1,5 @@
 import warnings
 import numpy as np
-import cvxpy as cp
 import scipy as sp
 from scipy import stats
 import scipy.linalg
@@ -14,6 +13,10 @@ from . import nonconvex_sdp
 # Multiprocessing tools
 from functools import partial
 from multiprocessing import Pool
+
+# For SDP
+import cvxpy as cp
+from pydsdp.dsdp5 import dsdp
 
 # Options for SDP solver
 OBJECTIVE_OPTIONS = ["abs", "pnorm", "norm"]
@@ -117,36 +120,76 @@ def solve_SDP(
     Much faster solution to SDP without grouping
     """
 
-    # Constants and variables
+    # The code here does not make any intuitive sense,
+    # The DSDP solver is super fast but its input format is nonsensical.
+    # This basically solves:
+    # minimize c^T y s.t.
+    # Ay <= b
+    # F0 + y1 F1 + ... + yp Fp > 0 where F0,...Fp are PSD matrices
+    # However the variables here do NOT correspond to the variables
+    # in the equations because the Sedumi format is strange - 
+    # see https://www.ece.uvic.ca/~wslu/Talk/SeDuMi-Remarks.pdf
+    # Also, the "l" argument in the K options dictionary 
+    # in the SDP package may not work.
+    # TODO: make this work for group SDP. 
+    # Idea: basically, add more variables for the off-diagonal elements
+    # and maximize their sum subject to the constraint that they can't
+    # be larger than the corresponding off-diagonal elements of Sigma
+    # (I.e. make the linear constraints larger...)
+
+    # Constants 
     p = Sigma.shape[0]
-    cp_Sigma = cp.Constant(Sigma)
-    S = cp.Variable(p)
-    I = cp.Constant(np.diag(Sigma))
 
-    # Constraints
-    constraints = []
-    constraints += [cp.diag(S) >> 0]
-    constraints += [2*cp_Sigma - cp.diag(S) >> 0]
-    constraints += [S <= I]
+    # Construct C (-b + vec(F0) from above)
+    Cl1 = np.zeros((1,p**2))
+    Cl2 = np.diag(np.ones(p)).reshape(1, p**2)
+    Cs = np.reshape(2*Sigma,[1,p*p])
+    C = np.concatenate([Cl1,Cl2,Cs],axis=1)
 
-    # Objective
-    objective = cp.Maximize(cp.sum(S))
+    # Construct A 
+    rows = []
+    cols = []
+    data = []
+    for j in range(p):
+        rows.append(j)
+        cols.append((p+1)*j)
+        data.append(-1) 
+    Al1 = sp.sparse.csr_matrix((data, (rows, cols)))
+    Al2 = -1*Al1.copy()
+    As = Al2.copy()
+    A = sp.sparse.hstack([Al1, Al2, As])
+
+    # Construct b
+    b = np.ones([p,1])
+
+    # Options
+    K = {}
+    K['s'] = [p,p,p]
+    OPTIONS = {
+        'gaptol':1e-6,
+        'maxit':1000,
+        'logsummary':1 if sdp_verbose else 0,
+        'outputstats':1 if sdp_verbose else 0,
+        'print':1 if sdp_verbose else 0
+    }
 
     # Solve
-    problem = cp.Problem(objective, constraints)
-    problem.solve(verbose=sdp_verbose, **kwargs)
-    if S is None:
+    result = dsdp(A, b, C, K, OPTIONS=OPTIONS)
+
+    # Raise an error if unsolvable
+    status = result['STATS']['stype']
+    if status != 'PDFeasible':
         raise ValueError(
-            "SDP formulation is infeasible. Try decreasing the tol parameter."
+            f"DSDP solver returned status {status}, should be PDFeasible"
         )
+    S = np.diag(result['y'])
 
     # Scale to make this PSD using binary search
-    S = np.diag(S.value)
-    S, gamma = scale_until_PSD(Sigma, S, tol=tol, num_iter=num_iter)
-    if verbose:
+    S, gamma = scale_until_PSD(Sigma, S, tol, num_iter)
+    if sdp_verbose:
         mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
         print(
-            f"After ASDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
+            f"After SDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
         )
 
     return S
@@ -226,7 +269,7 @@ def solve_group_SDP(
     group_sizes = utilities.calc_group_sizes(groups)
 
     # Possibly solve non-grouped SDP
-    if objective == 'abs' and m == p:
+    if m == p:
         return solve_SDP(
             Sigma=Sigma,
             verbose=verbose,
