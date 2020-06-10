@@ -15,6 +15,7 @@ from functools import partial
 from multiprocessing import Pool
 
 # For SDP
+import time
 import cvxpy as cp
 from pydsdp.dsdp5 import dsdp
 
@@ -174,7 +175,9 @@ def solve_SDP(
     }
 
     # Solve
+    warnings.filterwarnings("ignore")
     result = dsdp(A, b, C, K, OPTIONS=OPTIONS)
+    warnings.resetwarnings()
 
     # Raise an error if unsolvable
     status = result['STATS']['stype']
