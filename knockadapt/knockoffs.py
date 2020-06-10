@@ -707,7 +707,7 @@ def gaussian_knockoffs(
                 **kwargs,
             )
             opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma, groups=groups, init_S=S, rec_prop=rec_prop
+                Sigma=Sigma, groups=groups, init_S=0.5*S_init, rec_prop=rec_prop
             )
             S = opt.optimize(max_epochs=max_epochs)
         else:
