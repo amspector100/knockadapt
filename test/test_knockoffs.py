@@ -193,8 +193,14 @@ class TestSDP(CheckSMatrix):
 
         # Repeat for ASDP
         _, S_harder_ASDP = knockoffs.gaussian_knockoffs(
-            X = X, Sigma = corr_matrix, groups = groups, method = 'ASDP',
-            return_S = True, sdp_verbose = False, verbose = False
+            X=X,
+            Sigma=corr_matrix,
+            groups=groups,
+            method='ASDP',
+            return_S=True,
+            sdp_verbose=False,
+            verbose=False,
+            max_block=10
         )
         np.testing.assert_almost_equal(
             S_harder_ASDP, expected_out, decimal = 2,

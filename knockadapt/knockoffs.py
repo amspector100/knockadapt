@@ -401,6 +401,7 @@ def solve_group_ASDP(
 
     # Shape of Sigma
     p = Sigma.shape[0]
+    m = np.unique(groups).shape[0]
 
     # Possibly automatically choose alpha
     # TO DO - pick these groups better (hier clustering)
@@ -408,8 +409,13 @@ def solve_group_ASDP(
         group_sizes = calc_group_sizes(groups)
         max_group = group_sizes.max()
 
+        # Trivially, if max_block < p
+        if max_block <= p:
+            alpha = m
+            Sigma_groups = {x: 0 for x in np.unique(groups)}
+
         # If the max group size is small enough:
-        if max_block >= max_group:
+        elif max_block >= max_group:
             alpha = int(max_block / max_group)
             Sigma_groups = {x: int(x / alpha) for x in np.unique(groups)}
 
@@ -461,7 +467,10 @@ def solve_group_ASDP(
         S_blocks = []
         for i in range(num_blocks):
             S_block = solve_group_SDP(
-                Sigma=Sigma_blocks[i], groups=group_blocks[i], **kwargs
+                Sigma=Sigma_blocks[i],
+                groups=group_blocks[i],
+                tol=tol,
+                **kwargs
             )
             S_blocks.append(S_block)
     else:
@@ -702,14 +711,14 @@ def gaussian_knockoffs(
                 objective=objective,
                 verbose=verbose,
                 sdp_verbose=sdp_verbose,
-                max_block=100,
-                tol=sample_tol,
+                max_block=500,
+                tol=1e-5, # The initialization may rescale anyway
                 **kwargs,
             )
             opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma, groups=groups, init_S=0.5*S_init, rec_prop=rec_prop
+                Sigma=Sigma, groups=groups, init_S=S_init, rec_prop=rec_prop
             )
-            S = opt.optimize(max_epochs=max_epochs)
+            S = opt.optimize(max_epochs=max_epochs, sdp_verbose=sdp_verbose)
         else:
             raise ValueError(
                 f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
