@@ -15,6 +15,17 @@ import itertools
 from functools import partial
 from multiprocessing import Pool
 
+GAMMA_VALS = [
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9,
+    0.95,
+    0.99,
+    0.9999,
+    1
+]
 
 def blockdiag_to_blocks(M, groups):
     """
@@ -97,9 +108,21 @@ class FKPrecisionTraceLoss(nn.Module):
     :param rec_prop: The proportion of data you are planning
     to recycle. (The optimal S matrix depends on the recycling
     proportion.)
+    :param rec_prop: The proportion of knockoffs that will be
+    recycled.
+    :param smoothing: Calculate the loss as sum 1/(eigs + smoothing)
+    as opposed to sum 1/eigs. This is helpful if fitting lasso 
+    statistics on extremely degenerate covariance matrices.
     """
 
-    def __init__(self, Sigma, groups, init_S=None, invSigma=None, rec_prop=0):
+    def __init__(self, 
+        Sigma,
+        groups,
+        init_S=None,
+        invSigma=None,
+        rec_prop=0,
+        smoothing=0,
+    ):
 
         super().__init__()
 
@@ -109,28 +132,26 @@ class FKPrecisionTraceLoss(nn.Module):
             raise ValueError("Sigma and groups must be sorted prior to input")
 
         # Save sigma and groups
+        self.p = Sigma.shape[0]
         self.groups = torch.from_numpy(groups).long()
         self.group_sizes = torch.from_numpy(calc_group_sizes(groups)).long()
         self.Sigma = torch.from_numpy(Sigma).float()
-        # self.register_buffer('Sigma', torch.from_numpy(Sigma))
 
-        # Save inverse cov matrix
+        # Save inverse cov matrix, rec_prop
         if invSigma is None:
             invSigma = utilities.chol2inv(Sigma)
         self.invSigma = torch.from_numpy(invSigma).float()
 
-        # Save recycling proportion
+        # Save recycling proportion and smoothing
+        self.smoothing = smoothing
         self.rec_prop = rec_prop
 
-        # Create new blocks
+        # Make sure init_S is a numpy array
         if init_S is None:
-            blocks = [0.5 * torch.eye(gj) for gj in self.group_sizes]
-        elif isinstance(init_S, np.ndarray):
-            blocks = blockdiag_to_blocks(init_S, groups)
-            # Torch-ify and take sqrt
-            blocks = [torch.from_numpy(block) for block in blocks]
-            blocks = [torch.cholesky(block) for block in blocks]
-        else:
+            # If nothing provided, default to equicorrelated
+            scale = min(1, 2 * np.linalg.eigh(Sigma)[0].min())
+            init_S = scale * np.eye(self.p)
+        elif isinstance(init_S, list):
             # Check for correct number of blocks
             num_blocks = len(init_S)
             num_groups = np.unique(groups).shape[0]
@@ -138,10 +159,28 @@ class FKPrecisionTraceLoss(nn.Module):
                 raise ValueError(
                     f"Length of init_S {num_blocks} doesn't agree with num groups {num_groups}"
                 )
-            # Torch-ify and take sqrt
-            blocks = [torch.from_numpy(block) for block in init_S]
-            blocks = [torch.cholesky(block) for block in blocks]
+            init_S = sp.linalg.block_diag(*init_S)
 
+        # Find a good initial scaling
+        best_gamma = 1
+        best_loss = np.inf
+        for gamma in GAMMA_VALS:
+            loss = fk_precision_trace(
+                Sigma=Sigma,
+                S=(1-self.rec_prop)*gamma*init_S,
+                invSigma=invSigma
+            )
+            if loss >= 0 and loss < best_loss:
+                best_gamma = gamma
+                best_loss = loss
+        init_S = best_gamma * init_S
+
+        # Create new blocks
+        blocks = blockdiag_to_blocks(init_S, groups)
+        # Torch-ify and take sqrt
+        blocks = [torch.from_numpy(block) for block in blocks]
+        blocks = [torch.cholesky(block) for block in blocks]
+        # Save
         self.blocks = [nn.Parameter(block.float()) for block in blocks]
 
         # Register the blocks as parameters
@@ -173,7 +212,7 @@ class FKPrecisionTraceLoss(nn.Module):
         # Take eigenvalues
         eigvals = torch.symeig(G_schurr, eigenvectors=True)
         eigvals = eigvals[0]
-        inv_eigvals = 1 / eigvals # TODO: Add tolerance 
+        inv_eigvals = 1 / (self.smoothing + eigvals)
         return inv_eigvals.sum()
 
     def scale_sqrt_S(self, tol, num_iter):
@@ -315,10 +354,14 @@ class NonconvexSDPSolver:
                 if j != 0:
                     diff = np.abs(self.prev_opt_S - self.opt_S).sum()
                     improvement = 2*(diff)/3 + improvement/3
+                    if sdp_verbose:
+                        print(f"L1 diff is {diff}, improvement is {improvement}, best loss is {self.opt_loss} at iter {j}")
                 self.improvements.append(improvement)
 
                 # Break if improvement is small
                 if improvement < convergence_tol:
+                    if sdp_verbose:
+                        print(f"Converged at iteration {j}")
                     break
 
         # Shift, scale, and return

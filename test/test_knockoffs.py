@@ -406,37 +406,41 @@ class TestNonconvexSDP(CheckSMatrix):
         # Main constants 
         p = 50
         groups = np.arange(1, p+1, 1)
+        smoothings = [0, 0.01]
 
         # Construct equicorrelated matrices
         rhos = [0.1, 0.3, 0.5, 0.7, 0.9]
         for rho in rhos:
+            for smoothing in smoothings:
             
-            # Construct Sigma
-            Sigma = np.zeros((p, p)) + rho
-            Sigma += (1-rho)*np.eye(p)
+                # Construct Sigma
+                Sigma = np.zeros((p, p)) + rho
+                Sigma += (1-rho)*np.eye(p)
 
-            # Expected solution
-            opt_prop_rec = min(rho, 0.5)
-            max_S_val = min(1, 2-2*rho)
-            expected = (1-opt_prop_rec)*max_S_val*np.eye(p)
+                # Expected solution
+                opt_prop_rec = min(rho, 0.5)
+                max_S_val = min(1, 2-2*rho)
+                expected = (1-rho)*np.eye(p)
 
-            # Test optimizer
-            opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma,
-                groups=groups,
-                init_S=None
-            )
-            opt_S = opt.optimize(
-                sdp_verbose=False,
-                tol=1e-5,
-                max_epochs=100,
-                line_search_iter=10,
-            )
-            self.check_S_properties(Sigma, opt_S, groups)
-            np.testing.assert_almost_equal(
-                opt_S, expected, decimal=1,
-                err_msg=f'For equicorrelated cov rho={rho}, SDPgrad_solver returns {opt_S}, expected {expected}'
-            )
+                # Test optimizer
+                opt = nonconvex_sdp.NonconvexSDPSolver(
+                    Sigma=Sigma,
+                    groups=groups,
+                    init_S=None,
+                    smoothing=smoothing
+                )
+                opt_S = opt.optimize(
+                    sdp_verbose=True,
+                    tol=1e-5,
+                    max_epochs=100,
+                    line_search_iter=10,
+                    lr=1e-2,
+                )
+                self.check_S_properties(Sigma, opt_S, groups)
+                np.testing.assert_almost_equal(
+                    opt_S, expected, decimal=1,
+                    err_msg=f'For equicorrelated cov rho={rho}, SDPgrad_solver w smoothing={smoothing} returns {opt_S}, expected {expected}'
+                )
 
     def test_equicorrelated_soln_recycled(self):
 
@@ -475,7 +479,7 @@ class TestNonconvexSDP(CheckSMatrix):
             )
             self.check_S_properties(Sigma, opt_S, groups)
             np.testing.assert_almost_equal(
-                opt_S, expected, decimal=1,
+                opt_S, expected, decimal=2,
                 err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, SDPgrad_solver returns {opt_S}, expected {expected}'
             )
 
