@@ -566,6 +566,7 @@ def gaussian_knockoffs(
     sdp_verbose=False,
     rec_prop=0,
     max_epochs=1000,
+    smoothing=0,
     **kwargs,
 ):
     """ Constructs group Gaussian MX knockoffs.
@@ -615,9 +616,10 @@ def gaussian_knockoffs(
     dramatically increase the power of recycled knockoffs, especially in
     sparsely-correlated, high-dimensional settings.
     :param max_epochs: number of epochs (gradient steps) for MCV solver.
+    :param smoothing: Smoothing parameter for MCV solver.
     :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
 
-    returns: copies x n x p numpy array of knockoffs"""
+    returns: n x p x copies numpy array of knockoffs"""
 
     # I follow the notation of Katsevich et al. 2019
     n = X.shape[0]
@@ -712,13 +714,20 @@ def gaussian_knockoffs(
                 verbose=verbose,
                 sdp_verbose=sdp_verbose,
                 max_block=500,
-                tol=1e-5, # The initialization may rescale anyway
-                **kwargs,
+                tol=1e-5, # The initialization will rescale anyway
             )
             opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma, groups=groups, init_S=S_init, rec_prop=rec_prop
+                Sigma=Sigma, 
+                groups=groups,
+                init_S=S_init,
+                rec_prop=rec_prop,
+                smoothing=smoothing,
             )
-            S = opt.optimize(max_epochs=max_epochs, sdp_verbose=sdp_verbose)
+            S = opt.optimize(
+                max_epochs=max_epochs,
+                sdp_verbose=sdp_verbose,
+                **kwargs
+            )
         else:
             raise ValueError(
                 f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
