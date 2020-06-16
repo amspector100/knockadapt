@@ -530,22 +530,38 @@ def parse_method(method, groups, p):
             method = "sdp"
     return method
 
-def estimate_covariance(X, tol):
-    """ Estimates covariance matrix of X. Applies
-    LW shrinkage estimator when minimum eigenvalue
-    is below a certain tolerance.
+def estimate_covariance(X, tol, shrinkage = 'ledoitwolf'):
+    """ Estimates covariance matrix of X. 
     :param X: n x p data matrix
     :param tol: threshhold for minimum eigenvalue
+    :shrinkage: The type of shrinkage to apply.
+     One of "ledoitwolf," "graphicallasso," or 
+     None (no shrinkage). Note even if shrinkage is None,
+    if the minim eigenvalue of the empirical cov matrix
+    is below a certain tolerance, this will apply shrinkage
+    anyway.
     :returns: Sigma, invSigma
     """
     Sigma = np.cov(X.T)
     mineig = np.linalg.eigh(Sigma)[0].min()
-    if mineig < tol: # Possibly shrink Sigma
-        LWest = sklearn.covariance.LedoitWolf()
-        LWest.fit(X)
-        Sigma = LWest.covariance_
-        invSigma = LWest.precision_
+    # Possibly shrink Sigma
+    if mineig < tol or shrinkage is not None:
+
+        # Which shrinkage to use
+        if str(shrinkage).lower() == 'ledoitwolf' or shrinkage is None: 
+            ShrinkEst = sklearn.covariance.LedoitWolf()
+        elif str(shrinkage).lower() == 'graphicallasso':
+            ShrinkEst = sklearn.covariance.GraphicalLasso(alpha=0.1)
+        else:
+            raise ValueError(f"Shrinkage arg must be one of None, ledoitwolf', 'graphicallasso', not {shrinkage}")
+
+        # Fit shrinkage and return
+        ShrinkEst.fit(X)
+        Sigma = ShrinkEst.covariance_
+        invSigma = ShrinkEst.precision_
         return Sigma, invSigma
+
+    # Else return empirical estimate
     return Sigma, utilities.chol2inv(Sigma)
 
 def gaussian_knockoffs(

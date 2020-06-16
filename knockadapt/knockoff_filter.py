@@ -94,6 +94,7 @@ class KnockoffFilter:
 		fdr=0.10,
 		feature_stat_kwargs={},
 		knockoff_kwargs={"sdp_verbose": False},
+		shrinkage='ledoitwolf',
 		recycle_up_to=None,
 	):
 		"""
@@ -118,6 +119,7 @@ class KnockoffFilter:
 		the feature statistic.
 		:param knockoff_kwargs: Kwargs to pass to the 
 		knockoffs constructor.
+		:param shrinkage
 		:param recycle_up_to: Three options:
 			- if None, does nothing.
 			- if an integer > 1, uses the first "recycle_up_to"
@@ -133,7 +135,7 @@ class KnockoffFilter:
 				tol = knockoff_kwargs['sdp_tol']
 			else:
 				tol = 1e-2
-			Sigma, _ = estimate_covariance(X, tol)
+			Sigma, _ = estimate_covariance(X, tol, shrinkage)
 		self.Sigma = Sigma
 
 		# Save n, p, groups

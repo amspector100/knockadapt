@@ -226,7 +226,7 @@ class TestKnockoffFilter(TestFdrControl):
 
 		self.check_fdr_control(
 			reps=15, n=200, p=150, method='ErdosRenyi', sparsity=0, y_dist='gaussian', 
-			infer_sigma=True
+			infer_sigma=True, filter_kwargs = {'shrinkage':'graphicallasso'}
 		)
 
 
