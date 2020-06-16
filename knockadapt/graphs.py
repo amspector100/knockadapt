@@ -2,8 +2,7 @@ import numpy as np
 from scipy import stats
 
 # Utility functions
-from statsmodels.stats.moment_helpers import cov2corr
-from .utilities import shift_until_PSD, chol2inv
+from .utilities import shift_until_PSD, chol2inv, cov2corr
 
 # Tree methods
 import scipy.cluster.hierarchy as hierarchy

@@ -69,6 +69,9 @@ def calc_group_sizes(groups):
 
 ### Matrix helpers for S-matrix computation
 
+def cov2corr(M):
+    scale = np.sqrt(np.diag(M))
+    return M / np.outer(scale, scale)
 
 def chol2inv(X):
     """ Uses cholesky decomp to get inverse of matrix """
