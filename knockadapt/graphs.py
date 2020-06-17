@@ -32,6 +32,21 @@ def UniformDot(d=100, p=100, tol=1e-2):
     V = cov2corr(V)
     return cov2corr(shift_until_PSD(V, tol=tol))
 
+def DirichletCorr(p=100,temp=1):
+    """
+    Generates a correlation matrix following
+    Davies, Philip I; Higham, Nicholas J;
+     “Numerically stable generation of correlation matrices and their factors”, 
+     BIT 2000, Vol. 40, No. 4, pp. 640 651
+     using the scipy implementation.
+     We set the eigenvalues using a dirichlet.
+     The p dirichlet parameters are i.i.d. uniform [0, temp].
+    """
+    alpha = np.random.uniform(temp, size=p)
+    d = p * stats.dirichlet(alpha=alpha).rvs().reshape(-1)
+    return stats.random_correlation.rvs(d)
+
+
 
 def AR1(p=30, a=1, b=1, tol=1e-3, rho=None):
     """ Generates correlation matrix for AR(1) Gaussian process,
@@ -372,6 +387,9 @@ def sample_data(
                 beta=beta,
                 **kwargs,
             )
+        elif method == 'dirichlet':
+            corr_matrix = DirichletCorr(p=p, **kwargs)
+            Q = chol2inv(corr_matrix)
         elif method == 'wishart':
             corr_matrix = Wishart(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
@@ -379,7 +397,7 @@ def sample_data(
             corr_matrix = UniformDot(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
         else:
-            raise ValueError("Other methods not implemented yet")
+            raise ValueError(f"Other method {method} not implemented yet")
 
     elif Q is None:
         Q = chol2inv(corr_matrix)

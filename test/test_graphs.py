@@ -277,6 +277,7 @@ class TestSampleData(unittest.TestCase):
 		)
 
 	def test_dot_corr_matrices(self):
+		""" Tests wishart and uniform corr matrices """
 
 		d = 1000
 		p = 4
@@ -298,6 +299,39 @@ class TestSampleData(unittest.TestCase):
 			Sigma, expected, 
 			decimal=1,
 			err_msg = f'random unifdot generation {Sigma} unexpectedly deviates from the {expected}'
+		)
+
+	def test_dirichlet_corr_matrices(self):
+		""" Simple test that ensures there are no errors, we get corr matrix 
+		with expected eigenvalues"""
+
+		# Try one with low temp
+		p = 100
+		temp = 0.1
+		np.random.seed(110)
+		_,_,_,Q,V = graphs.sample_data(
+			p=p, temp=temp, method='dirichlet'
+		)
+		np.testing.assert_almost_equal(
+			np.diag(V), np.ones(p), decimal=6, err_msg=f"DirichletCorr generation {V} is not a correlation matrix"
+		)
+		min_eig = np.linalg.eigh(V)[0].min()
+		self.assertTrue(
+			min_eig < 0.001, msg=f"Minimum eigenvalue of dirichlet {min_eig} should be <=0.001 when temp={temp}"
+		)
+
+		# Try 2 with high temp
+		temp = 10
+		np.random.seed(110)
+		_,_,_,Q,V = graphs.sample_data(
+			p=p, temp=temp, method='dirichlet'
+		)
+		np.testing.assert_almost_equal(
+			np.diag(V), np.ones(p), decimal=6, err_msg=f"DirichletCorr generation {V} is not a correlation matrix"
+		)
+		min_eig = np.linalg.eigh(V)[0].min()
+		self.assertTrue(
+			min_eig > 0.001, msg=f"Minimum eigenvalue of dirichlet {min_eig} should be >=0.001 when temp={temp}"
 		)
 
 
