@@ -530,7 +530,7 @@ def parse_method(method, groups, p):
             method = "sdp"
     return method
 
-def estimate_covariance(X, tol, shrinkage = 'ledoitwolf'):
+def estimate_covariance(X, tol=1e-3, shrinkage = 'ledoitwolf'):
     """ Estimates covariance matrix of X. 
     :param X: n x p data matrix
     :param tol: threshhold for minimum eigenvalue
@@ -556,7 +556,9 @@ def estimate_covariance(X, tol, shrinkage = 'ledoitwolf'):
             raise ValueError(f"Shrinkage arg must be one of None, ledoitwolf', 'graphicallasso', not {shrinkage}")
 
         # Fit shrinkage and return
+        warnings.filterwarnings("ignore")
         ShrinkEst.fit(X)
+        warnings.resetwarnings()
         Sigma = ShrinkEst.covariance_
         invSigma = ShrinkEst.precision_
         return Sigma, invSigma
@@ -575,6 +577,7 @@ def gaussian_knockoffs(
     sample_tol=1e-5,
     sdp_tol=1e-2,
     S=None,
+    init_S=None,
     method=None,
     objective="pnorm",
     return_S=False,
@@ -595,6 +598,8 @@ def gaussian_knockoffs(
     :param copies: integer number of knockoff copies of each observation to draw
     :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
     and will be constructed by knockoff generator.
+    :param init_S: An initial guess for the S matrix. This is helpful when using
+    the mcv method (defined below).
     :param method: How to construct S matrix. There are three options:
         - 'equicorrelated': In this construction, the correlation between 
         each feature and its knockoff is the same (gamma). Minimizes this 
@@ -723,19 +728,20 @@ def gaussian_knockoffs(
                 **kwargs,
             )
         elif method == "mcv":
-            S_init = solve_group_ASDP(
-                Sigma,
-                groups,
-                objective=objective,
-                verbose=verbose,
-                sdp_verbose=sdp_verbose,
-                max_block=500,
-                tol=1e-5, # The initialization will rescale anyway
-            )
+            if init_S is None:
+                S_init = solve_group_ASDP(
+                    Sigma,
+                    groups,
+                    objective=objective,
+                    verbose=verbose,
+                    sdp_verbose=sdp_verbose,
+                    max_block=500,
+                    tol=1e-5, # The initialization will rescale anyway
+                )
             opt = nonconvex_sdp.NonconvexSDPSolver(
                 Sigma=Sigma, 
                 groups=groups,
-                init_S=S_init,
+                init_S=init_S,
                 rec_prop=rec_prop,
                 smoothing=smoothing,
             )
