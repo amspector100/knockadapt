@@ -112,7 +112,8 @@ class FKPrecisionTraceLoss(nn.Module):
     recycled.
     :param smoothing: Calculate the loss as sum 1/(eigs + smoothing)
     as opposed to sum 1/eigs. This is helpful if fitting lasso 
-    statistics on extremely degenerate covariance matrices.
+    statistics on extremely degenerate covariance matrices. Over the 
+    course of optimization, this smoothing parameter will go to 0.
     """
 
     def __init__(self, 
@@ -200,8 +201,12 @@ class FKPrecisionTraceLoss(nn.Module):
         S = torch.mm(self.sqrt_S.t(), self.sqrt_S)
         return S
 
-    def forward(self):
+    def forward(self, smoothing = None):
         """ Calculates trace of inverse grahm feature-knockoff matrix"""
+
+        # Infer smoothing
+        if smoothing is None:
+            smoothing = self.smoothing
 
         # Create schurr complement
         S = self.pull_S()
@@ -212,7 +217,7 @@ class FKPrecisionTraceLoss(nn.Module):
         # Take eigenvalues
         eigvals = torch.symeig(G_schurr, eigenvectors=True)
         eigvals = eigvals[0]
-        inv_eigvals = 1 / (self.smoothing + eigvals)
+        inv_eigvals = 1 / (smoothing + eigvals)
         return inv_eigvals.sum()
 
     def scale_sqrt_S(self, tol, num_iter):
@@ -263,6 +268,7 @@ class NonconvexSDPSolver:
         self.Sigma = Sigma
         self.groups = groups
         self.opt_S = None # Output initialization
+        self.opt_loss = np.inf
 
         # Sort by groups for ease of computation
         inds, inv_inds = utilities.permute_matrix_by_groups(groups)
@@ -281,7 +287,7 @@ class NonconvexSDPSolver:
 
         # Initialize cache of optimal S
         with torch.no_grad():
-            init_loss = self.losscalc()
+            init_loss = self.losscalc(smoothing=0)
             if init_loss < 0:
                 init_loss = np.inf
         self.cache_S(init_loss)
@@ -295,6 +301,7 @@ class NonconvexSDPSolver:
         # Cache optimal solution
         with torch.no_grad():
             self.prev_opt_S = self.opt_S
+            self.prev_opt_loss = self.opt_loss
             self.opt_loss = new_loss
             self.opt_S = self.losscalc.pull_S().clone().detach().numpy()
 
@@ -305,7 +312,7 @@ class NonconvexSDPSolver:
         max_epochs=100,
         tol=1e-5,
         line_search_iter=10,
-        convergence_tol=1e-5,
+        convergence_tol=1e-1,
         **kwargs,
     ):
         """
@@ -341,28 +348,34 @@ class NonconvexSDPSolver:
 
                 # If this is optimal after reprojecting, save
                 with torch.no_grad():
-                    new_loss = self.losscalc()
+                    new_loss = self.losscalc(smoothing = 0)
                 if new_loss < self.opt_loss and new_loss >= 0:
                     self.cache_S(new_loss)
                 else:
                     self.prev_opt_S = self.opt_S
+                    self.prev_opt_loss = self.opt_loss
 
                 # Cache projected loss
                 self.projected_losses.append(new_loss.item())
 
                 # Calculate improvement
                 if j != 0:
-                    diff = np.abs(self.prev_opt_S - self.opt_S).sum()
+                    diff = self.prev_opt_loss - self.opt_loss
+                    l1diff = np.abs(self.opt_S - self.prev_opt_S).sum()
                     improvement = 2*(diff)/3 + improvement/3
                     if sdp_verbose:
-                        print(f"L1 diff is {diff}, improvement is {improvement}, best loss is {self.opt_loss} at iter {j}")
+                        print(f"L1 diff is {l1diff}, loss diff={diff}, improvement is {improvement}, best loss is {self.opt_loss} at iter {j}")
                 self.improvements.append(improvement)
 
                 # Break if improvement is small
                 if improvement < convergence_tol:
-                    if sdp_verbose:
+                    if self.losscalc.smoothing > 1e-4:
+                        improvement = 1 + convergence_tol # Reset
+                        self.losscalc.smoothing = self.losscalc.smoothing / 10
+                        print(f"Nearing convergence, reducing smoothing to {self.losscalc.smoothing} \n")
+                    elif sdp_verbose:
                         print(f"Converged at iteration {j}")
-                    break
+                        break
 
         # Shift, scale, and return
         sorted_S = self.opt_S
