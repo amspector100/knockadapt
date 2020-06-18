@@ -93,6 +93,7 @@ class TestSampleData(unittest.TestCase):
 		)
 		beta[0] = 1
 		beta[1] = -1
+		beta[2] = 0
 
 		# Test if a feature has the expected marginal covariance w y
 		def test_cov(feature, y, name, expected=1):
@@ -127,6 +128,18 @@ class TestSampleData(unittest.TestCase):
 		y = graphs.sample_response(X, beta, cond_mean='pairint')
 		feature = X[:, 0]*X[:, 1]
 		test_cov(feature, y, name='pairint', expected=-1)
+
+		# Cond mean 5: sin
+		y = graphs.sample_response(X, beta, cond_mean='cos')
+		feature = X[:, 0]
+		test_cov(feature, y, name='cos', expected=0)
+		feature = X[:, 2]
+		test_cov(feature, y, name='cos', expected=0)
+
+		# Cond mean 6: quadratic
+		y = graphs.sample_response(X, beta, cond_mean='quadratic')
+		feature = X[:, 0]
+		test_cov(feature, y, name='quadratic', expected=0)
 
 	def test_coeff_dist(self):
 

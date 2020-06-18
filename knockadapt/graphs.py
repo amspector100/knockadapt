@@ -287,10 +287,14 @@ def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
 
     if cond_mean == 'linear':
         cond_mean = np.dot(X, beta)
+    elif cond_mean == 'quadratic':
+        cond_mean = np.dot(np.power(X, 2), beta)
     elif cond_mean == 'cubic':
         cond_mean = np.dot(np.power(X, 3), beta) - np.dot(X, beta)
     elif cond_mean == 'trunclinear':
         cond_mean = ((X * beta >= 1) * np.sign(beta)).sum(axis = 1)
+    elif cond_mean == 'cos':
+        cond_mean = (np.sign(beta)*(beta!=0)*np.cos(X)).sum(axis=1)
     elif cond_mean == 'pairint':
         # Pair up the coefficients
         pairs = [[]]
@@ -310,7 +314,7 @@ def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
                 interaction_term = interaction_term * X[:, j]
             cond_mean += interaction_term
     else:
-        raise ValueError(f"cond_mean must be one of 'linear', 'cubic', 'trunclinear', 'pairint', not {cond_mean}")
+        raise ValueError(f"cond_mean must be one of 'linear', 'quadratic', cubic', 'trunclinear', 'cos', 'pairint', not {cond_mean}")
 
     # Create y, one of two families
     if y_dist == "gaussian":
