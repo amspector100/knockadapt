@@ -319,7 +319,7 @@ class TestSampleData(unittest.TestCase):
 		with expected eigenvalues"""
 
 		# Try one with low temp
-		p = 100
+		p = 500
 		temp = 0.1
 		np.random.seed(110)
 		_,_,_,Q,V = graphs.sample_data(

@@ -43,10 +43,11 @@ def DirichletCorr(p=100,temp=1):
      The p dirichlet parameters are i.i.d. uniform [0, temp].
     """
     alpha = np.random.uniform(temp, size=p)
-    d = stats.dirichlet(alpha=alpha).rvs().reshape(-1)
+    d = stats.dirichlet(alpha=alpha).rvs().reshape(-1).astype('float64')
     d = p * d / d.sum()
-    return stats.random_correlation.rvs(d)
-
+    d[0] += p - d.sum() # This is like 1e-10 but otherwise throws an error
+    V = stats.random_correlation.rvs(d)
+    return V
 
 
 def AR1(p=30, a=1, b=1, tol=1e-3, rho=None):
