@@ -43,7 +43,8 @@ def DirichletCorr(p=100,temp=1):
      The p dirichlet parameters are i.i.d. uniform [0, temp].
     """
     alpha = np.random.uniform(temp, size=p)
-    d = p * stats.dirichlet(alpha=alpha).rvs().reshape(-1)
+    d = stats.dirichlet(alpha=alpha).rvs().reshape(-1)
+    d = p * d / d.sum()
     return stats.random_correlation.rvs(d)
 
 
