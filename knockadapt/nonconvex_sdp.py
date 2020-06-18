@@ -204,6 +204,10 @@ class FKPrecisionTraceLoss(nn.Module):
     def forward(self, smoothing = None):
         """ Calculates trace of inverse grahm feature-knockoff matrix"""
 
+        # TODO: This certainly works and is more efficient in a forward
+        # pass than taking the eigenvalues of both S and 2*Sigma - S.
+        # But perhaps the dot product makes the backprop less efficient?
+
         # Infer smoothing
         if smoothing is None:
             smoothing = self.smoothing
