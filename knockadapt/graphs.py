@@ -32,7 +32,7 @@ def UniformDot(d=100, p=100, tol=1e-2):
     V = cov2corr(V)
     return cov2corr(shift_until_PSD(V, tol=tol))
 
-def DirichletCorr(p=100,temp=1):
+def DirichletCorr(p=100, temp=1, tol=1e-6):
     """
     Generates a correlation matrix following
     Davies, Philip I; Higham, Nicholas J;
@@ -43,9 +43,16 @@ def DirichletCorr(p=100,temp=1):
      The p dirichlet parameters are i.i.d. uniform [0, temp].
     """
     alpha = np.random.uniform(temp, size=p)
-    d = stats.dirichlet(alpha=alpha).rvs().reshape(-1).astype('float64')
+    d = stats.dirichlet(alpha=alpha).rvs().reshape(-1)
+
+    # We have to round to prevent errors from random_correlation,
+    # which is supperr sensitive to d.sum() != p even when the 
+    # error is a floating point error.
+    d = np.around(d+tol, 6)
     d = p * d / d.sum()
     d[0] += p - d.sum() # This is like 1e-10 but otherwise throws an error
+
+    # Create and return matrix
     V = stats.random_correlation.rvs(d)
     return V
 
@@ -103,6 +110,33 @@ def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol
     Q = shift_until_PSD(Q, tol=tol)
 
     return Q
+
+def TrueErdosRenyi(p=300, delta=0.2, lower=0.1, upper=1, tol=1e-1):
+    """ Randomly samples bernoulli flags as well as values
+    for partial correlations to generate sparse precision
+    matrices. Follows https://arxiv.org/pdf/1908.11611.pdf.
+    """
+
+    # Initialization
+    V = np.zeros((p, p))
+    triang_size = int((p ** 2 + p) / 2)
+
+    # Sample the upper triangle
+    mask = stats.bernoulli.rvs(delta, size=triang_size)
+    vals = np.random.uniform(lower, upper, size=triang_size)
+    flags = 2*np.random.binomial(1, 0.5, triang_size) - 1
+    triang = mask * flags * vals
+
+    # Set values and add diagonal
+    upper_inds = np.triu_indices(p, 0)
+    V[upper_inds] = triang
+    V = V + V.T
+    V += np.eye(p) - np.diag(np.diag(V))
+
+    # Force to be positive definite -
+    V = shift_until_PSD(V, tol=tol)
+
+    return V
 
 
 def daibarber2016_graph(
@@ -393,6 +427,13 @@ def sample_data(
                 beta=beta,
                 **kwargs,
             )
+        elif method == 'ver':
+            corr_matrix = cov2corr(TrueErdosRenyi(p=p, **kwargs))
+            Q = chol2inv(corr_matrix)
+        elif method == 'qer':
+            Q = TrueErdosRenyi(p=p, **kwargs)
+            corr_matrix = cov2corr(chol2inv(Q))
+            Q = chol2inv(corr_matrix)
         elif method == 'dirichlet':
             corr_matrix = DirichletCorr(p=p, **kwargs)
             Q = chol2inv(corr_matrix)

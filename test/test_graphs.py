@@ -314,12 +314,12 @@ class TestSampleData(unittest.TestCase):
 			err_msg = f'random unifdot generation {Sigma} unexpectedly deviates from the {expected}'
 		)
 
-	def test_dirichlet_corr_matrices(self):
+	def test_dirichlet_matrices(self):
 		""" Simple test that ensures there are no errors, we get corr matrix 
 		with expected eigenvalues"""
 
 		# Try one with low temp
-		p = 500
+		p = 2000
 		temp = 0.1
 		np.random.seed(110)
 		_,_,_,Q,V = graphs.sample_data(
@@ -330,7 +330,7 @@ class TestSampleData(unittest.TestCase):
 		)
 		min_eig = np.linalg.eigh(V)[0].min()
 		self.assertTrue(
-			min_eig < 0.001, msg=f"Minimum eigenvalue of dirichlet {min_eig} should be <=0.001 when temp={temp}"
+			min_eig < 0.003, msg=f"Minimum eigenvalue of dirichlet {min_eig} should be <=0.001 when temp={temp}"
 		)
 
 		# Try 2 with high temp
@@ -346,6 +346,49 @@ class TestSampleData(unittest.TestCase):
 		self.assertTrue(
 			min_eig > 0.001, msg=f"Minimum eigenvalue of dirichlet {min_eig} should be >=0.001 when temp={temp}"
 		)
+
+	def test_trueER_sample(self):
+		""" ER sampling following nodewise knockoffs paper """
+
+		# Try er = Q
+		p = 500
+		delta = 0.5
+		np.random.seed(110)
+		_,_,_,Q,V = graphs.sample_data(
+			p=p, delta=delta, method='qer'
+		)
+
+		prop_nonzero = (np.abs(Q) > 0.001).mean()
+		self.assertTrue(
+			abs(prop_nonzero - delta) < 0.02, 
+			"True (Q)ErdosRenyi sampler fails to give correct sparsity" 
+		)
+
+		mean_val = (Q.sum() - np.diag(Q).sum()) / (p**2 - p)
+		self.assertTrue(
+			abs(mean_val) < 0.1, 
+			"True (Q)ErdosRenyi sampler fails to give correct mean val" 
+		)
+
+		# Try er = V
+		delta = 0.1
+		np.random.seed(110)
+		_,_,_,Q,V = graphs.sample_data(
+			p=p, delta=delta, method='ver'
+		)
+
+		prop_nonzero = (np.abs(V) > 0.001).mean()
+		self.assertTrue(
+			abs(prop_nonzero - delta) < 0.02, 
+			"True (V)ErdosRenyi sampler fails to give correct sparsity" 
+		)
+
+		mean_val = (V.sum() - np.diag(V).sum()) / (p**2 - p)
+		self.assertTrue(
+			abs(mean_val) < 0.1, 
+			"True (V)ErdosRenyi sampler fails to give correct mean val" 
+		)
+
 
 
 if __name__ == '__main__':
