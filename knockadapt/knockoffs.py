@@ -544,21 +544,33 @@ def estimate_covariance(X, tol=1e-3, shrinkage = 'ledoitwolf'):
     """
     Sigma = np.cov(X.T)
     mineig = np.linalg.eigh(Sigma)[0].min()
+
+    # Parse none strng
+    if str(shrinkage).lower() == 'none':
+        shrinkage = None
+
     # Possibly shrink Sigma
     if mineig < tol or shrinkage is not None:
-
         # Which shrinkage to use
         if str(shrinkage).lower() == 'ledoitwolf' or shrinkage is None: 
             ShrinkEst = sklearn.covariance.LedoitWolf()
         elif str(shrinkage).lower() == 'graphicallasso':
             ShrinkEst = sklearn.covariance.GraphicalLasso(alpha=0.1)
         else:
-            raise ValueError(f"Shrinkage arg must be one of None, ledoitwolf', 'graphicallasso', not {shrinkage}")
+            raise ValueError(f"Shrinkage arg must be one of None, 'ledoitwolf', 'graphicallasso', not {shrinkage}")
 
-        # Fit shrinkage and return
-        warnings.filterwarnings("ignore")
-        ShrinkEst.fit(X)
-        warnings.resetwarnings()
+        # Fit shrinkage. Sometimes the Graphical Lasso raises errors
+        # so we handle these here.
+        try:
+            warnings.filterwarnings("ignore")
+            ShrinkEst.fit(X)
+            warnings.resetwarnings()
+        except FloatingPointError:
+            warnings.resetwarnings()
+            warnings.warn(f"Graphical lasso failed, using empirical covariance matrix")
+            return Sigma, utilities.chol2inv(Sigma)
+
+        # Return
         Sigma = ShrinkEst.covariance_
         invSigma = ShrinkEst.precision_
         return Sigma, invSigma

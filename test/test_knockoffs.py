@@ -274,6 +274,30 @@ class TestSDP(CheckSMatrix):
 class TestUtilFunctions(unittest.TestCase):
     """ Tests a couple of simple utility functions"""
 
+    def test_misaligned_covariance_estimation(self):
+
+        # Inputs
+        seed = 110
+        sample_kwargs = {
+            'n':640,
+            'p':300,
+            'method':'daibarber2016',
+            'gamma':1,
+            'rho':0.8,
+        }
+
+        # Extracta couple of constants
+        n = sample_kwargs['n']
+        p = sample_kwargs['p']
+
+        # Create data generating process
+        np.random.seed(seed)
+        X, y, beta, _, V = graphs.sample_data(**sample_kwargs)  
+
+        # Make sure this does not raise an error
+        # (even though it is ill-conditioned and the graph lasso doesn't fail)
+        knockoffs.estimate_covariance(X, shrinkage='graphicallasso')
+
     def test_covariance_estimation(self):
 
         # Random data
