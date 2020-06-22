@@ -29,6 +29,25 @@ There are also more flags/options for outputs in the command line command.
 2. Most importantly, think about how to integrate Metro.
 Probably reach out to Wenshuo / Bates. 
 
+### Metro Integration Ideas
+
+1. Definitely just vectorize/integrate metro_generic.py and some 
+of its relevant helper functions.
+2. Main challenge: implementing non-symmetric proposals, e.g. the
+covariance-guided proposal.
+a. General thought: For variable j, we have target pij. We know
+(theoretically) how to sample from the proposal xjstar.
+b. To compute the acceptance probability, we need to know four things:
+i. pij(xjstar)
+ii. pij(xj)
+iii. q(xj|xjstar)
+iv. q(xjstar|x)
+The first two are hard, the last two are easy. The generic code already 
+implements iii and iv.
+c. This gives a to-do:
+(a) Add in the q ratios and the covariance guided proposal
+(b) Vectorize for speedup :)
+
 ### Graphs
 
 1. DGP class? instead of returning like 6 things?

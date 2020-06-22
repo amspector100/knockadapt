@@ -257,7 +257,7 @@ def ar1t_knockoffs(
 			gamma_accept_mask = accept_mask * (np.minimum(0, acc_ratio_log) + np.log(gamma)) # Acceptances
 			if gamma == 1:
 				# Prevent log errors when 1 - gamma = 0
-				gamma_accept_mask += (1 - accept_mask) * (-1*np.inf)
+				gamma_accept_mask += np.array([-1*np.inf if not x else 0 for x in accept_mask])
 			else:
 				gamma_accept_mask += (1 - accept_mask) * np.log((1-gamma)*np.minimum(1, np.exp(acc_ratio_log)))
 			cond_density_log += gamma_accept_mask
@@ -279,6 +279,7 @@ def ar1t_knockoffs(
 				if j+3<=p:
 					j_acc_ratio_log += p_marginal_trans_log(j+3, X[:, j+2], proposals[:, j+1]) -\
 									   p_marginal_trans_log(j+3, X[:, j+2], X[:, j+1])
+				print("GAMMA MASK", gamma_accept_mask)
 				true_vec_q_props = q_prop_pdf_log(j, true_vec_j, proposals[:, j]) # Memoize
 				j_acc_ratio_log += -1*parallel_cond_density_log[:, j+1] +\
 									parallel_marg_density_log[:, j+1] +\

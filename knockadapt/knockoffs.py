@@ -597,7 +597,6 @@ def gaussian_knockoffs(
     sdp_verbose=False,
     rec_prop=0,
     max_epochs=1000,
-    smoothing=0,
     **kwargs,
 ):
     """ Constructs group Gaussian MX knockoffs.
@@ -755,7 +754,6 @@ def gaussian_knockoffs(
                 groups=groups,
                 init_S=init_S,
                 rec_prop=rec_prop,
-                smoothing=smoothing,
             )
             S = opt.optimize(
                 max_epochs=max_epochs,
