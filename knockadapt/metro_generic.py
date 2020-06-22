@@ -14,12 +14,23 @@ import itertools
 from . import utilities, knockoffs
 
 
+def gaussian_log_likelihood(
+	X, mu, var
+):
+	"""
+	Somehow this is faster than scipy
+	"""
+	result = -1*np.power(X - mu, 2) / (2 * var)
+	result += np.log(1 / np.sqrt(2 * np.pi * var))
+	return result
+
 class MetropolizedKnockoffSampler():
 
 	def __init__(
 			self,
 			lf,
 			X,
+			mu,
 			V,
 			order,
 			active_frontier,
@@ -32,6 +43,9 @@ class MetropolizedKnockoffSampler():
 		an n x p numpy array (n independent samples of a p-dim vector).
 		:param X: n x p array of data. (n independent samples of a 
 		p-dim vector).
+		:param mu: The mean of X. As described in
+		https://arxiv.org/abs/1903.00434, exact FDR control is maintained
+		even when this vector is incorrect.
 		:param V: The covariance matrix of X. As described in
 		https://arxiv.org/abs/1903.00434, exact FDR control is maintained
 		even when this covariance matrix is incorrect.
@@ -67,7 +81,8 @@ class MetropolizedKnockoffSampler():
 				[self.inv_order[j] for j in active_frontier[i]]
 			]
 
-		# Re-order Sigma
+		# Re-order mu, sigma
+		self.mu = mu[self.order].reshape(1, -1)
 		self.V = V[self.order][:, self.order]
 
 	def create_proposal_params(self, **kwargs):
@@ -95,7 +110,7 @@ class MetropolizedKnockoffSampler():
 
 		# Efficiently calculate p inverses of subsets 
 		# of feature-knockoff covariance matrix.
-		# For notation, see
+		# Variable names follow the notation in 
 		# Appendix D of https://arxiv.org/pdf/1903.00434.pdf.
 		self.invSigmas = []
 		self.invSigmas.append(utilities.chol2inv(self.V))
@@ -128,6 +143,62 @@ class MetropolizedKnockoffSampler():
 			)
 			invSigmaj = np.concatenate([upper_half,lower_half], axis=0)
 			self.invSigmas.append(invSigmaj)
+
+		# Suppose X sim N(mu, Sigma) and we have proposals X_{1:j-1}star
+		# Then the conditional mean of the proposal Xjstar 
+		# is muj + mean_transform @ [X - mu, X_{1:j-1}^* - mu_{1:j-1}]
+		# where the brackets [] denote vector concatenation.
+		# This code calculates those mean transforms and the 
+		# conditional variances.
+		self.cond_vars = np.zeros(self.p)
+		self.mean_transforms = []
+		for j in range(self.p):
+
+			# Helpful bits
+			Gamma12_j = self.G[0:self.p+j, self.p+j]
+			Gamma11_j_inv = self.invSigmas[j]
+
+			# Conditional variance
+			self.cond_vars[j] = self.G[self.p+j, self.p+j]
+			self.cond_vars[j] -= np.dot(
+				Gamma12_j, np.dot(Gamma11_j_inv, Gamma12_j),
+			)
+
+			# Mean transform
+			mean_transform = np.dot(Gamma12_j, Gamma11_j_inv).reshape(1, -1)
+			self.mean_transforms.append(mean_transform)
+
+	def q_ll(self, Xjstar, X, prev_proposals):
+		"""
+		Calculates the log-likelihood of a proposal Xjstar given X 
+		and the previous proposals.
+		:param Xjstar: n-length numpy array of values to evaluate.
+		:param X: n x p dimension numpy array of observed data
+		:param prev_proposals: n x (j - 1) numpy array of previous
+		proposals. If None, assumes j = 0.
+		"""
+		# Infer j from proposals
+		if prev_proposals is not None:
+			j = prev_proposals.shape[-1]
+
+			# Calculate conditional means
+			# self.mu is 1 x p 
+			normalized_obs = np.concatenate(
+				[X - self.mu, prev_proposals - self.mu[:, 0:j]], axis=1
+			)
+		# Otherwise j = 0
+		else:
+			j = 0
+			normalized_obs = X - self.mu
+
+		# Evaluate Gaussian log-likelihood
+		# self.mu is a 1 x p array
+		# Mean transforms is a 1 x (p + j) array
+		# Normalized obs is a n x (p + j) array 
+		# cond_mean will be an n x 1 array
+		cond_mean = self.mu[:, j].reshape(1, 1)
+		cond_mean = cond_mean + np.dot(normalized_obs, self.mean_transforms[j].T).reshape(-1, 1)
+		return gaussian_log_likelihood(Xjstar, cond_mean, self.cond_vars[j])
 
 def gaussian_proposal(j, xj):
 	''' Sample proposal by adding independent Gaussian noise.
