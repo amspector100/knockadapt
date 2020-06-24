@@ -1,6 +1,4 @@
-''' 
-	
-
+""" 
 	The metropolized knockoff sampler for an arbitrary probability density
 	and graphical structure using covariance-guided proposals.
 
@@ -9,7 +7,7 @@
 
 	Initial author: Stephen Bates, October 2019.
 	Adapted by: Asher Spector, June 2020. 
-'''
+"""
 
 # The basics
 import sys
@@ -102,6 +100,11 @@ class MetropolizedKnockoffSampler():
 		# Re-order mu, sigma
 		self.mu = mu[self.order].reshape(1, -1)
 		self.V = V[self.order][:, self.order]
+
+		# Possibly reorder S if it's in kwargs
+		if 'S' in kwargs:
+			S = kwargs['S']
+			kwargs['S'] = S[self.order][:, self.order]
 
 		# Create proposal parameters
 		self.create_proposal_params(**kwargs)
@@ -243,33 +246,30 @@ class MetropolizedKnockoffSampler():
 		# Create temporary X variable for queries
 		X_temp = self.X.copy()
 		X_temp[acc == 1] = self.X_prop[acc == 1]
-		X_temp[:, 0:j+1] = self.X[:, 0:j+1]
+		X_temp[:, 0:j] = self.X[:, 0:j]
 		return X_temp
 
 	def log_q12(self, acc, j):
 		"""
-		Computes the terms q1 and q1 from page 33 of the paper 
+		Computes the terms q1 and q1 from page 33 of the paper.
+		This may be the problem.
 		"""
 
 		# Temporary variable
 		X_temp = self._create_Xtemp(acc, j)
 
-		# First, conditioned on Xj = Xj
-		X_temp1 = np.concatenate(
-			[
-				X_temp[:, 0:j],
-				self.X_prop[:, j].reshape(-1, 1),
-				X_temp[:, j+1:]
-			],
-			axis=1
-		)
+		# First, the q1 term (page 33)
+		# Pr(Xjstar = zj | Xj = xjstar, X_{Vj/j} = Z_{vj/j}, X_{Vjc}, tilde X_{1:j-1}, Xjstar_{1:j-1})
+		X_temp1 = X_temp.copy()
+		X_temp1[:, j] = self.X_prop[:, j]
 		log_q1 = self.q_ll(
 			Xjstar=X_temp[:, j],
 			X=X_temp1,
 			prev_proposals=self.X_prop[:, 0:j]
 		)
 
-		# Second, conditioned on Xj = xjstar
+		# Second, the q2 term (page 34)
+		# Pr(Xjstar = xjstar | Xj = zj, X_{Vj/j} = Z_{vj/j}, X_{Vjc}, tilde X_{1:j-1}, Xjstar_{1:j-1})
 		log_q2 = self.q_ll(
 			Xjstar=self.X_prop[:, j],
 			X=X_temp,
@@ -303,7 +303,7 @@ class MetropolizedKnockoffSampler():
 		returns: stringified-key (hashable), array key
 		"""
 		inds = list(set(self.active_frontier[j]).union(set([j])))
-		arr_key = acc[0, inds] # Could make this :, inds
+		arr_key = acc[:, inds] # Could make this :, inds
 		return arr_key.tostring(), arr_key 
 
 	def compute_Fj(
@@ -313,6 +313,8 @@ class MetropolizedKnockoffSampler():
 		):
 		"""
 		Computes ln Pr(tildeXj, Xjstar | X_{Vj} = z_{vj}, X_{V_j^c}, tildeX_{1:j-1}, Xstar_{1:j-1}) 
+		Note the first two terms (tildeXj, Xjstar) do not depend on acc
+		and are fixed.
 		By Lemma 4 of the Metro paper, this depends on variable k
 		iff k in bar Vj. Note active frontier is the set bar Vj / {1,...,j}
 		:param acc: This specifies the values of zvj. In particular,
@@ -336,14 +338,28 @@ class MetropolizedKnockoffSampler():
 			acc_prob = self.acc_dicts[j][key]
 		else:
 			acc_prob = self.compute_acc_prob(acc, j)
+		print(f"In Fj={j}, acc_prob={acc_prob}")
 
-		# Acceptance / rejection mask
-		result = acc[:, j] * np.log(acc_prob)
-		result = result + (1 - acc[:, j]) * np.log(1 - acc_prob)
-		result = result + log_q2
+		# Acceptance / rejection mask for TRUE knockoffs
+		# self.Xk. Basically, we want to calculate 
+		# Pr(Xk | X_temp, tildeX_{1:j-1},, Xstar_{1:j})
+		# Note this is one when X_temp[:, j] = X_prop[:, j] = Xk[:, j]
+		# and zero when X_temp[:, j] = X_prop[:, j] != Xk[:, j]
+		# This is a degenerate setting since the proposal = the current state.
+		one_flag = (acc[:, j] == 1) & (self.acceptances[:, j] == 1)
+		zero_flag = (acc[:, j] == 1) & (self.acceptances[:, j] == 0)
+
+		# Having handled the degenerate setting, we handle the non-degen one
+		result = log_q2 + self.acceptances[:, j] * np.log(acc_prob)
+		result = result + (1 - self.acceptances[:, j]) * np.log(1 - acc_prob)
+		result[one_flag] = 0 # ln(1)
+		result[zero_flag] = -1*np.inf # ln(0)
+
+		#result = log_q2 + acc[:, j] * np.log(acc_prob)
+		#result = result + (1 - acc[:, j]) * np.log(1 - acc_prob)
 
 		# Store result
-		print(f"For j={j}, caching key={readable_key}")
+		print(f"For j={j}, caching Fj key={readable_key}")
 		self.Fj_dicts[j][key] = result
 
 		# Return
@@ -405,13 +421,14 @@ class MetropolizedKnockoffSampler():
 		ld_ratio = ld_prop - ld_obs
 
 		# Save memory
-		del X_temp
+		# del X_temp
 
 		# Loop across history to adjust for the observed knockoff sampling pattern
 		Fj_ratio = np.zeros(self.n)
 		for j2 in self.affected_vars[j]:
 
 			# Keys
+			print(f"there are affected variables {j2}")
 			key0, readable_key0 = self.get_key(acc0, j2)
 			key1, readable_key1 = self.get_key(acc1, j2)
 
@@ -433,17 +450,32 @@ class MetropolizedKnockoffSampler():
 				Fj2_1 = self.compute_Fj(acc1, j2)
 
 			# Account for whether variable j2 was accepted/rejected
-			Fj_ratio += Fj2_1 - Fj2_0
+			Fj_ratio = Fj_ratio + Fj2_1 - Fj2_0
 
 		# Probability of acceptance at step j, given past rejection pattern
 		# print(f"step={self.step}, j={j}, LD+LQ rat", np.around(ld_ratio+lq_ratio, 3))
 		# print(f"step={self.step}, j={j}, LQ rat", lq_ratio)
 		# print(f"step={self.step}, j={j}, Fj rat", np.around(Fj_ratio, 3))
+
 		acc_prob = self.gamma * np.minimum(
 			1, np.exp(ld_ratio + lq_ratio + Fj_ratio)
 		) 
 
+		# This should be one for now
+		if not np.all(np.abs(acc_prob - self.gamma) < 1e-4):
+			print("Error, printing ratios")
+			print(ld_ratio)
+			print(ld_prop)
+			print(ld_obs)
+			print("xtemp", X_temp)
+			print(log_q1)
+			print(log_q2)
+			print(Fj_ratio)
+			print("error", acc_prob, acc_prob.min())
+			raise ValueError(f"First non-one alpha at step={self.step}, j={j}, acc={acc}")
+
 		# Store result
+		print(f"For j={j}, caching acc key={readable_key}")
 		self.acc_dicts[j][key] = acc_prob 
 
 		return acc_prob
@@ -454,10 +486,6 @@ class MetropolizedKnockoffSampler():
 		# as well as Fj values (see page 33)
 		self.acc_dicts = [{} for j in range(self.p)]
 		self.Fj_dicts = [{} for j in range(self.p)]
-
-		# Make sure our DP for n variables actually works
-		self.key_to_acc = [{} for j in range(self.p)]
-		# TODO TEST THIS
 
 		# Locate previous terms affected by variable j
 		self.affected_vars = [[] for k in range(self.p)]
@@ -474,7 +502,19 @@ class MetropolizedKnockoffSampler():
 		self.X_prop = np.zeros((self.n, self.p))
 		self.X_prop[:] = np.nan
 
-		# Loop across variables
+		# Start to store knockoffs
+		self.Xk = np.zeros((self.n, self.p))
+		self.Xk[:] = np.nan
+
+		# Loop across variables to sample proposals
+		for j in range(self.p):
+			# Sample proposal
+			self.X_prop[:, j] = self.sample_proposals(
+				X=self.X,
+				prev_proposals=self.X_prop[:, 0:j]
+			)
+
+		# Loop across variables to compute acc ratios
 		prev_proposals = None
 		for j in range(self.p):
 
@@ -482,12 +522,6 @@ class MetropolizedKnockoffSampler():
 			self.step = j
 			print("\n")
 			print(f"For step={self.step}, active_frontier={self.active_frontier[j]}, affected_vars={self.affected_vars[j]}")
-			
-			# Sample proposal
-			self.X_prop[:, j] = self.sample_proposals(
-				X=self.X,
-				prev_proposals=self.X_prop[:, 0:j]
-			)
 
 			# Compute acceptance probability, which is an n-length vector
 			acc_prob = self.compute_acc_prob(
@@ -499,10 +533,15 @@ class MetropolizedKnockoffSampler():
 			# Sample to get actual acceptances
 			self.acceptances[:, j] = np.random.binomial(1, acc_prob)
 
+			# Store knockoffs
+			mask = self.acceptances[:, j] == 1
+			self.Xk[:, j][mask] = self.X_prop[:, j][mask].copy() 
+			self.Xk[:, j][~mask] = self.X[:, j][~mask].copy() 
+
 		# Create knockoffs and return
-		self.Xk = self.X.copy()
-		self.Xk[self.acceptances == 1.0] = self.X_prop[self.acceptances == 1.0]
+		self.Xk2 = self.X.copy()
+		self.Xk2[self.acceptances == 1.0] = self.X_prop[self.acceptances == 1.0]
 		
-		return self.Xk
+		return self.Xk[:, self.inv_order], self.Xk2[:, self.inv_order]
 
 

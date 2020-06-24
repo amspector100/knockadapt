@@ -98,7 +98,66 @@ class TestGenericMetro(unittest.TestCase):
 			)[0,0]
 			prev_proposals = Xstar[:, 0:j+1]
 
-	def test_sample(self):
+	def test_ar1_sample(self):
+
+		# Fake data
+		np.random.seed(110)
+		n = 30000
+		p = 8
+		X,_,_,Q,V = graphs.sample_data(method='AR1', n=n, p=p)
+		_, S = knockadapt.knockoffs.gaussian_knockoffs(
+			X=X, Sigma=V, method='mcv', return_S=True
+		)
+
+		# Graph structure + junction tree
+		Q_graph = (np.abs(Q) > 1e-5)
+		Q_graph = Q_graph - np.eye(p)
+		undir_graph = nx.Graph(Q_graph)
+		width, T = tree_processing.treewidth_decomp(undir_graph)
+		order, active_frontier = tree_processing.get_ordering(T)
+
+		# Metro sampler + likelihood
+		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
+		def mvn_likelihood(X):
+			return mvn.logpdf(X)
+		gamma = 0.9999
+		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+			lf=mvn_likelihood,
+			X=X,
+			mu=np.zeros(p),
+			V=V,
+			order=order,
+			active_frontier=active_frontier,
+			S=S,
+			gamma=0.9999
+		)
+
+		# Output knockoffs
+		Xk = metro_sampler.sample_knockoffs()
+
+		# Acceptance rate should be exactly one
+		acc_rate = metro_sampler.final_acc_probs.mean()
+		self.assertTrue(
+			acc_rate - gamma > -1e-3, 
+			msg = f'For AR1 gaussian design, metro has acc_rate={acc_rate} < gamma={gamma}'
+		)
+
+		# Check covariance matrix
+		features = np.concatenate([X, Xk], axis=1)
+		emp_corr_matrix = np.corrcoef(features.T)
+		G = np.concatenate(
+			[np.concatenate([V, V-S]),
+			 np.concatenate([V-S, V]),], 
+			axis=1
+		)
+
+		np.testing.assert_almost_equal(
+			emp_corr_matrix, G, decimal=2,
+			err_msg=f"For AR1 gaussian design, metro does not match theoretical matrix"
+		)
+
+
+	def test_dense_sample(self):
 
 		# Fake data
 		np.random.seed(110)
@@ -136,11 +195,11 @@ class TestGenericMetro(unittest.TestCase):
 		#active_frontier = [[2], [1], [0], []] #INVESTIGATE LATER
 		#print(order)
 
-		# Metro sampler, proposal params
+		# Metro sampler and likelihood
 		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
 		def mvn_likelihood(X):
 			return mvn.logpdf(X)
-
+		gamma = 0.9999
 		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
 			lf=mvn_likelihood,
 			X=X,
@@ -149,7 +208,7 @@ class TestGenericMetro(unittest.TestCase):
 			order=order,
 			active_frontier=active_frontier,
 			S=np.eye(p), # Works when S = 0.001
-			gamma=0.999999999
+			gamma=gamma
 		)
 		metro_sampler.sample_knockoffs()
 		print(metro_sampler.acceptances.mean())
