@@ -1,4 +1,6 @@
 ''' 
+	
+
 	The metropolized knockoff sampler for an arbitrary probability density
 	and graphical structure using covariance-guided proposals.
 
@@ -9,10 +11,15 @@
 	Adapted by: Asher Spector, June 2020. 
 '''
 
+# The basics
+import sys
 import numpy as np
+import scipy as sp
 import itertools
 from . import utilities, knockoffs
 
+# Network and UGM tools
+import networkx as nx
 
 def gaussian_log_likelihood(
 	X, mu, var
@@ -34,9 +41,13 @@ class MetropolizedKnockoffSampler():
 			V,
 			order,
 			active_frontier,
-			gamma=0.999
+			gamma=0.999,
+			**kwargs
 			):
 		"""
+		A metropolized knockoff sampler for arbitrary random variables
+		using covariance-guided proposals.
+
 		Currently not implemented for group knockoffs.
 
 		:param lf: Log-probability density. This function should take
@@ -57,12 +68,16 @@ class MetropolizedKnockoffSampler():
 		the conditional independence structure of the distribution given by
 		lf. See page 34 of the paper.
 		:param gamma: A tuning parameter to increase / decrease the acceptance
-		ratio.
+		ratio. See appendix F.2.
+		:param kwargs: kwargs to pass to a gaussian_knockoffs constructor.
+		This is used to create the S matrix which is then used for the
+		covariance-guided proposals.
 		"""
 
 		# Random params
 		self.n = X.shape[0]
 		self.p = X.shape[1]
+		self.gamma = gamma
 
 		# Save order and inverse order
 		self.order = order
@@ -81,9 +96,15 @@ class MetropolizedKnockoffSampler():
 				[self.inv_order[j] for j in active_frontier[i]]
 			]
 
+		# Count the number of Fj queries we make
+		self.Fj_queries = 0
+
 		# Re-order mu, sigma
 		self.mu = mu[self.order].reshape(1, -1)
 		self.V = V[self.order][:, self.order]
+
+		# Create proposal parameters
+		self.create_proposal_params(**kwargs)
 
 	def create_proposal_params(self, **kwargs):
 		"""
@@ -168,11 +189,10 @@ class MetropolizedKnockoffSampler():
 			mean_transform = np.dot(Gamma12_j, Gamma11_j_inv).reshape(1, -1)
 			self.mean_transforms.append(mean_transform)
 
-	def q_ll(self, Xjstar, X, prev_proposals):
+	def fetch_proposal_params(self, X, prev_proposals):
 		"""
-		Calculates the log-likelihood of a proposal Xjstar given X 
-		and the previous proposals.
-		:param Xjstar: n-length numpy array of values to evaluate.
+		Returns mean and variance of proposal j given X and
+		previous proposals.
 		:param X: n x p dimension numpy array of observed data
 		:param prev_proposals: n x (j - 1) numpy array of previous
 		proposals. If None, assumes j = 0.
@@ -198,162 +218,291 @@ class MetropolizedKnockoffSampler():
 		# cond_mean will be an n x 1 array
 		cond_mean = self.mu[:, j].reshape(1, 1)
 		cond_mean = cond_mean + np.dot(normalized_obs, self.mean_transforms[j].T).reshape(-1, 1)
-		return gaussian_log_likelihood(Xjstar, cond_mean, self.cond_vars[j])
+		return cond_mean, self.cond_vars[j]
 
-def gaussian_proposal(j, xj):
-	''' Sample proposal by adding independent Gaussian noise.
+	def q_ll(self, Xjstar, X, prev_proposals):
+		"""
+		Calculates the log-likelihood of a proposal Xjstar given X 
+		and the previous proposals.
+		:param Xjstar: n-length numpy array of values to evaluate.
+		:param X: n x p dimension numpy array of observed data
+		:param prev_proposals: n x (j - 1) numpy array of previous
+		proposals. If None, assumes j = 0.
+		"""
+		cond_mean, cond_var = self.fetch_proposal_params(
+			X=X, prev_proposals=prev_proposals
+		)
+		return gaussian_log_likelihood(Xjstar, cond_mean.reshape(-1), cond_var)
 
-	'''
+	def _create_Xtemp(self, acc, j):
+		"""
+		Creates the temporary variable Xtemp for queries
+		to densities / proposal functions.
+		"""
 
-	return xj + np.random.normal()
+		# Create temporary X variable for queries
+		X_temp = self.X.copy()
+		X_temp[acc == 1] = self.X_prop[acc == 1]
+		X_temp[:, 0:j+1] = self.X[:, 0:j+1]
+		return X_temp
 
-def single_metro(lf, x, order, active_frontier, sym_proposal = gaussian_proposal, gamma = .99):
-	''' Samples a knockoff using the Metro algorithm, using an 
-			arbitrary ordering of the variables.
+	def log_q12(self, acc, j):
+		"""
+		Computes the terms q1 and q1 from page 33 of the paper 
+		"""
 
-		Args:
-			lf (function that takes a 1-d numpy array) : the log probability 
-				density, only needs to be specified up to an additive constant
-			x (1-dim numpy array, length p) : the observed sample
-			order (1-dim numpy array, length p) : ordering to sample the variables.
-				Should be a vector with unique entries 0,...,p-1.
-			active_fontier (list of lists) : a list of length p where
-				entry j is the set of entries > j that are in V_j. This specifies
-				the conditional independence structure of the distribution given by
-				lf. See page 34 of the paper.
-			sym_proposal (function that takes two scalars) : symmetric proposal function
+		# Temporary variable
+		X_temp = self._create_Xtemp(acc, j)
 
-		Returns:
-			xk: a vector of length d, the sampled knockoff
+		# First, conditioned on Xj = Xj
+		X_temp1 = np.concatenate(
+			[
+				X_temp[:, 0:j],
+				self.X_prop[:, j].reshape(-1, 1),
+				X_temp[:, j+1:]
+			],
+			axis=1
+		)
+		log_q1 = self.q_ll(
+			Xjstar=X_temp[:, j],
+			X=X_temp1,
+			prev_proposals=self.X_prop[:, 0:j]
+		)
 
-	'''
-	#reindex to sample variables in ascending order
-	inv_order = order.copy()
-	for i, j in enumerate(order):
-		inv_order[j] = i
+		# Second, conditioned on Xj = xjstar
+		log_q2 = self.q_ll(
+			Xjstar=self.X_prop[:, j],
+			X=X_temp,
+			prev_proposals=self.X_prop[:, 0:j]
+		)
 
-	def lf2(x):
-		return lf(x[inv_order])
+		# Save memory
+		del X_temp
+		del X_temp1
 
-	active_frontier2 = []
-	for i in range(len(order)):
-		active_frontier2 += [[inv_order[j] for j in active_frontier[i]]]
-
-	def sym_proposal2(j, xj):
-		return sym_proposal(order[j], xj)
-
-	# call the metro function that samples variables in ascending order
-	return ordered_metro(lf2, x[order], active_frontier2, sym_proposal2, gamma)[inv_order]
-
-
-
-def ordered_metro(lf, x, active_frontier, sym_proposal = gaussian_proposal, gamma = .99):
-	''' Samples a knockoff using the Metro algorithm, moving from variable 1
-		to variable n.
-
-		Args:
-			lf (function that takes a 1-d numpy array) : the log probability 
-				density, only needs to be specified up to an additive constant
-			x (1-dim numpy array, length p) : the observed sample
-			active_fontier (list of lists) : a list of length p where
-				entry j is the set of entries > j that are in V_j. This specifies
-				the conditional independence structure of the distribution given by
-				lf. See page 34 of the paper.
-			sym_proposal (function that takes two scalars) : symmetric proposal function
-
-		Returns:
-			xk: a vector of length d, the sampled knockoff
-
-	'''
-
-	# locate the previous terms that affected by variable j
-	affected_vars = [[] for k in range(len(x))]
-	for j, j2 in itertools.product(range(len(x)), range(len(x))):
-		if j in active_frontier[j2]:
-			affected_vars[j] += [j2]
-
-	# store dynamic programming intermediate results
-	dp_dicts = [{} for j in range(len(x))] 
-
-	x_prop = np.zeros(len(x)) #proposals
-	x_prop[:] = np.nan
-	acc = np.zeros(len(x)) #pattern of acceptances
-
-	#loop across variables
-	for j in range(len(x)):
-		# sample proposal)
-		x_prop[j] = sym_proposal(j, x[j])
-
-		# compute accept/reject probability and sample
-		acc_prob = compute_acc_prob(lf, x, x_prop, acc, j, active_frontier, affected_vars, dp_dicts, gamma)
-		acc[j] = np.random.binomial(1, acc_prob)
-
-	xk = x.copy()
-	xk[acc == 1.0] = x_prop[acc == 1.0]
-	
-	return xk
+		return log_q1, log_q2
 
 
-def compute_acc_prob(lf, x, x_prop, acc, j, active_frontier, affected_vars, dp_dicts, gamma = .99):
-	''' Computes the acceptance probability at step j. Intended for use only as
-		a subroutine of the "ordered_metro" function.
+	def sample_proposals(self, X, prev_proposals):
+		"""
+		Samples 
+		:param Xjstar: n-length numpy array of values to evaluate.
+		:param X: n x p dimension numpy array of observed data
+		:param prev_proposals: n x (j - 1) numpy array of previous
+		proposals. If None, assumes j = 0.
+		"""
+		cond_mean, cond_var = self.fetch_proposal_params(
+			X=X, prev_proposals=prev_proposals
+		)
+		proposal = np.sqrt(cond_var)*np.random.randn(self.n, 1) + cond_mean
+		return proposal.reshape(-1)
 
-		This calculation is based on the observed sequence of proposals and 
-		accept/rejects of the steps before j, and the configuration of variables after j
-		specified by the acceptances after j.
+	def get_key(self, acc, j):
+		"""
+		Fetches key for acceptence dicts
+		returns: stringified-key (hashable), array key
+		"""
+		inds = list(set(self.active_frontier[j]).union(set([j])))
+		arr_key = acc[0, inds] # Could make this :, inds
+		return arr_key.tostring(), arr_key 
 
-		Args:
-			lf (function that takes a 1-dim numpy array) : the log probability density
-			x (1-dim numpy array, length p) : the observed sample
-			x_prop (1-dim numpy array, length p) : the sequence of proposals.
-				Only needs to be filled up to the last nonzero entry of 'acc'.
-			acc (1-dim 0-1 numpy array, length p) : the sequence of acceptances (1) 
-				and rejections (0).
-			j (int) : the active index
-			active_fontier (list of lists) : as above
-			affected_vars (list of lists) : entry j gives the set of variables occuring
-				before j that are affected by j's value. This is a pre-processed version of 
-				"active frontier" that contains the same information in a convenient form.
-			dp_dicts (list of dicts) : stores the results of calls to this function.
-			gamma (float) : multiplier for the acceptance probability, between 0 and 1.
+	def compute_Fj(
+		self,
+		acc,
+		j
+		):
+		"""
+		Computes ln Pr(tildeXj, Xjstar | X_{Vj} = z_{vj}, X_{V_j^c}, tildeX_{1:j-1}, Xstar_{1:j-1}) 
+		By Lemma 4 of the Metro paper, this depends on variable k
+		iff k in bar Vj. Note active frontier is the set bar Vj / {1,...,j}
+		:param acc: This specifies the values of zvj. In particular,
+		Vj, we set X[i, k] = X_prop[i, k] iff acc[i, k] == 1
+		"""
 
-	'''
+		# Key for dp dicts
+		key, readable_key = self.get_key(acc, j)
+		if key in self.Fj_dicts[j]:
+			print(f"You are causing extra recursion, stop this")
+			return self.Fj_dicts[j][key]
 
-	# return entry if previously computed
-	key = acc[active_frontier[j]].tostring()
-	if key in dp_dicts[j]:
-		return(dp_dicts[j][key])
-	
-	# otherwise, compute the entry
-	acc0 = acc.copy() #rejection pattern if we reject at j
-	acc1 = acc.copy() #rejection pattern if we accept at j
-	acc0[j] = 0
-	acc1[j] = 1
+		# Log our queries
+		self.Fj_queries += 1
 
-	# compute terms from the query to the density
-	x_temp1 = x.copy()
-	x_temp1[acc == 1] = x_prop[acc == 1] # new point to query
-	x_temp1[0:j] = x[0:j]
-	x_temp1[j] = x[j]
-	x_temp2 = x_temp1.copy()
-	x_temp2[j] = x_prop[j] #new point to query if proposal accepted
-	ld_obs = lf(x_temp1) #log-density with observed point at j
-	ld_prop = lf(x_temp2) #log-density with proposed point at j
+		# Log-q1/q2 -- see page 33 of the paper
+		log_q1, log_q2 = self.log_q12(acc, j)
 
-	#loop across history to adjust for the observed knockoff sampling pattern
-	for j2 in affected_vars[j]:
-		p0 = compute_acc_prob(lf, x, x_prop, acc0, j2, active_frontier, affected_vars, dp_dicts, gamma)
-		p1 = compute_acc_prob(lf, x, x_prop, acc1, j2, active_frontier, affected_vars, dp_dicts, gamma)
-		if(acc[j2] == 1):
-			ld_obs += np.log(p0)
-			ld_prop += np.log(p1)
+		# Compute acceptance proposals
+		if key in self.acc_dicts[j]:
+			acc_prob = self.acc_dicts[j][key]
 		else:
-			ld_obs += np.log(1 - p0)
-			ld_prop += np.log(1 - p1)
+			acc_prob = self.compute_acc_prob(acc, j)
 
-	#probability of acceptance at step j, given past rejection pattern
-	acc_prob = gamma * min(1, np.exp(ld_prop - ld_obs)) 
-	dp_dicts[j][acc[active_frontier[j]].tostring()] = acc_prob #store result
+		# Acceptance / rejection mask
+		result = acc[:, j] * np.log(acc_prob)
+		result = result + (1 - acc[:, j]) * np.log(1 - acc_prob)
+		result = result + log_q2
 
-	return acc_prob
+		# Store result
+		print(f"For j={j}, caching key={readable_key}")
+		self.Fj_dicts[j][key] = result
+
+		# Return
+		return result
+
+	def compute_acc_prob(self, acc, j, log_q1=None, log_q2=None):
+		''' Computes the acceptance probability at step j.
+
+			This calculation is based on the observed sequence of proposals and 
+			accept/rejects of the steps before j, and the configuration of variables after j
+			specified by the acceptances after j.
+
+			Args:
+				lf (function that takes a 1-dim numpy array) : the log probability density
+				x (1-dim numpy array, length p) : the observed sample
+				x_prop (1-dim numpy array, length p) : the sequence of proposals.
+					Only needs to be filled up to the last nonzero entry of 'acc'.
+				acc (1-dim 0-1 numpy array, length p) : the sequence of acceptances (1) 
+					and rejections (0).
+				j (int) : the active index
+				active_frontier (list of lists) : as above
+				affected_vars (list of lists) : entry j gives the set of variables occuring
+					before j that are affected by j's value. This is a pre-processed version of 
+					"active frontier" that contains the same information in a convenient form.
+				dp_dicts (list of dicts) : stores the results of calls to this function.
+				gamma (float) : multiplier for the acceptance probability, between 0 and 1.
+
+		'''
+
+		# Return acceptance probs if computed previously
+		key, readable_key = self.get_key(acc, j)
+		if key in self.acc_dicts[j]:
+			print(f"You are causing extra recursion, stop this")
+			return self.acc_dicts[j][key]
+
+		# Else, compute the entry
+		acc0 = acc.copy() # Rejection pattern if we reject at j
+		acc1 = acc.copy() # Rejection pattern if we accept at j
+		acc0[:, j] = 0
+		acc1[:, j] = 1
+
+		# TODO GET RID OF THE COPIES
+		# AND CREATE CONCATENATES: MAY SAVE TONS OF TIME
+
+		# Step 1: Compute q1/q2 from page 33
+		if log_q1 is None or log_q2 is None:
+			log_q1, log_q2 = self.log_q12(acc, j)
+		lq_ratio = log_q1 - log_q2
+
+		# Step 2: Compute density ratio
+		# Create temporary X variable for queries
+		X_temp = self._create_Xtemp(acc, j)
+
+		# Compute the actual likelihoods
+		X_temp[:, j] = self.X[:, j]
+		ld_obs = self.lf(X_temp)
+		X_temp[:, j] = self.X_prop[:, j]
+		ld_prop = self.lf(X_temp)
+		ld_ratio = ld_prop - ld_obs
+
+		# Save memory
+		del X_temp
+
+		# Loop across history to adjust for the observed knockoff sampling pattern
+		Fj_ratio = np.zeros(self.n)
+		for j2 in self.affected_vars[j]:
+
+			# Keys
+			key0, readable_key0 = self.get_key(acc0, j2)
+			key1, readable_key1 = self.get_key(acc1, j2)
+
+			# Logging
+			print(f"Beginning calcs for step={self.step}, j={j}, j2={j2}, acc0={acc0[0]}, acc1={acc1[0]}")
+			print(f"For this step, keys for {j2} are {readable_key0} and {readable_key1}")
+
+			# Fj value for acc0
+			if key0 in self.Fj_dicts[j2]:
+				print(f"DP for j2={j2}, key={readable_key0}")
+				Fj2_0 = self.Fj_dicts[j2][key0]
+			else:
+				Fj2_0 = self.compute_Fj(acc0, j2)
+			# Fj value for acc1
+			if key1 in self.Fj_dicts[j2]:
+				print(f"DP for j2={j2}, key={readable_key1}")
+				Fj2_1 = self.Fj_dicts[j2][key1]
+			else:
+				Fj2_1 = self.compute_Fj(acc1, j2)
+
+			# Account for whether variable j2 was accepted/rejected
+			Fj_ratio += Fj2_1 - Fj2_0
+
+		# Probability of acceptance at step j, given past rejection pattern
+		# print(f"step={self.step}, j={j}, LD+LQ rat", np.around(ld_ratio+lq_ratio, 3))
+		# print(f"step={self.step}, j={j}, LQ rat", lq_ratio)
+		# print(f"step={self.step}, j={j}, Fj rat", np.around(Fj_ratio, 3))
+		acc_prob = self.gamma * np.minimum(
+			1, np.exp(ld_ratio + lq_ratio + Fj_ratio)
+		) 
+
+		# Store result
+		self.acc_dicts[j][key] = acc_prob 
+
+		return acc_prob
+
+	def sample_knockoffs(self):
+
+		# Dynamic programming approach: store acceptance probs
+		# as well as Fj values (see page 33)
+		self.acc_dicts = [{} for j in range(self.p)]
+		self.Fj_dicts = [{} for j in range(self.p)]
+
+		# Make sure our DP for n variables actually works
+		self.key_to_acc = [{} for j in range(self.p)]
+		# TODO TEST THIS
+
+		# Locate previous terms affected by variable j
+		self.affected_vars = [[] for k in range(self.p)]
+		for j, j2 in itertools.product(range(self.p), range(self.p)):
+			if j in self.active_frontier[j2]:
+				self.affected_vars[j] += [j2]
+		print(f"affected vars is {self.affected_vars}")
+
+		# Store pattern of TRUE acceptances / rejections
+		self.acceptances = np.zeros((self.n, self.p))
+		self.final_acc_probs = np.zeros((self.n, self.p))
+
+		# Proposals
+		self.X_prop = np.zeros((self.n, self.p))
+		self.X_prop[:] = np.nan
+
+		# Loop across variables
+		prev_proposals = None
+		for j in range(self.p):
+
+			# Cache which knockoff we are sampling
+			self.step = j
+			print("\n")
+			print(f"For step={self.step}, active_frontier={self.active_frontier[j]}, affected_vars={self.affected_vars[j]}")
+			
+			# Sample proposal
+			self.X_prop[:, j] = self.sample_proposals(
+				X=self.X,
+				prev_proposals=self.X_prop[:, 0:j]
+			)
+
+			# Compute acceptance probability, which is an n-length vector
+			acc_prob = self.compute_acc_prob(
+				acc=self.acceptances,
+				j=j,
+			) 
+			self.final_acc_probs[:,j] = acc_prob
+
+			# Sample to get actual acceptances
+			self.acceptances[:, j] = np.random.binomial(1, acc_prob)
+
+		# Create knockoffs and return
+		self.Xk = self.X.copy()
+		self.Xk[self.acceptances == 1.0] = self.X_prop[self.acceptances == 1.0]
+		
+		return self.Xk
+
 

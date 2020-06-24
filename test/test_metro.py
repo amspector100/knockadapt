@@ -1,12 +1,13 @@
 import pytest
 import numpy as np
+import networkx as nx
 from scipy import stats
 import unittest
 from .context import knockadapt
 
 from knockadapt import utilities
 from knockadapt import graphs
-from knockadapt import metro, metro_generic
+from knockadapt import metro, metro_generic, tree_processing
 import time
 
 class TestGenericMetro(unittest.TestCase):
@@ -31,7 +32,7 @@ class TestGenericMetro(unittest.TestCase):
 
 	def test_proposal_covs(self):
 
-		# Fake data + loss function
+		# Fake data 
 		np.random.seed(110)
 		n = 5
 		p = 100
@@ -46,7 +47,6 @@ class TestGenericMetro(unittest.TestCase):
 			order=np.arange(0, p, 1),
 			active_frontier=[[] for _ in range(p)],
 		)
-		metro_sampler.create_proposal_params(sdp_verbose=False)
 
 		# Test that invSigma is as it should be
 		G = metro_sampler.G
@@ -97,6 +97,72 @@ class TestGenericMetro(unittest.TestCase):
 				prev_proposals=prev_proposals
 			)[0,0]
 			prev_proposals = Xstar[:, 0:j+1]
+
+	def test_sample(self):
+
+		# Fake data
+		np.random.seed(110)
+		n = 10
+		p = 3
+
+		X,_,_,Q,V = graphs.sample_data(
+			method='daibarber2016',
+			#method='AR1',
+			rho=0.1, n=n, p=p,
+			gamma=1, group_size=p
+		)
+		# Q = np.array([
+		# 	[1, 0.3, 0.2, 0.3],
+		# 	[0.3, 1, 0.1, 0],
+		# 	[0.2, 0.1, 1, 0],
+		# 	[0.3, 0, 0, 1]
+		# ])
+		# V = utilities.cov2corr(utilities.chol2inv(Q))
+		# Q = utilities.chol2inv(V)
+		# X = stats.multivariate_normal(mean=np.zeros(p), cov=V).rvs(n)
+		#X = np.random.randn(n,p)
+		#V = np.eye(p)
+		#Q = np.eye(p)
+
+		# Network graph
+		Q_graph = (np.abs(Q) > 1e-5)
+		Q_graph = Q_graph - np.eye(p)
+		undir_graph = nx.Graph(Q_graph)
+		width, T = tree_processing.treewidth_decomp(undir_graph)
+		order, active_frontier = tree_processing.get_ordering(T)
+		print(order)
+		print([set(x) for x in T.nodes()])
+		#print(active_frontier)
+		#active_frontier = [[2], [1], [0], []] #INVESTIGATE LATER
+		#print(order)
+
+		# Metro sampler, proposal params
+		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
+		def mvn_likelihood(X):
+			return mvn.logpdf(X)
+
+		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+			lf=mvn_likelihood,
+			X=X,
+			mu=np.zeros(p),
+			V=V,
+			order=order,
+			active_frontier=active_frontier,
+			S=np.eye(p), # Works when S = 0.001
+			gamma=0.999999999
+		)
+		metro_sampler.sample_knockoffs()
+		print(metro_sampler.acceptances.mean())
+		print(np.around(metro_sampler.final_acc_probs, 3))
+		import seaborn as sns
+		import matplotlib.pyplot as plt
+		#sns.heatmap(metro_sampler.final_acc_probs[:, metro_sampler.inv_order])
+		#plt.show()
+		print(metro_sampler.Fj_queries)
+		print(metro_sampler.active_frontier)
+
+		raise ValueError()
+
 # class TestFdrControl(unittest.TestCase):
 
 # 	def test_t_generation(self):

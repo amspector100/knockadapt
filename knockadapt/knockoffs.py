@@ -859,6 +859,10 @@ def produce_MX_gaussian_knockoffs(X, mu, invSigma, S, sample_tol, copies, verbos
     # ...and sample MX knockoffs!
     knockoffs = stats.multivariate_normal.rvs(mean=np.zeros(p), cov=Vk, size=copies * n)
 
+    # Account for case when n * copies == 1
+    if n * copies == 1:
+        knockoffs = knockoffs.reshape(-1, 1)
+
     # (Save this for testing later)
     first_row = knockoffs[0, 0:n].copy()
 
