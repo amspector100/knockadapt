@@ -390,7 +390,7 @@ def sample_ar1t(
 def sample_data(
     p=100,
     n=50,
-    method="ErdosRenyi",
+    method="AR1",
     mu=None,
     corr_matrix=None,
     Q=None,
