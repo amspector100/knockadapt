@@ -30,8 +30,8 @@ To run cprofilev, copy and paste the test to proftest/* and then run
 ### Knockoff Construction
 
 1. Add hierarchical clustering to ASDP group-making
-2. Most importantly, think about how to integrate Metro.
-Probably reach out to Wenshuo / Bates. 
+2. Metro: should probably pass a UGM object to the metro 
+class. It's much more convenient.
 
 ### MCV Computation
 

@@ -18,6 +18,7 @@ from . import utilities, knockoffs
 
 # Network and UGM tools
 import networkx as nx
+from . import tree_processing
 
 # Logging
 from tqdm import tqdm
@@ -30,7 +31,7 @@ def gaussian_log_likelihood(
 	"""
 	result = -1*np.power(X - mu, 2) / (2 * var)
 	result += np.log(1 / np.sqrt(2 * np.pi * var))
-	return result
+	return result	
 
 class MetropolizedKnockoffSampler():
 
@@ -40,8 +41,9 @@ class MetropolizedKnockoffSampler():
 			X,
 			mu,
 			V,
-			order,
-			active_frontier,
+			undir_graph=None,
+			order=None,
+			active_frontier=None,
 			gamma=0.999,
 			metro_verbose=False,
 			**kwargs
@@ -62,6 +64,12 @@ class MetropolizedKnockoffSampler():
 		:param V: The covariance matrix of X. As described in
 		https://arxiv.org/abs/1903.00434, exact FDR control is maintained
 		even when this covariance matrix is incorrect.
+		:param undir_graph: A undirected graph specifying the conditional independence
+		structure of the data-generating process. This must be specified 
+		if either of the ``order`` or ``active_frontier`` params
+		are not specified. One of two options:
+		- A networkx undirected graph object
+		- A p x p numpy array, where nonzero elements represent connections
 		:param order: A p-length numpy array specifying the ordering
 		to sample the variables. Should be a vector with unique
 		entries 0,...,p-1.
@@ -81,6 +89,20 @@ class MetropolizedKnockoffSampler():
 		self.p = X.shape[1]
 		self.gamma = gamma
 		self.metro_verbose = metro_verbose # Controls verbosity
+
+		# Possibly learn order / active frontier
+		if order is None or active_frontier is None:
+			# Convert to nx format
+			if undir_graph is None:
+				raise ValueError(
+					f"If order OR active_frontier are not provided, you must specify the undir_graph"
+				)
+			if isinstance(undir_graph, np.ndarray):
+				undir_graph = nx.Graph(undir_graph != 0)
+
+			# Run junction tree algorithm
+			self.width, self.T = tree_processing.treewidth_decomp(undir_graph)
+			order, active_frontier = tree_processing.get_ordering(self.T)
 
 		# Save order and inverse order
 		self.order = order
@@ -557,3 +579,45 @@ class MetropolizedKnockoffSampler():
 		return self.Xk[:, self.inv_order]
 
 
+### Knockoff Samplers for T-distributions
+def t_mvn_loglike(mu, Sigma, mu=None):
+	"""
+	:param :
+	"""
+	pass
+
+
+class TKnockoffSampler(MetropolizedKnockoffSampler):
+
+	def __init__(
+		self,
+		X,
+		V,
+		Q=None,
+		mu=None,
+		df_t=3,
+		structure=None,
+		blocks=None,
+		**kwargs
+	):
+		"""
+		:param X: n x p design matrix, presumably following
+		t_{df_t}(mu, Sigma) distribution.
+		:param V: Scale matrix of multivariate t
+		:param Q: Inverse of scale matrix
+		:param mu: Mean (location) parameter. Defaults to all zeros.
+		:param df_t: Degrees of freedom (default: 3).
+		:param structure: If not None, will use extra structure
+		in the graph to speed up computation of knockoffs. Currently,
+		there are two options:
+			- markov: the t distribution is a markov chain
+			- block: Assumes the UGM for t has more than one
+			connected component.
+		:param blocks: A list of lists, where each (inner) list
+		contains the variables representing one connected component.
+		"""
+
+		if structure is None:
+			if Q is None:
+				Q = utilities.chol2inv(V)
+			pass

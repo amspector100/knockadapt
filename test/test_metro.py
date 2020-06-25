@@ -35,8 +35,8 @@ class TestMetroProposal(unittest.TestCase):
 		# Fake data 
 		np.random.seed(110)
 		n = 5
-		p = 100
-		X,_,_,Q,V = graphs.sample_data(method='AR1', n=n, p=p)
+		p = 200
+		X,_,_,Q,V = graphs.sample_data(method='AR1', rho=0.1, n=n, p=p)
 		
 		# Metro sampler, proposal params
 		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
@@ -46,6 +46,7 @@ class TestMetroProposal(unittest.TestCase):
 			V=V,
 			order=np.arange(0, p, 1),
 			active_frontier=[[] for _ in range(p)],
+			S=np.eye(p),
 		)
 
 		# Test that invSigma is as it should be
@@ -95,7 +96,7 @@ class TestMetroProposal(unittest.TestCase):
 				Xjstar=Xstar[:, j],
 				X=X, 
 				prev_proposals=prev_proposals
-			)[0,0]
+			)
 			prev_proposals = Xstar[:, 0:j+1]
 
 class TestMetroSample(unittest.TestCase):
@@ -115,9 +116,6 @@ class TestMetroSample(unittest.TestCase):
 		# Graph structure + junction tree
 		Q_graph = (np.abs(Q) > 1e-5)
 		Q_graph = Q_graph - np.eye(p)
-		undir_graph = nx.Graph(Q_graph)
-		width, T = tree_processing.treewidth_decomp(undir_graph)
-		order, active_frontier = tree_processing.get_ordering(T)
 
 		# Metro sampler + likelihood
 		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
@@ -129,8 +127,7 @@ class TestMetroSample(unittest.TestCase):
 			X=X,
 			mu=np.zeros(p),
 			V=V,
-			order=order,
-			active_frontier=active_frontier,
+			undir_graph=Q_graph,
 			S=S,
 			gamma=0.9999
 		)
