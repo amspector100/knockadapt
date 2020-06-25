@@ -11,3 +11,4 @@ pyglmnet==1.1
 torch==1.4.0+cpu
 scikit-dsdp==0.0.1
 networkx==1.11
+tqdm==4.36.1
