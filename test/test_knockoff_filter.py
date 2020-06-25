@@ -245,6 +245,15 @@ class TestKnockoffFilter(TestFdrControl):
 			filter_kwargs={'feature_stat':'deeppink'},
 		)
 
+	def test_artk_control(self):
+		""" FDR control with AR1 t-distributed design """
+
+		# Scenario 1: AR1 a = 1, b = 1, high sparsity
+		self.check_fdr_control(
+			n=500, p=50, method='AR1', sparsity=0.5, x_dist='ar1t', reps=15,
+			filter_kwargs={'knockoff_type':'artk'},
+		)
+
 	@pytest.mark.slow
 	def test_lars_control(self):
 

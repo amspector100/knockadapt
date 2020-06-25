@@ -335,6 +335,12 @@ class TestARTK(unittest.TestCase):
 			metro_verbose=True
 		)
 
+		# Correct junction tree
+		self.assertTrue(
+			tsampler.width==1, 
+			f"tsampler should have width 1, not {tsampler.width}" 
+		)
+
 		# Sample
 		Xk = tsampler.sample_knockoffs()
 

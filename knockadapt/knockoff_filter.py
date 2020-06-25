@@ -1,5 +1,6 @@
 import numpy as np
 from . import utilities
+from . import metro_generic as metro
 from . import knockoff_stats as kstats
 from .knockoffs import gaussian_knockoffs, estimate_covariance
 
@@ -18,7 +19,14 @@ class KnockoffFilter:
 			)
 
 	def sample_knockoffs(
-		self, X, mu, Sigma, groups, knockoff_kwargs, recycle_up_to,
+		self, 
+		X,
+		mu,
+		Sigma,
+		groups,
+		knockoff_kwargs,
+		recycle_up_to,
+		knockoff_type='gaussian',
 	):
 
 		# SDP degen flag (for internal use)
@@ -32,16 +40,43 @@ class KnockoffFilter:
 			knockoff_kwargs['fixedX'] = True
 			Sigma = None
 
-		# Initial sample
-		knockoffs, S = gaussian_knockoffs(
-			X=X, 
-			groups=groups,
-			mu=mu,
-			Sigma=Sigma,
-			return_S=True,
-			**knockoff_kwargs,
-		)
-		knockoffs = knockoffs[:, :, 0]
+		# Initial sample from Gaussian
+		if str(knockoff_type).lower() == 'gaussian':
+			knockoffs, S = gaussian_knockoffs(
+				X=X, 
+				groups=groups,
+				mu=mu,
+				Sigma=Sigma,
+				return_S=True,
+				**knockoff_kwargs,
+			)
+			knockoffs = knockoffs[:, :, 0]
+		# Alternatively sample from ARTK
+		elif str(knockoff_type).lower() == 'artk':
+			
+			# Handle invSigma
+			if 'invSigma' in knockoff_kwargs:
+				Q = knockoff_kwargs.pop('invSigma')
+			else:
+				Q = None
+
+			# Sample
+			self.artk_sampler = metro.ARTKSampler(
+				X=X,
+				V=Sigma,
+				Q=Q,
+				**knockoff_kwargs,
+			)
+			knockoffs = self.artk_sampler.sample_knockoffs()
+
+			# Extract S
+			inv_order = self.artk_sampler.inv_order
+			S = self.artk_sampler.S[inv_order][:, inv_order]
+
+		else:
+			raise ValueError(
+				f"knockoff_type must be one of 'gaussian', 'artk', not {knockoff_type}"
+			)
 
 		# Possibly use recycling
 		if recycle_up_to is not None:
@@ -93,6 +128,7 @@ class KnockoffFilter:
 		feature_stat="lasso",
 		fdr=0.10,
 		feature_stat_kwargs={},
+		knockoff_type='gaussian',
 		knockoff_kwargs={"sdp_verbose": False},
 		shrinkage='ledoitwolf',
 		recycle_up_to=None,
@@ -174,12 +210,14 @@ class KnockoffFilter:
 
 		# Sample knockoffs
 		if knockoffs is None:
+			self.knockoff_type = str(knockoff_type).lower()
 			knockoffs = self.sample_knockoffs(
 				X=X,
 				mu=mu,
 				Sigma=Sigma,
 				groups=groups,
 				knockoff_kwargs=knockoff_kwargs,
+				knockoff_type=knockoff_type,
 				recycle_up_to=recycle_up_to,
 			)
 			if self.debias:

@@ -596,7 +596,6 @@ class MetropolizedKnockoffSampler():
 			self.final_acc_probs[:,j] = acc_prob
 
 			# Sample to get actual acceptances
-			print(acc_prob)
 			self.acceptances[:, j] = np.random.binomial(1, acc_prob).astype(np.bool)
 
 			# Store knockoffs

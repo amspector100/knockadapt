@@ -497,7 +497,7 @@ def sample_data(
     if x_dist == 'gaussian':
         X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
     elif x_dist == 'ar1t':
-        if method != 'ar1':
+        if str(method).lower() != 'ar1':
             raise ValueError(f"For x_dist={x_dist}, method ({method}) should equal 'ar1'")
         X = sample_ar1t(n=n, rhos=np.diag(corr_matrix, 1), df_t=df_t)
     else:
