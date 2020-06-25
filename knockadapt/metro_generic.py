@@ -464,6 +464,8 @@ class MetropolizedKnockoffSampler():
 			Fj_ratio = Fj_ratio + Fj2_num - Fj2_denom
 
 		# Put it all together and multiply by gamma
+		# Fast_exp function is helpful for profiling
+		# (to see how much time is spent here)
 		def fast_exp(ld_ratio, lq_ratio, Fj_ratio):
 			return np.exp((ld_ratio + lq_ratio + Fj_ratio).astype(np.float32))
 		acc_prob = self.gamma * np.minimum(
