@@ -15,6 +15,10 @@ This is currently under heavy development (it's in the early stages): docs/tests
 the exact test_method, you get the idea.
 - To run a test with profiling, try ``python3 -m pytest {path} --profile``. This should generate a set of .prof files in prof/. Then you can run snakeviz filename.prof to visualize the output.
 There are also more flags/options for outputs in the command line command.
+- However, this isn't reallyyy recommended - cprofilev is much better.
+To run cprofilev, copy and paste the test to proftest/* and then run 
+``python3 -m cprofilev proftest/test_name.py``.
+
 
 ## To do
 
@@ -29,24 +33,11 @@ There are also more flags/options for outputs in the command line command.
 2. Most importantly, think about how to integrate Metro.
 Probably reach out to Wenshuo / Bates. 
 
-### Metro Integration Ideas
+### MCV Computation
 
-1. Definitely just vectorize/integrate metro_generic.py and some 
-of its relevant helper functions.
-2. Main challenge: implementing non-symmetric proposals, e.g. the
-covariance-guided proposal.
-a. General thought: For variable j, we have target pij. We know
-(theoretically) how to sample from the proposal xjstar.
-b. To compute the acceptance probability, we need to know four things:
-i. pij(xjstar)
-ii. pij(xj)
-iii. q(xj|xjstar)
-iv. q(xjstar|x)
-The first two are hard, the last two are easy. The generic code already 
-implements iii and iv.
-c. This gives a to-do:
-(a) Add in the q ratios and the covariance guided proposal
-(b) Vectorize for speedup :)
+This can be waayy sped up. Currently block_diag 
+uses almost as much time as the backprop for medium p.  
+Create a file in the proftest file and then profile.
 
 ### Graphs
 

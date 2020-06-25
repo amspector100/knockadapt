@@ -10,7 +10,7 @@ from knockadapt import graphs
 from knockadapt import metro, metro_generic, tree_processing
 import time
 
-class TestGenericMetro(unittest.TestCase):
+class TestMetroProposal(unittest.TestCase):
 
 	def test_gaussian_likelihood(self):
 
@@ -98,6 +98,9 @@ class TestGenericMetro(unittest.TestCase):
 			)[0,0]
 			prev_proposals = Xstar[:, 0:j+1]
 
+class TestMetroSample(unittest.TestCase):
+
+
 	def test_ar1_sample(self):
 
 		# Fake data
@@ -161,27 +164,17 @@ class TestGenericMetro(unittest.TestCase):
 
 		# Fake data
 		np.random.seed(110)
-		n = 10
-		p = 3
+		n = 10000
+		p = 4
 
 		X,_,_,Q,V = graphs.sample_data(
 			method='daibarber2016',
-			#method='AR1',
-			rho=0.1, n=n, p=p,
+			rho=0.6, n=n, p=p,
 			gamma=1, group_size=p
 		)
-		# Q = np.array([
-		# 	[1, 0.3, 0.2, 0.3],
-		# 	[0.3, 1, 0.1, 0],
-		# 	[0.2, 0.1, 1, 0],
-		# 	[0.3, 0, 0, 1]
-		# ])
-		# V = utilities.cov2corr(utilities.chol2inv(Q))
-		# Q = utilities.chol2inv(V)
-		# X = stats.multivariate_normal(mean=np.zeros(p), cov=V).rvs(n)
-		#X = np.random.randn(n,p)
-		#V = np.eye(p)
-		#Q = np.eye(p)
+		_, S = knockadapt.knockoffs.gaussian_knockoffs(
+			X=X, Sigma=V, method='mcv', return_S=True
+		)
 
 		# Network graph
 		Q_graph = (np.abs(Q) > 1e-5)
@@ -189,17 +182,12 @@ class TestGenericMetro(unittest.TestCase):
 		undir_graph = nx.Graph(Q_graph)
 		width, T = tree_processing.treewidth_decomp(undir_graph)
 		order, active_frontier = tree_processing.get_ordering(T)
-		print(order)
-		print([set(x) for x in T.nodes()])
-		#print(active_frontier)
-		#active_frontier = [[2], [1], [0], []] #INVESTIGATE LATER
-		#print(order)
 
 		# Metro sampler and likelihood
 		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
 		def mvn_likelihood(X):
 			return mvn.logpdf(X)
-		gamma = 0.9999
+		gamma = 0.99999
 		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
 			lf=mvn_likelihood,
 			X=X,
@@ -207,49 +195,34 @@ class TestGenericMetro(unittest.TestCase):
 			V=V,
 			order=order,
 			active_frontier=active_frontier,
-			S=np.eye(p), # Works when S = 0.001
-			gamma=gamma
+			gamma=gamma,
+			S=S,
+			metro_verbose=True
 		)
-		metro_sampler.sample_knockoffs()
-		print(metro_sampler.acceptances.mean())
-		print(np.around(metro_sampler.final_acc_probs, 3))
-		import seaborn as sns
-		import matplotlib.pyplot as plt
-		#sns.heatmap(metro_sampler.final_acc_probs[:, metro_sampler.inv_order])
-		#plt.show()
-		print(metro_sampler.Fj_queries)
-		print(metro_sampler.active_frontier)
 
-		raise ValueError()
+		# Output knockoffs
+		Xk = metro_sampler.sample_knockoffs()
 
-# class TestFdrControl(unittest.TestCase):
+		# Acceptance rate should be exactly one
+		acc_rate = metro_sampler.final_acc_probs.mean()
+		self.assertTrue(
+			acc_rate - gamma > -1e-3, 
+			msg = f'For equi gaussian design, metro has acc_rate={acc_rate} < gamma={gamma}'
+		)
 
-# 	def test_t_generation(self):
+		# Check covariance matrix
+		features = np.concatenate([X, Xk], axis=1)
+		emp_corr_matrix = np.corrcoef(features.T)
+		G = np.concatenate(
+			[np.concatenate([V, V-S]),
+			 np.concatenate([V-S, V]),], 
+			axis=1
+		)
 
-# 		p = 3
-# 		n = 100
-# 		time0 = time.time()
-# 		V = graphs.AR1(p=p, rho=0.5)
-# 		X, Xk, rejection = metro.ar1t_knockoffs(
-# 			n=n, Sigma=V, method='sdp', df_t=3,
-# 		)
-
-
-# 	def test_t_generation(self):
-
-# 		p = 3
-# 		n = 1000
-# 		time0 = time.time()
-# 		V = graphs.AR1(p=p, rho=0.5)
-# 		X, Xk, rejection = metro.ar1t_knockoffs(
-# 			n=n, Sigma=V, method='sdp', df_t=3,
-# 		)
-# 		print(time.time() - time0)
-# 		print(Xk.shape)
-# 		print(X.shape)
-# 		raise ValueError()
-
-
+		np.testing.assert_almost_equal(
+			emp_corr_matrix, G, decimal=2,
+			err_msg=f"For equi gaussian design, metro does not match theoretical matrix"
+		)
 
 
 
