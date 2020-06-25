@@ -389,7 +389,44 @@ class TestSampleData(unittest.TestCase):
 			"True (V)ErdosRenyi sampler fails to give correct mean val" 
 		)
 
+	def test_t_sample(self):
 
+		# Check that we get the right covariance matrix
+		np.random.seed(110)
+		n = 100000
+		p = 5
+		X,_,_,Q,V = graphs.sample_data(
+			n=n, p=p, method='AR1', x_dist='ar1t', df_t=5
+		)
+
+		emp_corr = np.corrcoef(X.T)
+		np.testing.assert_array_almost_equal(
+			V, emp_corr, decimal=2,
+			err_msg=f"ar1t empirical correlation matrix does not match theoretical one"
+		)
+
+		# Check that this fails correctly for non-ar1-method
+		def non_ar1_t():
+			graphs.sample_data(
+				n=n, p=p, method='ErdosRenyi', x_dist='ar1t' 
+			)
+		self.assertRaisesRegex(
+			ValueError, "should equal 'ar1'",
+			non_ar1_t
+		)
+
+	def test_xdist_error(self):
+
+		# Check that we get an error for wrong dist
+		def bad_xdist():
+			graphs.sample_data(
+				method='ErdosRenyi', x_dist='t_dist' 
+			)
+
+		self.assertRaisesRegex(
+			ValueError, "x_dist must be one of",
+			bad_xdist
+		)
 
 if __name__ == '__main__':
 	unittest.main()

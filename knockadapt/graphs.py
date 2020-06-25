@@ -363,6 +363,29 @@ def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
 
     return y
 
+def sample_ar1t(
+    rhos,
+    n=50,
+    df_t=3, 
+):
+    """
+    Samples t variables according to a Markov chain.
+    """
+    # Initial t samples
+    p = rhos.shape[0] + 1
+    tvars = stats.t(df=df_t).rvs(size=(n,p))
+
+    # Initialize X
+    X = np.zeros((n, p))
+    scale = np.sqrt((df_t - 2) / df_t)
+    X[:, 0] = scale * tvars[:, 0]
+
+    # Loop through variables according to markov chain
+    conjugates = np.sqrt(1 - rhos**2)
+    for j in range(1, p):
+        X[:,j] = rhos[j-1]*X[:,j-1] + conjugates[j-1]*scale*tvars[:,j]
+
+    return X
 
 def sample_data(
     p=100,
@@ -376,7 +399,9 @@ def sample_data(
     coeff_dist=None,
     sparsity=0.5,
     groups=None,
+    x_dist="gaussian",
     y_dist="gaussian",
+    df_t=3,
     cond_mean='linear',
     sign_prob=0.5,
     **kwargs,
@@ -397,6 +422,8 @@ def sample_data(
     a new covariance matrix.
     :param corr_matrix: p x p correlation matrix. If supplied, will 
     not generate a new correlation matrix.
+    :param str x_dist: one of 'gaussian' or 'ar1t', used to generate
+    the input data. If 'ar1t', method must be 'ar1'.
     :param str y_dist: one of 'gaussian' or 'binomial', used to 
     generate the response. (If 'binomial', uses logistic link fn). 
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
@@ -467,7 +494,14 @@ def sample_data(
     # Sample design matrix
     if mu is None:
         mu = np.zeros(p)
-    X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
+    if x_dist == 'gaussian':
+        X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
+    elif x_dist == 'ar1t':
+        if method != 'ar1':
+            raise ValueError(f"For x_dist={x_dist}, method ({method}) should equal 'ar1'")
+        X = sample_ar1t(n=n, rhos=np.diag(corr_matrix, 1), df_t=df_t)
+    else:
+        raise ValueError(f"x_dist must be one of 'gaussian', 'ar1t'")
 
     y = sample_response(X=X, beta=beta, y_dist=y_dist, cond_mean=cond_mean)
 
