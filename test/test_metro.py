@@ -221,6 +221,145 @@ class TestMetroSample(unittest.TestCase):
 			err_msg=f"For equi gaussian design, metro does not match theoretical matrix"
 		)
 
+class TestARTK(unittest.TestCase):
+
+	def test_t_log_likelihood(self):
+
+		# Fake data
+		np.random.seed(110)
+		n = 15
+		p = 10
+		df_t = 5
+		X1 = np.random.randn(n, p)
+		X2 = np.random.randn(n, p)
+
+		# Scipy ratios
+		sp_like1 = stats.t.logpdf(X1, df=df_t)
+		sp_like2 = stats.t.logpdf(X2, df=df_t)
+		sp_diff = sp_like1 - sp_like2
+
+		# Custom ratios
+		custom_like1 = metro_generic.t_log_likelihood(X1, df_t=df_t)
+		custom_like2 = metro_generic.t_log_likelihood(X2, df_t=df_t)
+		custom_diff = custom_like1 - custom_like2
+
+		np.testing.assert_almost_equal(
+				custom_diff, sp_diff, decimal=2,
+				err_msg=f"custom t_log_likelihood and scipy t.logpdf disagree"
+		)
+
+	def test_tmarkov_likelihood(self):
+
+		# Data
+		np.random.seed(110)
+		n = 15
+		p = 10
+		df_t = 5
+		X1 = np.random.randn(n, p)
+		X2 = np.random.randn(n, p)
+		V = np.eye(p)
+		Q = np.eye(p)
+
+		# Scipy likelihood ratio for X, scale matrix
+		inv_scale = np.sqrt(df_t / (df_t - 2))
+		sp_like1 = stats.t.logpdf(inv_scale*X1, df=df_t).sum(axis=1)
+		sp_like2 = stats.t.logpdf(inv_scale*X2, df=df_t).sum(axis=1)
+		sp_ratio = sp_like1 - sp_like2
+
+		# General likelihood
+		rhos = np.zeros(p-1)
+		ar1_like1 = metro_generic.t_markov_loglike(X1, rhos, df_t=df_t)
+		ar1_like2 = metro_generic.t_markov_loglike(X2, rhos, df_t=df_t)
+		ar1_ratio = ar1_like1 - ar1_like2
+
+		self.assertTrue(
+			np.abs(ar1_ratio - sp_ratio).sum() < 0.01,
+			f"AR1 ratio {ar1_ratio} and scipy ratio {sp_ratio} disagree for independent t vars"
+		)
+
+		# Test again with df_t --> infinity, so it should be approx gaussian
+		X1,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, p=p, method='AR1', a=3, b=1
+		)
+		X2 = np.random.randn(n, p)
+
+		# Ratio using normals
+		df_t = 100000
+		mu = np.zeros(p)
+		norm_like1 = stats.multivariate_normal(mean=mu, cov=V).logpdf(X1)
+		norm_like2 = stats.multivariate_normal(mean=mu, cov=V).logpdf(X2)
+		norm_ratio = norm_like1 - norm_like2
+
+		# Ratios using T
+		rhos = np.diag(V, 1)
+		ar1_like1 = metro_generic.t_markov_loglike(X1, rhos, df_t=df_t)
+		ar1_like2 = metro_generic.t_markov_loglike(X2, rhos, df_t=df_t)
+		ar1_ratio = ar1_like1 - ar1_like2
+
+		self.assertTrue(
+			np.abs(ar1_ratio - norm_ratio).mean() < 0.01,
+			f"AR1 ratio {ar1_ratio} and gaussian ratio {norm_ratio} disagree for corr. t vars, df={df_t}"
+		)
+
+		# Check consistency of tsampler class
+		tsampler = metro_generic.ARTKSampler(
+			X=X1,
+			V=V,
+			df_t=df_t,
+		)
+		new_ar1_like1 = tsampler.lf(tsampler.X)
+		self.assertTrue(
+			np.abs(ar1_like1 - new_ar1_like1).sum() < 0.01,
+			f"AR1 loglike inconsistent between class ({new_ar1_like1}) and function ({ar1_ratio})"
+		)
+
+	def test_tmarkov_samples(self):
+
+		# Test to make sure low df --> heavy tails
+		# and therefore acceptances < 1
+		np.random.seed(110)
+		n = 1000000
+		p = 5
+		df_t = 5
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, p=p, method='AR1', rho=0.3, x_dist='ar1t'
+		)
+		S = np.eye(p)
+
+		# Sample t 
+		tsampler = metro_generic.ARTKSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S = S,
+			metro_verbose=True
+		)
+
+		# Sample
+		Xk = tsampler.sample_knockoffs()
+
+		# Check empirical means
+		# Check empirical covariance matrix
+		muk_hat = np.mean(Xk, axis=0)
+		np.testing.assert_almost_equal(
+			muk_hat, np.zeros(p), decimal=2,
+			err_msg=f"For ARTK sampler, empirical mean of Xk does not match mean of X" 
+		)
+
+		# Check empirical covariance matrix
+		Vk_hat = np.corrcoef(Xk.T)
+		np.testing.assert_almost_equal(
+			V, Vk_hat, decimal=2,
+			err_msg=f"For ARTK sampler, empirical covariance of Xk does not match cov of X" 
+		)
+
+		# Check that marginal fourth moments match
+		X4th = np.mean(np.power(X, 4), axis=0)
+		Xk4th = np.mean(np.power(Xk, 4), axis=0)
+		np.testing.assert_almost_equal(
+			X4th / 10, Xk4th / 10, decimal=1,
+			err_msg=f"For ARTK sampler, fourth moment of Xk does not match theoretical fourth moment" 
+		)
 
 
 if __name__ == '__main__':

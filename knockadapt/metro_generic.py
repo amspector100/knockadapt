@@ -14,6 +14,7 @@ import sys
 import numpy as np
 import scipy as sp
 import itertools
+from scipy import stats
 from . import utilities, knockoffs
 
 # Network and UGM tools
@@ -32,6 +33,18 @@ def gaussian_log_likelihood(
 	result = -1*np.power(X - mu, 2) / (2 * var)
 	result += np.log(1 / np.sqrt(2 * np.pi * var))
 	return result	
+
+def t_log_likelihood(
+	X, df_t
+):
+	"""
+	UNNORMALIZED t loglikelihood.
+	This is also faster than scipy
+	"""
+	result = np.log(1 + np.power(X, 2).astype(np.float32) / df_t)
+	result = -1 * result * (df_t + 1) / 2
+	return result	
+
 
 class MetropolizedKnockoffSampler():
 
@@ -326,7 +339,7 @@ class MetropolizedKnockoffSampler():
 		Fetches key for dp dicts
 		"""
 		inds = list(self.active_frontier[j])#list(set(self.active_frontier[j]).union(set([j])))
-		arr_key = x_flags[0, inds]
+		arr_key = x_flags[:, inds]
 		key = arr_key.tostring()
 		return key
 
@@ -494,6 +507,12 @@ class MetropolizedKnockoffSampler():
 				1, fast_exp(ld_ratio, lq_ratio, Fj_ratio)
 		)
 
+		# Clip to deal with floating point errors
+		acc_prob = np.minimum(
+			self.gamma, 
+			np.maximum(self.clip, acc_prob)
+		)
+
 		# Make sure the degenerate case has been computed
 		# correctly 
 		if x_flags[:,j].sum() > 0:
@@ -507,7 +526,16 @@ class MetropolizedKnockoffSampler():
 		self.acc_dicts[j][key] = acc_prob
 		return acc_prob
 
-	def sample_knockoffs(self, verbose=None):
+	def sample_knockoffs(self, clip=1e-5):
+		"""
+		:param clip: To provide numerical stability,
+		we make the minimum acceptance probability 1e-5
+		(otherwise some acc probs get very slightly
+		negative due to floating point errors)
+		"""
+
+		# Save clip constant for later
+		self.clip = 1e-5
 
 		# Dynamic programming approach: store acceptance probs
 		# as well as Fj values (see page 33)
@@ -568,6 +596,7 @@ class MetropolizedKnockoffSampler():
 			self.final_acc_probs[:,j] = acc_prob
 
 			# Sample to get actual acceptances
+			print(acc_prob)
 			self.acceptances[:, j] = np.random.binomial(1, acc_prob).astype(np.bool)
 
 			# Store knockoffs
@@ -580,44 +609,136 @@ class MetropolizedKnockoffSampler():
 
 
 ### Knockoff Samplers for T-distributions
-def t_mvn_loglike(mu, Sigma, mu=None):
+def t_markov_loglike(X, rhos, df_t=3):
 	"""
-	:param :
+	Calculates log-likelihood for markov chain
+	specified in https://arxiv.org/pdf/1903.00434.pdf
 	"""
-	pass
+	p = X.shape[1]
+	if rhos.shape[0] != p - 1:
+		raise ValueError(
+			f"Shape of rhos {rhos.shape} does not match shape of X {X.shape}"
+		)
+	inv_scale = np.sqrt(df_t / (df_t - 2))
 
+	# Initial log-like for first variable
+	loglike = t_log_likelihood(inv_scale * X[:, 0], df_t=df_t)
 
-class TKnockoffSampler(MetropolizedKnockoffSampler):
+	# Differences: these are i.i.d. t
+	#print(inv_scale * (X[:, 1:] - rhos * X[:, :-1]))
+	conjugates = np.sqrt(1-rhos**2)
+	Zjs = inv_scale*(X[:, 1:] - rhos*X[:, :-1]) / conjugates
+	Zj_loglike = t_log_likelihood(Zjs, df_t=df_t)
+
+	# Add log-likelihood for differences
+	return loglike + Zj_loglike.sum(axis=1)
+
+class ARTKSampler(MetropolizedKnockoffSampler):
 
 	def __init__(
 		self,
 		X,
 		V,
 		Q=None,
-		mu=None,
 		df_t=3,
-		structure=None,
-		blocks=None,
 		**kwargs
 	):
 		"""
+		Samples knockoffs for AR1 t designs. (Hence, ARTK).
 		:param X: n x p design matrix, presumably following
 		t_{df_t}(mu, Sigma) distribution.
-		:param V: Scale matrix of multivariate t
-		:param Q: Inverse of scale matrix
+
+		Currently does not support a mean parameter (mu).
+
+		:param V: Covariance matrix. The first diagonal should
+		be the pairwise correlations.
+		:param Q: Inverse of covariance matrix.
 		:param mu: Mean (location) parameter. Defaults to all zeros.
 		:param df_t: Degrees of freedom (default: 3).
-		:param structure: If not None, will use extra structure
-		in the graph to speed up computation of knockoffs. Currently,
-		there are two options:
-			- markov: the t distribution is a markov chain
-			- block: Assumes the UGM for t has more than one
-			connected component.
-		:param blocks: A list of lists, where each (inner) list
-		contains the variables representing one connected component.
+		:param kwargs: kwargs for Metro sampler.
 		"""
 
-		if structure is None:
-			if Q is None:
-				Q = utilities.chol2inv(V)
-			pass
+		# Rhos and graph
+		p = V.shape[0]
+		self.df_t = df_t
+		self.rhos = np.diag(V, 1)
+		if Q is None:
+			Q = utilities.chol2inv(V)
+
+		# Loss function (unordered)
+		def lf(X):
+			return t_markov_loglike(X, self.rhos, self.df_t)
+
+		super().__init__(
+			lf=lf,
+			X=X,
+			mu=np.zeros(p),
+			V=V,
+			Q=Q,
+			undir_graph=np.abs(Q) > 1e-4,
+			**kwargs
+		)
+
+# def t_mvn_loglike(X, invScale, mu=None, df_t=3):
+# 	"""
+# 	Calculates multivariate t log-likelihood
+# 	up to normalizing constant.
+# 	:param X: n x p array of data
+# 	:param invScale: p x p array, inverse multivariate t scale matrix
+# 	:param mu: p-length array, location parameter
+# 	:param df_t: degrees of freedom
+# 	"""
+# 	p = invScale.shape[0]
+# 	if mu is not None:
+# 		X = X - mu
+# 	quad_form = (np.dot(X, invScale) * X).sum(axis=1)
+# 	log_quad = np.log(
+# 		1 + quad_form / df_t
+# 	)
+# 	exponent = -1*(df_t + p) / 2
+# 	return exponent*log_quad 
+
+# class BlockTSampler(MetropolizedKnockoffSampler):
+
+# 	def __init__(
+# 		self,
+# 		X,
+# 		V,
+# 		Q=None,
+# 		df_t=3,
+# 		**kwargs
+# 	):
+# 		"""
+# 		Samples knockoffs for block multivariate t designs.
+# 		:param X: n x p design matrix, presumably following
+# 		t_{df_t}(mu, Sigma) distribution.
+
+# 		Currently does not support a mean parameter (mu).
+
+# 		:param V: Covariance matrix for t distribution.
+# 		This should be in block-diagonal form.
+# 		:param Q: Inverse of covariance matrix.
+# 		:param df_t: Degrees of freedom (default: 3).
+# 		:param kwargs: kwargs for Metro sampler.
+# 		"""
+
+# 		# Rhos and graph
+# 		p = V.shape[0]
+# 		self.df_t = df_t
+# 		self.rhos = np.diag(V, 1)
+# 		if Q is None:
+# 			Q = utilities.chol2inv(V)
+
+# 		# Loss function (unordered)
+# 		def lf(X):
+# 			return t_markov_loglike(X, self.rhos, self.df_t)
+
+# 		super().__init__(
+# 			lf=lf,
+# 			X=X,
+# 			mu=np.zeros(p),
+# 			V=V,
+# 			Q=Q,
+# 			undir_graph=np.abs(Q) > 1e-4,
+# 			**kwargs
+# 		)
