@@ -690,9 +690,10 @@ class MetropolizedKnockoffSampler():
 			self.cache = num_params < 1e9
 		# Possibly log
 		if self.metro_verbose:
-			print(f"Metro will use memory expensive caching for 2-3x speedup, storying {num_params} params")
-		else:
-			print(f"Metro will not cache cond_means to save a lot of memory")
+			if self.cache:
+				print(f"Metro will use memory expensive caching for 2-3x speedup, storying {num_params} params")
+			else:
+				print(f"Metro will not cache cond_means to save a lot of memory")
 
 		# Dynamic programming approach: store acceptance probs
 		# as well as Fj values (see page 33)
@@ -766,10 +767,12 @@ class MetropolizedKnockoffSampler():
 				# a. Cache the effect of conditiong on X = self.X
 				cache_obs = (
 					centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
-				)
+				).astype(np.float32)
 				self.cached_mean_obs_eq_obs[j] = cache_obs
 				# b. Cache the effect of conditioning on X = self.X_prop
-				cache_prop = centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				cache_prop = (
+					centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				).astype(np.float32)
 				self.cached_mean_obs_eq_prop[j] = cache_prop
 
 		# Loop across variables to compute acc ratios
