@@ -22,6 +22,14 @@ To run cprofilev, copy and paste the test to proftest/* and then run
 
 ## To do
 
+### Metro Computation
+
+1. See footnote h on page 25. Maybe condition on the knockoffs, not 
+Xjstar. This will make the within-knockoff correlations more similar
+maybe?
+2. 
+3. 
+
 ### FX Knockoff Support
 
 1. Knockoff Filter + Debiased Lasso

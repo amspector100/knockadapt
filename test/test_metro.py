@@ -99,6 +99,32 @@ class TestMetroProposal(unittest.TestCase):
 			)
 			prev_proposals = Xstar[:, 0:j+1]
 
+	def test_compatibility_error(self):
+		""" Ensures metro class errors when you pass a non-compatible
+		proposal matrix """
+
+		# Fake data 
+		np.random.seed(110)
+		n = 5
+		p = 200
+		X,_,_,Q,V = graphs.sample_data(method='AR1', rho=0.3, n=n, p=p)
+
+		# Metro sampler, proposal params
+		def incorrect_undir_graph():
+			metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+				lf=lambda x: np.log(x).sum(),
+				X=X,
+				mu=np.zeros(p),
+				V=V,
+				undir_graph=np.eye(p),
+				S=np.eye(p),
+			)
+		# Make sure the value error increases 
+		self.assertRaisesRegex(
+			ValueError, "Precision matrix Q is not compatible",
+			incorrect_undir_graph
+		)
+
 class TestMetroSample(unittest.TestCase):
 
 

@@ -41,7 +41,7 @@ def t_log_likelihood(
 	UNNORMALIZED t loglikelihood.
 	This is also faster than scipy
 	"""
-	result = np.log(1 + np.power(X, 2).astype(np.float32) / df_t)
+	result = np.log(1 + np.power(X, 2) / df_t)
 	result = -1 * result * (df_t + 1) / 2
 	return result	
 
@@ -59,6 +59,8 @@ class MetropolizedKnockoffSampler():
 			active_frontier=None,
 			gamma=0.999,
 			metro_verbose=False,
+			cliques=None,
+			log_potentials=None,
 			**kwargs
 			):
 		"""
@@ -82,7 +84,7 @@ class MetropolizedKnockoffSampler():
 		if either of the ``order`` or ``active_frontier`` params
 		are not specified. One of two options:
 		- A networkx undirected graph object
-		- A p x p numpy array, where nonzero elements represent connections
+		- A p x p numpy array, where nonzero elements represent edges
 		:param order: A p-length numpy array specifying the ordering
 		to sample the variables. Should be a vector with unique
 		entries 0,...,p-1.
@@ -102,20 +104,31 @@ class MetropolizedKnockoffSampler():
 		self.p = X.shape[1]
 		self.gamma = gamma
 		self.metro_verbose = metro_verbose # Controls verbosity
+		self.F_queries = 0 # Counts how many queries we make
 
 		# Possibly learn order / active frontier
 		if order is None or active_frontier is None:
-			# Convert to nx format
 			if undir_graph is None:
 				raise ValueError(
 					f"If order OR active_frontier are not provided, you must specify the undir_graph"
 				)
+			# Convert to nx
 			if isinstance(undir_graph, np.ndarray):
 				undir_graph = nx.Graph(undir_graph != 0)
-
 			# Run junction tree algorithm
 			self.width, self.T = tree_processing.treewidth_decomp(undir_graph)
 			order, active_frontier = tree_processing.get_ordering(self.T)
+
+		# Undirected graph must be existent in this case
+		Q = utilities.chol2inv(V)
+		if undir_graph is not None:
+			mask = nx.to_numpy_matrix(undir_graph)
+			mask += np.eye(self.p)
+			max_nonedge = np.max(np.abs(Q[mask == 0]))
+			if max_nonedge > 1e-3:
+				raise ValueError(
+					f"Precision matrix Q is not compatible with undirected graph (nonedge has value {max_nonedge})"
+				)
 
 		# Save order and inverse order
 		self.order = order
@@ -128,15 +141,34 @@ class MetropolizedKnockoffSampler():
 		self.X = X[:, self.order].astype(np.float32)
 		self.unordered_lf = lf
 
+		# Re-order the cliques 
+		self.log_potentials = log_potentials
+		if cliques is not None:
+			self.cliques = []
+			for clique in cliques:
+				self.cliques.append(self.inv_order[clique])
+		else:
+			self.cliques = None
+
+		# Create clique dictionaries. This maps variable i
+		# to a list of two-length tuples. 
+		#   - The first element is the clique_key, which can 
+		#     be used to index into log_potentials.
+		#	- The second element is the actual clique.
+		if self.cliques is not None and self.log_potentials is not None:
+			self.clique_dict = {j:[] for j in range(self.p)}
+			for clique_key, clique in enumerate(self.cliques):
+				for j in clique:
+					self.clique_dict[j].append((clique_key, clique))
+		else:
+			self.clique_dict = None
+
 		# Re-order active frontier
 		self.active_frontier = []
 		for i in range(len(order)):
 			self.active_frontier += [
 				[self.inv_order[j] for j in active_frontier[i]]
 			]
-
-		# Count the number of Fj queries we make
-		self.F_queries = 0
 
 		# Re-order mu
 		self.mu = mu[self.order].reshape(1, -1)
@@ -149,6 +181,7 @@ class MetropolizedKnockoffSampler():
 
 		# Re-order sigma
 		self.V = V[self.order][:, self.order]
+		self.Q = Q[self.order][:, self.order]
 
 		# Possibly reorder S if it's in kwargs
 		if 'S' in kwargs:
@@ -157,6 +190,63 @@ class MetropolizedKnockoffSampler():
 
 		# Create proposal parameters
 		self.create_proposal_params(**kwargs)
+
+	def lf_ratio(self, X, Xjstar, j):
+		"""
+		Calculates the log of the likelihood ratio
+		between two observations: X where X[:,j] 
+		is replaced with Xjstar, divided by the likelihood
+		of X. This is equivalent to (but sometimes faster) than:
+
+		ld_obs = self.lf(X)
+		Xnew = X.copy()
+		Xnew[:, j] = Xjstar
+		ld_prop = self.lf(Xnew)
+		ld_ratio = ld_prop - ld_obs
+
+		When node potentials have been passed, this is much faster
+		than calculating the log-likelihood function and subtracting.
+		:param X: a n x p matrix of observations
+		:param Xjstar: New observations for column j of X
+		:param j: an int between 0 and p - 1, telling us which column to replace
+		"""
+
+		# Just return the difference in lf if we don't have
+		# access to cliques
+		if self.clique_dict is None or self.log_potentials is None:
+			# Log-likelihood 1
+			ld_obs = self.lf(X)
+			# New likelihood with Xjstar
+			Xnew = X.copy()
+			Xnew[:, j] = Xjstar
+			ld_prop = self.lf(Xnew)
+			ld_ratio = ld_prop - ld_obs
+
+		# If we have access to cliques, we can just compute log-potentials
+		else:
+			# print(f"I am looping through cliques now")
+			cliques = self.clique_dict[j]
+			ld_ratio = np.zeros(self.n)
+
+			# Loop through cliques
+			for clique_key, clique in cliques:
+				# print(f"At clique_key {clique_key},clique {clique}, j={j}")
+				# print(f"Orig clique is {self.order[clique]}")
+				orig_clique = self.order[clique] # Original ordering
+
+				# Clique representation(s) of X
+				Xc = X[:, clique]
+				Xcstar = Xc.copy()
+
+				# Which index corresponds to index j in the clique
+				new_j = np.where(orig_clique == self.order[j])[0]
+				Xcstar[:, new_j] = Xjstar.reshape(-1, 1)
+
+				# Calculate log_potential difference
+				ld_ratio += self.log_potentials[clique_key](Xcstar).reshape(-1)
+				ld_ratio -= self.log_potentials[clique_key](Xc).reshape(-1)
+
+		return ld_ratio
 
 	def lf(self, X):
 		""" Reordered likelihood function """
@@ -172,7 +262,6 @@ class MetropolizedKnockoffSampler():
 			return M
 		else:
 			return M - self.mu[:, 0:M.shape[1]]
-
 
 	def create_proposal_params(self, **kwargs):
 		"""
@@ -202,7 +291,7 @@ class MetropolizedKnockoffSampler():
 		# Variable names follow the notation in 
 		# Appendix D of https://arxiv.org/pdf/1903.00434.pdf.
 		self.invSigmas = []
-		self.invSigmas.append(utilities.chol2inv(self.V))
+		self.invSigmas.append(self.Q)
 
 		# Possibly log
 		if self.metro_verbose:
@@ -458,16 +547,20 @@ class MetropolizedKnockoffSampler():
 			Xtemp = self._create_Xtemp(x_flags, j)
 
 		# 2. Density ratio
-		# a. According to pattern
-		ld_obs = self.lf(Xtemp)
-		# b. When Xj is not observed
-		Xtemp_prop = Xtemp.copy()
-		Xtemp_prop[:, j] = self.X_prop[:, j]
-		ld_prop = self.lf(Xtemp_prop)
-		ld_ratio = ld_prop - ld_obs
+		ld_ratio = self.lf_ratio(
+			X=Xtemp,
+			Xjstar=self.X_prop[:, j],
+			j=j,
+		)
+		# # a. According to pattern
+		# ld_obs = self.lf(Xtemp)
+		# # b. When Xj is not observed
+		# Xtemp_prop = Xtemp.copy()
+		# Xtemp_prop[:, j] = self.X_prop[:, j]
+		# ld_prop = self.lf(Xtemp_prop)
+		# ld_ratio = ld_prop - ld_obs
 
 		# Delete to save memory
-		del Xtemp_prop
 		del Xtemp
 
 		# 3. Calc ln(Fk ratios) for k < j. These should be 0 except
@@ -664,6 +757,27 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 		if Q is None:
 			Q = utilities.chol2inv(V)
 
+		# Cliques and clique log-potentials - start
+		# with initial clique. Note that a log-potential
+		# for a clique of size k takes an array of size
+		# n x k as an input. 
+		cliques = [[0]]
+		log_potentials = []
+		inv_scale = np.sqrt(df_t / (df_t - 2))
+		log_potentials.append(lambda X0: t_log_likelihood(inv_scale*X0, df_t=df_t)) 
+
+		# Pairwise log-potentials
+		conjugates = np.sqrt(1-self.rhos**2)
+		for i, rho, conj in zip(list(range(1, p)), self.rhos, conjugates):
+			# Append the clique: X[:, [i+1,i]]
+			cliques.append([i-1,i])
+			# Takes an n x 2 array as an input
+			log_potentials.append(
+				lambda Xc: t_log_likelihood(
+					inv_scale*(Xc[:,1]-rho*Xc[:,0])/conj, df_t=df_t
+				)
+			)
+
 		# Loss function (unordered)
 		def lf(X):
 			return t_markov_loglike(X, self.rhos, self.df_t)
@@ -675,6 +789,8 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 			V=V,
 			Q=Q,
 			undir_graph=np.abs(Q) > 1e-4,
+			cliques=cliques,
+			log_potentials=log_potentials,
 			**kwargs
 		)
 
