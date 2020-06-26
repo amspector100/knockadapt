@@ -252,7 +252,7 @@ class MetropolizedKnockoffSampler():
 		""" Reordered likelihood function """
 		return self.unordered_lf(X[:, self.inv_order])
 
-	def center(self, M):
+	def center(self, M, active_inds=None):
 		"""
 		Centers an n x j matrix M. For mu = 0, does not perform
 		this computation, which actually is a bottleneck
@@ -260,8 +260,10 @@ class MetropolizedKnockoffSampler():
 		"""
 		if self._zero_mu_flag:
 			return M
-		else:
+		elif active_inds is None:
 			return M - self.mu[:, 0:M.shape[1]]
+		else:
+			return M - self.mu[:, active_inds]
 
 	def create_proposal_params(self, **kwargs):
 		"""
@@ -374,9 +376,13 @@ class MetropolizedKnockoffSampler():
 		# X is n x p 
 		# self.mu is 1 x p
 		# self.mean_transforms[j] is 1 x p + j
+		# However, this cond mean only depends on
+		# the active variables + [0:j], so to save
+		# computation, we only compute that dot
+		active_inds = list(range(j+1)) + self.active_frontier[j]
 		cond_mean = np.dot(
-			self.center(X),
-			self.mean_transforms[j][:, 0:self.p].T
+			self.center(X[:, active_inds], active_inds), 
+			self.mean_transforms[j][:, active_inds].T
 		)
 
 		# Second p coordinates of cond_mean
@@ -394,6 +400,26 @@ class MetropolizedKnockoffSampler():
 		# Shift and return
 		cond_mean += self.mu[0, j] 
 		return cond_mean, self.cond_vars[j]
+
+	def fetch_cached_proposal_params(self, x_flags, j):
+		"""
+		Same as above, but uses caching to speed up computation.
+		Drawback: this uses O(p/2) times more memory for a 3x speedup.
+		"""
+
+		# Conditional mean only depends on these inds
+		active_inds = list(range(j+1)) + self.active_frontier[j]
+
+		# Calculate conditional means from precomputed products
+		cond_mean = np.where(
+			x_flags[:, active_inds],
+			self.cached_mean_obs_eq_prop[j],
+			self.cached_mean_obs_eq_obs[j],
+		).sum(axis=1)
+
+		# Add the effect of conditioning on the proposals
+		cond_mean += self.cached_mean_proposals[j]
+		return cond_mean,self.cond_vars[j]
 
 	def q_ll(self, Xjstar, X, prev_proposals):
 		"""
@@ -428,7 +454,7 @@ class MetropolizedKnockoffSampler():
 		Fetches key for dp dicts
 		"""
 		inds = list(self.active_frontier[j])#list(set(self.active_frontier[j]).union(set([j])))
-		arr_key = x_flags[:, inds]
+		arr_key = x_flags[0, inds]
 		key = arr_key.tostring()
 		return key
 
@@ -456,23 +482,31 @@ class MetropolizedKnockoffSampler():
 		# Temporary vector of Xs for query
 		Xtemp = self._create_Xtemp(x_flags, j)
 
-		# q1 is:
-		# Pr(Xjstar = Xtemp[j] | Xj = xjstar, X_{-j} = X_temp_{-j}, tildeX_{1:j-1}, Xstar_{1:j-1})
-		Xtemp1 = Xtemp.copy()
-		Xtemp1[:, j] = self.X_prop[:, j]
-
-		log_q1 = self.q_ll(
-			Xjstar=Xtemp[:, j],
-			X=Xtemp1,
-			prev_proposals=self.X_prop[:, 0:j]
+		# Precompute cond_means for log_q2
+		cond_mean2, cond_var = self.fetch_cached_proposal_params(
+			x_flags=x_flags,
+			j=j,
 		)
 
 		# q2 is:
 		# Pr(Xjstar = xjstar | X = Xtemp, tildeX_{1:j-1}, Xstar_{1:j-1})
-		log_q2 = self.q_ll(
-			Xjstar=self.X_prop[:, j],
-			X=Xtemp,
-			prev_proposals=self.X_prop[:, 0:j]
+		log_q2 = gaussian_log_likelihood(
+			X=self.X_prop[:, j],
+			mu=cond_mean2.reshape(-1),
+			var=cond_var,
+		)
+
+		# Adjust cond_mean for q1
+		diff = self.X_prop[:, j] - Xtemp[:, j]
+		adjustment = self.mean_transforms[j][:, j]*(diff)
+		cond_mean1 = cond_mean2.reshape(-1) + adjustment 
+
+		# q1 is:
+		# Pr(Xjstar = Xtemp[j] | Xj = xjstar, X_{-j} = X_temp_{-j}, tildeX_{1:j-1}, Xstar_{1:j-1})
+		log_q1 = gaussian_log_likelihood(
+			X=Xtemp[:, j],
+			mu=cond_mean1.reshape(-1),
+			var=cond_var,
 		)
 
 		return log_q1, log_q2, Xtemp
@@ -627,8 +661,11 @@ class MetropolizedKnockoffSampler():
 		negative due to floating point errors)
 		"""
 
+		# Delete invSigmas to save memory
+		del self.invSigmas
+
 		# Save clip constant for later
-		self.clip = 1e-5
+		self.clip = clip
 
 		# Dynamic programming approach: store acceptance probs
 		# as well as Fj values (see page 33)
@@ -668,6 +705,40 @@ class MetropolizedKnockoffSampler():
 				X=self.X,
 				prev_proposals=self.X_prop[:, 0:j]
 			).astype(np.float32)
+
+		# Cache conditional means
+		if self.metro_verbose:
+			print(f"Metro beginning to cache conditional means...")
+			j_iter = tqdm(range(self.p))
+		else:
+			j_iter = range(self.p)
+
+		# Precompute centerings
+		centX = self.center(self.X)
+		centX_prop = self.center(self.X_prop)
+		self.cached_mean_obs_eq_obs = [None for _ in range(self.p)]
+		self.cached_mean_obs_eq_prop = [None for _ in range(self.p)]
+		self.cached_mean_proposals = [None for _ in range(self.p)]
+		for j in j_iter:
+
+			# We only need to store the coordinates along the active 
+			# inds which saves some memory
+			active_inds = list(range(j+1)) + self.active_frontier[j]
+
+			# Cache some precomputed conditional means
+			# a. Cache the effect of conditiong on X = self.X
+			cache_obs = (
+				centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+			)
+			self.cached_mean_obs_eq_obs[j] = cache_obs
+			# b. Cache the effect of conditioning on X = self.X_prop
+			cache_prop = centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+			self.cached_mean_obs_eq_prop[j] = cache_prop
+			# c. Cache the effect of conditioning on Xstar = self.X_prop
+			self.cached_mean_proposals[j] = np.dot(
+				self.center(self.X_prop[:, 0:j]),
+				self.mean_transforms[j][:, self.p:].T
+			).reshape(-1)
 
 		# Loop across variables to compute acc ratios
 		prev_proposals = None

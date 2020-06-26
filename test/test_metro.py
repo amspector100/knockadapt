@@ -44,8 +44,7 @@ class TestMetroProposal(unittest.TestCase):
 			X=X,
 			mu=np.zeros(p),
 			V=V,
-			order=np.arange(0, p, 1),
-			active_frontier=[[] for _ in range(p)],
+			undir_graph = np.abs(Q) > 1e-3,
 			S=np.eye(p),
 		)
 
