@@ -50,10 +50,10 @@ class TestMetroProposal(unittest.TestCase):
 
 		# Test that invSigma is as it should be
 		G = metro_sampler.G
-		for j in [1, int(p/2), p-1]:
+		for j in [p-1]:
 			Gjinv = np.linalg.inv(G[0:p+j, 0:p+j])
 			np.testing.assert_almost_equal(
-				Gjinv, metro_sampler.invSigmas[j], decimal=3,
+				Gjinv, metro_sampler.invSigma, decimal=3,
 				err_msg=f'Metro sampler fails to correctly calculate {j}th invSigma'
 			)
 

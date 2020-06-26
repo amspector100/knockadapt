@@ -276,6 +276,7 @@ class MetropolizedKnockoffSampler():
 		_, self.S = knockoffs.gaussian_knockoffs(
 			X=self.X,
 			Sigma=self.V,
+			invSigma=self.Q,
 			return_S=True,
 			**kwargs
 		)
@@ -292,46 +293,9 @@ class MetropolizedKnockoffSampler():
 		# of feature-knockoff covariance matrix.
 		# Variable names follow the notation in 
 		# Appendix D of https://arxiv.org/pdf/1903.00434.pdf.
-		self.invSigmas = []
-		self.invSigmas.append(self.Q)
-
-		# Possibly log
-		if self.metro_verbose:
-			print(f"Metro starting to compute proposal parameters...")
-			j_iter = tqdm(range(1, self.p))
-		else:
-			j_iter = range(1, self.p)
-
-		# Loop through and compute
-		for j in j_iter:
-			
-			# Extract extra components
-			gammaj = self.G[self.p+j-1, 0:self.p+j-1]
-			sigma2j = self.V[j, j]
-
-			# Recursion for upper-left block
-			invSigma_gamma_j = np.dot(self.invSigmas[j-1], gammaj)
-			denomj = np.dot(gammaj, invSigma_gamma_j) - sigma2j
-			numerj = np.outer(invSigma_gamma_j, invSigma_gamma_j.T)
-			upper_left_block = self.invSigmas[j-1] - numerj / denomj
-
-			# Lower-left (and upper-right) block
-			lower_left = invSigma_gamma_j / denomj
-
-			# Bottom-right block
-			bottom_right = -1 / denomj
-
-			# Combine
-			upper_half = np.concatenate(
-				[upper_left_block, lower_left.reshape(-1,1)],
-				axis=1
-			)
-			lower_half = np.concatenate(
-				[lower_left.reshape(1,-1), bottom_right.reshape(1, 1)],
-				axis=1
-			)
-			invSigmaj = np.concatenate([upper_half,lower_half], axis=0)
-			self.invSigmas.append(invSigmaj)
+		# To save memory, we do not store all of these matrices,
+		# but rather delete them as we go.
+		self.invSigma = self.Q.copy()
 
 		# Suppose X sim N(mu, Sigma) and we have proposals X_{1:j-1}star
 		# Then the conditional mean of the proposal Xjstar 
@@ -341,20 +305,62 @@ class MetropolizedKnockoffSampler():
 		# conditional variances.
 		self.cond_vars = np.zeros(self.p)
 		self.mean_transforms = []
-		for j in range(self.p):
 
+		# Possibly log
+		if self.metro_verbose:
+			print(f"Metro starting to compute proposal parameters...")
+			j_iter = tqdm(range(0, self.p))
+		else:
+			j_iter = range(0, self.p)
+
+		# Loop through and compute
+		for j in j_iter:
+
+			# 1. Compute inverse Sigma
+			if j > 0:
+				# Extract extra components
+				gammaj = self.G[self.p+j-1, 0:self.p+j-1]
+				sigma2j = self.V[j, j]
+
+				# Recursion for upper-left block
+				invSigma_gamma_j = np.dot(self.invSigma, gammaj)
+				denomj = np.dot(gammaj, invSigma_gamma_j) - sigma2j
+				numerj = np.outer(invSigma_gamma_j, invSigma_gamma_j.T)
+				upper_left_block = self.invSigma - numerj / denomj
+
+				# Lower-left (and upper-right) block
+				lower_left = invSigma_gamma_j / denomj
+
+				# Bottom-right block
+				bottom_right = -1 / denomj
+
+				# Combine
+				upper_half = np.concatenate(
+					[upper_left_block, lower_left.reshape(-1,1)],
+					axis=1
+				)
+				lower_half = np.concatenate(
+					[lower_left.reshape(1,-1), bottom_right.reshape(1, 1)],
+					axis=1
+				)
+
+				# Set the new inverse sigma: delete the old one
+				# to save memory
+				del self.invSigma
+				self.invSigma = np.concatenate([upper_half,lower_half], axis=0)
+
+			# 2. Now compute conditional mean and variance
 			# Helpful bits
 			Gamma12_j = self.G[0:self.p+j, self.p+j]
-			Gamma11_j_inv = self.invSigmas[j]
 
 			# Conditional variance
 			self.cond_vars[j] = self.G[self.p+j, self.p+j]
 			self.cond_vars[j] -= np.dot(
-				Gamma12_j, np.dot(Gamma11_j_inv, Gamma12_j),
+				Gamma12_j, np.dot(self.invSigma, Gamma12_j),
 			)
 
 			# Mean transform
-			mean_transform = np.dot(Gamma12_j, Gamma11_j_inv).reshape(1, -1)
+			mean_transform = np.dot(Gamma12_j, self.invSigma).reshape(1, -1)
 			self.mean_transforms.append(mean_transform)
 
 	def fetch_proposal_params(self, X, prev_proposals):
@@ -401,21 +407,30 @@ class MetropolizedKnockoffSampler():
 		cond_mean += self.mu[0, j] 
 		return cond_mean, self.cond_vars[j]
 
-	def fetch_cached_proposal_params(self, x_flags, j):
+	def fetch_cached_proposal_params(self, Xtemp, x_flags, j):
 		"""
 		Same as above, but uses caching to speed up computation.
-		Drawback: this uses O(p/2) times more memory for a 3x speedup.
+		This caching can be cheap (if self.cache is False) or
+		extremely expensive (if self.cache is True) in terms of
+		memory.
 		"""
 
 		# Conditional mean only depends on these inds
 		active_inds = list(range(j+1)) + self.active_frontier[j]
 
 		# Calculate conditional means from precomputed products
-		cond_mean = np.where(
-			x_flags[:, active_inds],
-			self.cached_mean_obs_eq_prop[j],
-			self.cached_mean_obs_eq_obs[j],
-		).sum(axis=1)
+		if self.cache:
+			cond_mean = np.where(
+				x_flags[:, active_inds],
+				self.cached_mean_obs_eq_prop[j],
+				self.cached_mean_obs_eq_obs[j],
+			).sum(axis=1)
+		else:
+			active_inds = list(range(j+1)) + self.active_frontier[j]
+			cond_mean = np.dot(
+				self.center(Xtemp[:, active_inds], active_inds), 
+				self.mean_transforms[j][:, active_inds].T
+			).reshape(-1)
 
 		# Add the effect of conditioning on the proposals
 		cond_mean += self.cached_mean_proposals[j]
@@ -484,6 +499,7 @@ class MetropolizedKnockoffSampler():
 
 		# Precompute cond_means for log_q2
 		cond_mean2, cond_var = self.fetch_cached_proposal_params(
+			Xtemp=Xtemp,
 			x_flags=x_flags,
 			j=j,
 		)
@@ -653,19 +669,30 @@ class MetropolizedKnockoffSampler():
 		self.acc_dicts[j][key] = acc_prob
 		return acc_prob
 
-	def sample_knockoffs(self, clip=1e-5):
+	def sample_knockoffs(self, clip=1e-5, cache=None):
 		"""
 		:param clip: To provide numerical stability,
 		we make the minimum acceptance probability 1e-5
 		(otherwise some acc probs get very slightly
 		negative due to floating point errors)
+		:param cache: If True, uses a very memory intensive
+		caching system to get a 2-3x speedup when calculating
+		conditional means for the proposals. Defaults to true
+		if n * (p**2) < 1e9.
 		"""
-
-		# Delete invSigmas to save memory
-		del self.invSigmas
 
 		# Save clip constant for later
 		self.clip = clip
+		num_params = self.n * (self.p**2)
+		if cache is not None:
+			self.cache = cache
+		else:
+			self.cache = num_params < 1e9
+		# Possibly log
+		if self.metro_verbose:
+			print(f"Metro will use memory expensive caching for 2-3x speedup, storying {num_params} params")
+		else:
+			print(f"Metro will not cache cond_means to save a lot of memory")
 
 		# Dynamic programming approach: store acceptance probs
 		# as well as Fj values (see page 33)
@@ -726,19 +753,24 @@ class MetropolizedKnockoffSampler():
 			active_inds = list(range(j+1)) + self.active_frontier[j]
 
 			# Cache some precomputed conditional means
-			# a. Cache the effect of conditiong on X = self.X
-			cache_obs = (
-				centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
-			)
-			self.cached_mean_obs_eq_obs[j] = cache_obs
-			# b. Cache the effect of conditioning on X = self.X_prop
-			cache_prop = centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
-			self.cached_mean_obs_eq_prop[j] = cache_prop
-			# c. Cache the effect of conditioning on Xstar = self.X_prop
+			# a. Cache the effect of conditioning on Xstar = self.X_prop
+			# This is very cheap
 			self.cached_mean_proposals[j] = np.dot(
 				self.center(self.X_prop[:, 0:j]),
 				self.mean_transforms[j][:, self.p:].T
 			).reshape(-1)
+
+			# b/c: Possibly cache the effect of conditioning on X = self.X / self.X_prop
+			# This is very memory intensive
+			if self.cache:
+				# a. Cache the effect of conditiong on X = self.X
+				cache_obs = (
+					centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				)
+				self.cached_mean_obs_eq_obs[j] = cache_obs
+				# b. Cache the effect of conditioning on X = self.X_prop
+				cache_prop = centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				self.cached_mean_obs_eq_prop[j] = cache_prop
 
 		# Loop across variables to compute acc ratios
 		prev_proposals = None
