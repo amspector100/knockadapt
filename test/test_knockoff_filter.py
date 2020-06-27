@@ -78,20 +78,26 @@ class TestFdrControl(unittest.TestCase):
 					Sigma_arg = Sigma
 					invSigma_arg = invSigma
 				knockoff_filter = KnockoffFilter(fixedX=fixedX)
+
+				# Knockoff kwargs
+				knockoff_kwargs={
+					'S':S, 
+					'invSigma':invSigma_arg,
+					'verbose':False,
+					'sdp_verbose':False,
+					'max_epochs':100,
+					'eps':0.05,
+				}
+				if 'df_t' in kwargs:
+					knockoff_kwargs['df_t'] = kwargs['df_t']
+
 				selections = knockoff_filter.forward(
 					X=X, 
 					y=y, 
 					mu=mu_arg,
 					Sigma=Sigma_arg, 
 					groups=groups,
-					knockoff_kwargs={
-						'S':S, 
-						'invSigma':invSigma_arg,
-						'verbose':False,
-						'sdp_verbose':False,
-						'max_epochs':100,
-						'eps':0.05,
-					},
+					knockoff_kwargs=knockoff_kwargs,
 					fdr=q,
 					**filter_kwargs,
 				)
@@ -131,12 +137,12 @@ class TestKnockoffFilter(TestFdrControl):
 		# Quality metrics
 		mxfilter = KnockoffFilter()
 		mxfilter.Sigma = V
-		mxfilter.sample_knockoffs(
+		mxfilter.forward(
 			X=X,
+			y=y,
 			mu=np.zeros(p),
 			Sigma=V,
-			groups=np.arange(p),
-			recycle_up_to=None,
+			groups=None,
 			knockoff_kwargs={'S':S},
 		)
 		MAC, LMCV1 = mxfilter.compute_quality_metrics(X)
@@ -151,14 +157,8 @@ class TestKnockoffFilter(TestFdrControl):
 
 		# Compute LMCV again with different S
 		S2 = 0.5*np.eye(p)
-		mxfilter.sample_knockoffs(
-			X=X,
-			mu=np.zeros(p),
-			Sigma=V,
-			groups=np.arange(p),
-			recycle_up_to=None,
-			knockoff_kwargs={'S':S2},
-		)
+		mxfilter.knockoff_kwargs = {'S':S2}
+		mxfilter.sample_knockoffs()
 		_, LMCV2 = mxfilter.compute_quality_metrics(X)
 
 		# The LMCV should roughly proxy the true MCV loss
@@ -297,13 +297,25 @@ class TestKnockoffFilter(TestFdrControl):
 			filter_kwargs={'feature_stat':'deeppink'},
 		)
 
-	def test_artk_control(self):
-		""" FDR control with AR1 t-distributed design """
+	def test_t_control(self):
+		""" FDR control with t-distributed designs """
 
-		# Scenario 1: AR1 a = 1, b = 1, high sparsity
+		# Scenario 1: AR1 a = 1, b = 1, low sparsity
 		self.check_fdr_control(
-			n=500, p=50, method='AR1', sparsity=0.5, x_dist='ar1t', reps=15,
-			filter_kwargs={'knockoff_type':'artk'},
+			n=500, p=50, method='AR1', sparsity=0.5, x_dist='ar1t',
+			reps=15,
+			df_t=5, 
+			filter_kwargs={
+				'knockoff_type':'artk',
+			},
+		)
+		# Scenario 2: block-T R1 a = 1, b = 1, high sparsity
+		self.check_fdr_control(
+			n=500, p=50, method='daibarber2016', gamma=0,
+			sparsity=0.5, x_dist='blockt', reps=15, df_t=5, 
+			filter_kwargs={
+				'knockoff_type':'blockt', 
+			},
 		)
 
 	@pytest.mark.slow
@@ -384,6 +396,7 @@ class TestKnockoffFilter(TestFdrControl):
 		)
 
 		# Try again with degeneracy 
+		mxfilter = KnockoffFilter()
 		mxfilter.forward(
 			X=X, 
 			y=y, 

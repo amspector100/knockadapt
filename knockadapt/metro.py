@@ -121,7 +121,10 @@ class MetropolizedKnockoffSampler():
 			order, active_frontier = tree_processing.get_ordering(self.T)
 
 		# Undirected graph must be existent in this case
-		Q = utilities.chol2inv(V)
+		if 'invSigma' in kwargs:
+			Q = kwargs.pop('invSigma')
+		else:
+			Q = utilities.chol2inv(V)
 		if undir_graph is not None:
 			warnings.filterwarnings('ignore')
 			mask = nx.to_numpy_matrix(undir_graph)
@@ -842,8 +845,8 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 		self,
 		X,
 		V,
+		df_t,
 		Q=None,
-		df_t=3,
 		**kwargs
 	):
 		"""
@@ -937,7 +940,7 @@ class BlockTSampler():
 		self,
 		X,
 		V,
-		df_t=3,
+		df_t,
 		**kwargs
 	):
 		"""
@@ -1008,7 +1011,7 @@ class BlockTSampler():
 		self.final_acc_probs = []
 		self.acceptances = []
 
-		for j in range(len(self.blocks)):
+		for j in range(len(self.samplers)):
 			# Sample knockoffs
 			Xk_block = self.samplers[j].sample_knockoffs(**kwargs)
 			self.Xk.append(Xk_block)

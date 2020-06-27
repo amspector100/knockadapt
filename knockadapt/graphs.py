@@ -366,7 +366,7 @@ def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
 def sample_ar1t(
     rhos,
     n=50,
-    df_t=3, 
+    df_t=5, 
 ):
     """
     Samples t variables according to a Markov chain.

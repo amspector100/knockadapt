@@ -11,53 +11,57 @@ class KnockoffFilter:
 	Defaults to False (model-X knockoffs).
 	"""
 	def __init__(self, fixedX=False):
+
+		# Initialize some flags / options
 		self.debias = False
 		self.fixedX = fixedX
 		if self.debias and self.fixedX:
 			raise ValueError(
 				"Debiased lasso not yet implemented for FX knockoffs"
 			)
+		self._sdp_degen = None
+		self.S = None
 
-	def sample_knockoffs(
-		self, 
-		X,
-		mu,
-		Sigma,
-		groups,
-		knockoff_kwargs,
-		recycle_up_to,
-		knockoff_type='gaussian',
-	):
+	def sample_knockoffs(self):
 
 		# SDP degen flag (for internal use)
-		if "_sdp_degen" in knockoff_kwargs:
-			_sdp_degen = knockoff_kwargs.pop("_sdp_degen")
-		else:
-			_sdp_degen = False
+		if self._sdp_degen is None:
+			if "_sdp_degen" in self.knockoff_kwargs:
+				self._sdp_degen = self.knockoff_kwargs.pop("_sdp_degen")
+			else:
+				self._sdp_degen = False
 
 		# If fixedX, signal this to knockoff kwargs
 		if self.fixedX:
-			knockoff_kwargs['fixedX'] = True
+			self.knockoff_kwargs['fixedX'] = True
 			Sigma = None
+		else:
+			Sigma = self.Sigma
+
+		# If we have already computed S, signal this
+		# because this is expensive
+		if self.S is not None:
+			if 'S' not in self.knockoff_kwargs:
+				self.knockoff_kwargs['S'] = self.S
 
 		# Initial sample from Gaussian
-		if str(knockoff_type).lower() == 'gaussian':
+		if self.knockoff_type == 'gaussian':
 			knockoffs, S = gaussian_knockoffs(
-				X=X, 
-				groups=groups,
-				mu=mu,
+				X=self.X, 
+				groups=self.groups,
+				mu=self.mu,
 				Sigma=Sigma,
 				return_S=True,
-				**knockoff_kwargs,
+				**self.knockoff_kwargs,
 			)
 			knockoffs = knockoffs[:, :, 0]
 		# Alternatively sample from ARTK
-		elif str(knockoff_type).lower() == 'artk':
+		elif self.knockoff_type == 'artk':
 			# Sample
 			self.artk_sampler = metro.ARTKSampler(
-				X=X,
-				V=Sigma,
-				**knockoff_kwargs,
+				X=self.X,
+				V=self.Sigma,
+				**self.knockoff_kwargs,
 			)
 			knockoffs = self.artk_sampler.sample_knockoffs()
 
@@ -65,12 +69,12 @@ class KnockoffFilter:
 			inv_order = self.artk_sampler.inv_order
 			S = self.artk_sampler.S[inv_order][:, inv_order]
 		# Or block T metro
-		elif str(knockoff_type).lower() == 'blockt':
+		elif self.knockoff_type == 'blockt':
 			# Sample
 			self.blockt_sampler = metro.BlockTSampler(
-				X=X,
-				V=Sigma,
-				**knockoff_kwargs,
+				X=self.X,
+				V=self.Sigma,
+				**self.knockoff_kwargs,
 			)
 			knockoffs = self.blockt_sampler.sample_knockoffs()
 
@@ -83,20 +87,20 @@ class KnockoffFilter:
 			)
 
 		# Possibly use recycling
-		if recycle_up_to is not None:
+		if self.recycle_up_to is not None:
 
 			# Split
-			rec_knockoffs = X[:recycle_up_to]
-			new_knockoffs = knockoffs[recycle_up_to:]
+			rec_knockoffs = self.X[:self.recycle_up_to]
+			new_knockoffs = knockoffs[self.recycle_up_to:]
 
 			# Combine
 			knockoffs = np.concatenate((rec_knockoffs, new_knockoffs), axis=0)
 
 		# For high precision simulations of degenerate knockoffs,
 		# ensure degeneracy
-		if _sdp_degen:
-			sumcols = X[:, 0] + knockoffs[:, 0]
-			knockoffs = sumcols.reshape(-1, 1) - X
+		if self._sdp_degen:
+			sumcols = self.X[:, 0] + knockoffs[:, 0]
+			knockoffs = sumcols.reshape(-1, 1) - self.X
 
 		self.knockoffs = knockoffs
 		self.S = S
@@ -136,8 +140,7 @@ class KnockoffFilter:
 
 		# Calculate MAC and LMCV
 		MAC = np.abs(self.hatS).mean()
-		LMCV = mcv.fk_precision_trace(self.Sigma, np.diag(self.hatS))
-
+		LMCV = mcv.fk_precision_trace(Sigma, np.diag(self.hatS))
 		return MAC, LMCV
 
 	def make_selections(self, W, fdr):
@@ -201,7 +204,14 @@ class KnockoffFilter:
 			else:
 				tol = 1e-2
 			Sigma, _ = estimate_covariance(X, tol, shrinkage)
+
+		# Save objects
+		self.X = X
+		self.mu = mu
 		self.Sigma = Sigma
+		self.groups = groups
+		self.knockoff_kwargs = knockoff_kwargs
+		self.knockoff_type = str(knockoff_type).lower()
 
 		# Save n, p, groups
 		n = X.shape[0]
@@ -216,6 +226,7 @@ class KnockoffFilter:
 			recycle_up_to = int(recycle_up_to * n)
 		else:
 			recycle_up_to = int(recycle_up_to)
+		self.recycle_up_to = recycle_up_to
  
 		# Parse feature statistic function
 		if feature_stat == "lasso":
@@ -239,16 +250,7 @@ class KnockoffFilter:
 
 		# Sample knockoffs
 		if knockoffs is None:
-			self.knockoff_type = str(knockoff_type).lower()
-			knockoffs = self.sample_knockoffs(
-				X=X,
-				mu=mu,
-				Sigma=Sigma,
-				groups=groups,
-				knockoff_kwargs=knockoff_kwargs,
-				knockoff_type=knockoff_type,
-				recycle_up_to=recycle_up_to,
-			)
+			knockoffs = self.sample_knockoffs()
 			if self.debias:
 				# This is only computed if self.debias is True
 				feature_stat_kwargs["Ginv"] = self.Ginv
