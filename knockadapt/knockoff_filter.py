@@ -1,6 +1,6 @@
 import numpy as np
 from . import utilities
-from . import metro_generic as metro
+from . import metro
 from . import knockoff_stats as kstats
 from .knockoffs import gaussian_knockoffs, estimate_covariance
 

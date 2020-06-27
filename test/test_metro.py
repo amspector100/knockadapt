@@ -7,7 +7,7 @@ from .context import knockadapt
 
 from knockadapt import utilities
 from knockadapt import graphs
-from knockadapt import metro, metro_generic, tree_processing
+from knockadapt import metro, tree_processing
 import time
 
 class TestMetroProposal(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestMetroProposal(unittest.TestCase):
 		sp_result = norm_rv.logpdf(X)
 
 		# Custom result
-		custom_result = metro_generic.gaussian_log_likelihood(X, mu, var)
+		custom_result = metro.gaussian_log_likelihood(X, mu, var)
 		self.assertTrue(
 			np.abs(sp_result-custom_result).sum() < 0.001,
 			msg=f'scipy result {sp_result} does not match custom result {custom_result}'
@@ -39,7 +39,7 @@ class TestMetroProposal(unittest.TestCase):
 		X,_,_,Q,V = graphs.sample_data(method='AR1', rho=0.1, n=n, p=p)
 		
 		# Metro sampler, proposal params
-		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+		metro_sampler = metro.MetropolizedKnockoffSampler(
 			lf=lambda x: np.log(x).sum(),
 			X=X,
 			mu=np.zeros(p),
@@ -110,7 +110,7 @@ class TestMetroProposal(unittest.TestCase):
 
 		# Metro sampler, proposal params
 		def incorrect_undir_graph():
-			metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+			metro_sampler = metro.MetropolizedKnockoffSampler(
 				lf=lambda x: np.log(x).sum(),
 				X=X,
 				mu=np.zeros(p),
@@ -147,7 +147,7 @@ class TestMetroSample(unittest.TestCase):
 		def mvn_likelihood(X):
 			return mvn.logpdf(X)
 		gamma = 0.9999
-		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+		metro_sampler = metro.MetropolizedKnockoffSampler(
 			lf=mvn_likelihood,
 			X=X,
 			mu=np.zeros(p),
@@ -210,7 +210,7 @@ class TestMetroSample(unittest.TestCase):
 		def mvn_likelihood(X):
 			return mvn.logpdf(X)
 		gamma = 0.99999
-		metro_sampler = metro_generic.MetropolizedKnockoffSampler(
+		metro_sampler = metro.MetropolizedKnockoffSampler(
 			lf=mvn_likelihood,
 			X=X,
 			mu=np.zeros(p),
@@ -264,8 +264,8 @@ class TestARTK(unittest.TestCase):
 		sp_diff = sp_like1 - sp_like2
 
 		# Custom ratios
-		custom_like1 = metro_generic.t_log_likelihood(X1, df_t=df_t)
-		custom_like2 = metro_generic.t_log_likelihood(X2, df_t=df_t)
+		custom_like1 = metro.t_log_likelihood(X1, df_t=df_t)
+		custom_like2 = metro.t_log_likelihood(X2, df_t=df_t)
 		custom_diff = custom_like1 - custom_like2
 
 		np.testing.assert_almost_equal(
@@ -293,8 +293,8 @@ class TestARTK(unittest.TestCase):
 
 		# General likelihood
 		rhos = np.zeros(p-1)
-		ar1_like1 = metro_generic.t_markov_loglike(X1, rhos, df_t=df_t)
-		ar1_like2 = metro_generic.t_markov_loglike(X2, rhos, df_t=df_t)
+		ar1_like1 = metro.t_markov_loglike(X1, rhos, df_t=df_t)
+		ar1_like2 = metro.t_markov_loglike(X2, rhos, df_t=df_t)
 		ar1_ratio = ar1_like1 - ar1_like2
 
 		self.assertTrue(
@@ -317,8 +317,8 @@ class TestARTK(unittest.TestCase):
 
 		# Ratios using T
 		rhos = np.diag(V, 1)
-		ar1_like1 = metro_generic.t_markov_loglike(X1, rhos, df_t=df_t)
-		ar1_like2 = metro_generic.t_markov_loglike(X2, rhos, df_t=df_t)
+		ar1_like1 = metro.t_markov_loglike(X1, rhos, df_t=df_t)
+		ar1_like2 = metro.t_markov_loglike(X2, rhos, df_t=df_t)
 		ar1_ratio = ar1_like1 - ar1_like2
 
 		self.assertTrue(
@@ -327,7 +327,7 @@ class TestARTK(unittest.TestCase):
 		)
 
 		# Check consistency of tsampler class
-		tsampler = metro_generic.ARTKSampler(
+		tsampler = metro.ARTKSampler(
 			X=X1,
 			V=V,
 			df_t=df_t,
@@ -352,7 +352,7 @@ class TestARTK(unittest.TestCase):
 		S = np.eye(p)
 
 		# Sample t 
-		tsampler = metro_generic.ARTKSampler(
+		tsampler = metro.ARTKSampler(
 			X=X,
 			V=V,
 			df_t=df_t,
@@ -417,8 +417,8 @@ class TestBlockT(unittest.TestCase):
 		norm_ratio = norm_like1 - norm_like2
 
 		# Ratios using T
-		tmvn_like1 = metro_generic.t_mvn_loglike(X1, Q, df_t=df_t)
-		tmvn_like2 = metro_generic.t_mvn_loglike(X2, Q, df_t=df_t)
+		tmvn_like1 = metro.t_mvn_loglike(X1, Q, df_t=df_t)
+		tmvn_like2 = metro.t_mvn_loglike(X2, Q, df_t=df_t)
 		tmvn_ratio = tmvn_like1 - tmvn_like2
 		self.assertTrue(
 			np.abs(tmvn_ratio - norm_ratio).mean() < 0.01,
@@ -447,7 +447,7 @@ class TestBlockT(unittest.TestCase):
 		S = np.eye(p)
 
 		# Sample t 
-		tsampler = metro_generic.BlockTSampler(
+		tsampler = metro.BlockTSampler(
 			X=X,
 			V=V,
 			df_t=df_t,

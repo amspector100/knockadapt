@@ -6,7 +6,6 @@ all = [
     "knockoff_filter",
     "knockoffs",
     "metro",
-    "metro_generic",
     "nonconvex_sdp",
     "tree_processing"
     "utilities",
@@ -17,8 +16,7 @@ from . import graphs
 from . import knockoffs
 from . import knockoff_filter
 from . import knockoff_stats
-from . import metro 
-from . import metro_generic
+from . import metro
 from . import tree_processing
 from . import nonconvex_sdp
 from . import utilities
