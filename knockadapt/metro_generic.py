@@ -15,7 +15,7 @@ import numpy as np
 import scipy as sp
 import itertools
 from scipy import stats
-from . import utilities, knockoffs
+from . import utilities, knockoffs, graphs
 
 # Network and UGM tools
 import networkx as nx
@@ -124,11 +124,13 @@ class MetropolizedKnockoffSampler():
 		if undir_graph is not None:
 			mask = nx.to_numpy_matrix(undir_graph)
 			mask += np.eye(self.p)
-			max_nonedge = np.max(np.abs(Q[mask == 0]))
-			if max_nonedge > 1e-3:
-				raise ValueError(
-					f"Precision matrix Q is not compatible with undirected graph (nonedge has value {max_nonedge})"
-				)
+			# Handle case where the graph is dense
+			if (mask == 0).sum() > 0:
+				max_nonedge = np.max(np.abs(Q[mask == 0]))
+				if max_nonedge > 1e-3:
+					raise ValueError(
+						f"Precision matrix Q is not compatible with undirected graph (nonedge has value {max_nonedge})"
+					)
 
 		# Save order and inverse order
 		self.order = order
@@ -691,7 +693,7 @@ class MetropolizedKnockoffSampler():
 		# Possibly log
 		if self.metro_verbose:
 			if self.cache:
-				print(f"Metro will use memory expensive caching for 2-3x speedup, storying {num_params} params")
+				print(f"Metro will use memory expensive caching for 2-3x speedup, storing {num_params} params")
 			else:
 				print(f"Metro will not cache cond_means to save a lot of memory")
 
@@ -900,66 +902,85 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 			**kwargs
 		)
 
-# def t_mvn_loglike(X, invScale, mu=None, df_t=3):
-# 	"""
-# 	Calculates multivariate t log-likelihood
-# 	up to normalizing constant.
-# 	:param X: n x p array of data
-# 	:param invScale: p x p array, inverse multivariate t scale matrix
-# 	:param mu: p-length array, location parameter
-# 	:param df_t: degrees of freedom
-# 	"""
-# 	p = invScale.shape[0]
-# 	if mu is not None:
-# 		X = X - mu
-# 	quad_form = (np.dot(X, invScale) * X).sum(axis=1)
-# 	log_quad = np.log(
-# 		1 + quad_form / df_t
-# 	)
-# 	exponent = -1*(df_t + p) / 2
-# 	return exponent*log_quad 
+def t_mvn_loglike(X, invScale, mu=None, df_t=3):
+	"""
+	Calculates multivariate t log-likelihood
+	up to normalizing constant.
+	:param X: n x p array of data
+	:param invScale: p x p array, inverse multivariate t scale matrix
+	:param mu: p-length array, location parameter
+	:param df_t: degrees of freedom
+	"""
+	p = invScale.shape[0]
+	if mu is not None:
+		X = X - mu
+	quad_form = (np.dot(X, invScale) * X).sum(axis=1)
+	log_quad = np.log(
+		1 + quad_form / df_t
+	)
+	exponent = -1*(df_t + p) / 2
+	return exponent*log_quad 
 
-# class BlockTSampler(MetropolizedKnockoffSampler):
+class BlockTSampler():
 
-# 	def __init__(
-# 		self,
-# 		X,
-# 		V,
-# 		Q=None,
-# 		df_t=3,
-# 		**kwargs
-# 	):
-# 		"""
-# 		Samples knockoffs for block multivariate t designs.
-# 		:param X: n x p design matrix, presumably following
-# 		t_{df_t}(mu, Sigma) distribution.
+	def __init__(
+		self,
+		X,
+		V,
+		df_t=3,
+		**kwargs
+	):
+		"""
+		Samples knockoffs for block multivariate t designs.
+		:param X: n x p design matrix, presumably following
+		t_{df_t}(mu, Sigma) distribution.
 
-# 		Currently does not support a mean parameter (mu).
+		:param V: Covariance matrix for t distribution.
+		This should be in block-diagonal form.
+		:param mu: Mean parameter
+		:param df_t: Degrees of freedom (default: 3).
+		:param kwargs: kwargs for Metro sampler.
+		"""
 
-# 		:param V: Covariance matrix for t distribution.
-# 		This should be in block-diagonal form.
-# 		:param Q: Inverse of covariance matrix.
-# 		:param df_t: Degrees of freedom (default: 3).
-# 		:param kwargs: kwargs for Metro sampler.
-# 		"""
+		# Discover "block structure" of T
+		self.p = V.shape[0]
+		self.blocks, self.block_inds = graphs.cov2blocks(V)
+		self.df_t = df_t
+		self.X = X
 
-# 		# Rhos and graph
-# 		p = V.shape[0]
-# 		self.df_t = df_t
-# 		self.rhos = np.diag(V, 1)
-# 		if Q is None:
-# 			Q = utilities.chol2inv(V)
 
-# 		# Loss function (unordered)
-# 		def lf(X):
-# 			return t_markov_loglike(X, self.rhos, self.df_t)
+		# Loop through blocks and initialize samplers
+		self.samplers = []
+		for block, inds in zip(self.blocks, self.block_inds):
 
-# 		super().__init__(
-# 			lf=lf,
-# 			X=X,
-# 			mu=np.zeros(p),
-# 			V=V,
-# 			Q=Q,
-# 			undir_graph=np.abs(Q) > 1e-4,
-# 			**kwargs
-# 		)
+			# Invert block and create scale matrix
+			inv_block = utilities.chol2inv(block)
+			invScale = (df_t) / (df_t - 2) * inv_block
+
+			# Undir graph is all connected
+			blocksize = block.shape[0]
+			undir_graph = np.ones((blocksize, blocksize))
+
+			# Initialize sampler
+			block_sampler = MetropolizedKnockoffSampler(
+				lf = lambda X: t_mvn_loglike(X, invScale, df_t=df_t),
+				X=X[:, inds],
+				mu=np.zeros(blocksize),
+				V=block,
+				undir_graph=undir_graph,
+				**kwargs
+			)
+			self.samplers.append(block_sampler)
+
+	def sample_knockoffs(self, **kwargs):
+		"""
+		Actually samples knockoffs sequentially for each block.
+		kwargs = kwargs for sampler.
+		"""
+		# Loop through blocks and sample
+		Xk = []
+		for j in range(len(self.blocks)):
+			Xk_block = self.samplers[j].sample_knockoffs(**kwargs)
+			Xk.append(Xk_block)
+
+		return np.concatenate(Xk, axis=1)

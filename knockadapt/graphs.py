@@ -395,16 +395,19 @@ def cov2blocks(V, tol=1e-5):
     p = V.shape[0]
     blocks = []
     block_start = 0
+    block_inds = []
     for j in range(p+1):
         # Detect if we have exited the block
         if j == p:
             blocks.append(V[block_start:j, block_start:j])
+            block_inds.append(list(range(block_start, j)))
         elif np.abs(V[block_start, j]) < tol:
             # If so, reset the block_start
             blocks.append(V[block_start:j, block_start:j])
+            block_inds.append(list(range(block_start, j)))
             block_start = j
 
-    return blocks
+    return blocks, block_inds
 
 def sample_block_tmvn(
     blocks,
@@ -434,7 +437,6 @@ def sample_block_tmvn(
     # Loop through blocks and sample multivariate t
     X = []
     for i, block_sqrt in enumerate(block_sqrts):
-        print(f"At block {i}, sqrt {block_sqrt}")
         # Dimensionality and also sample chisquares
         p_block = block_sqrt.shape[0]
         chi_block = stats.chi2.rvs(df=df_t, size=(n,1))
@@ -564,7 +566,7 @@ def sample_data(
             raise ValueError(f"For x_dist={x_dist}, method ({method}) should equal 'ar1'")
         X = sample_ar1t(n=n, rhos=np.diag(corr_matrix, 1), df_t=df_t)
     elif x_dist == 'blockt':
-        blocks = cov2blocks(corr_matrix)
+        blocks, _ = cov2blocks(corr_matrix)
         X = sample_block_tmvn(blocks, n=n, df_t=df_t)
     else:
         raise ValueError(f"x_dist must be one of 'gaussian', 'ar1t', 'blockt'")
