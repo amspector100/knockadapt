@@ -47,6 +47,13 @@ This can be waayy sped up. Currently block_diag
 uses almost as much time as the backprop for medium p.  
 Create a file in the proftest file and then profile.
 
+Solution: like for SDP, we should just have a version
+which runs faster when there are no groups.
+Examples:
+- torch.diag() should run must faster than block_diag_+sparse
+- Easier to store the blocks as a vector and then square them 
+(instead of expensive dotting of p x p matrices)
+
 ### Graphs
 
 1. DGP class? instead of returning like 6 things?

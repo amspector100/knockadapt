@@ -64,8 +64,8 @@ def block_diag_sparse(*arrs):
     """
     bad_args = []
     for k, arr in enumerate(arrs):
-        if isinstance(arr, nn.Parameter):
-            arr = arr.data
+        # if isinstance(arr, nn.Parameter):
+        #     arr = arr.data
         if not (isinstance(arr, torch.Tensor) and arr.ndim == 2):
             bad_args.append(k)
 
@@ -380,7 +380,7 @@ class NonconvexSDPSolver:
                             print(f"Nearing convergence, reducing smoothing to {self.losscalc.smoothing} \n")
                     elif sdp_verbose:
                         print(f"Converged at iteration {j}")
-                        break
+                    break
 
         # Shift, scale, and return
         sorted_S = self.opt_S

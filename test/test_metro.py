@@ -356,7 +356,7 @@ class TestARTK(unittest.TestCase):
 			X=X,
 			V=V,
 			df_t=df_t,
-			S = S,
+			S=S,
 			metro_verbose=True
 		)
 
