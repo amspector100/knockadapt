@@ -393,5 +393,96 @@ class TestARTK(unittest.TestCase):
 		)
 
 
+class TestBlockT(unittest.TestCase):
+
+	def test_tmvn_log_likelihood(self):
+
+		# Fake data
+		np.random.seed(110)
+		n = 10
+		p = 10
+		df_t = 100000
+
+		# Test that the likelihood --> gaussian as df_t --> infinity
+		X1,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, p=p, method='daibarber2016', gamma=0.3, rho=0.8, x_dist='blockt'
+		)
+		X2 = np.random.randn(n, p)
+
+
+		# Ratio using normals
+		mu = np.zeros(p)
+		norm_like1 = stats.multivariate_normal(mean=mu, cov=V).logpdf(X1)
+		norm_like2 = stats.multivariate_normal(mean=mu, cov=V).logpdf(X2)
+		norm_ratio = norm_like1 - norm_like2
+
+		# Ratios using T
+		tmvn_like1 = metro_generic.t_mvn_loglike(X1, Q, df_t=df_t)
+		tmvn_like2 = metro_generic.t_mvn_loglike(X2, Q, df_t=df_t)
+		tmvn_ratio = tmvn_like1 - tmvn_like2
+		self.assertTrue(
+			np.abs(tmvn_ratio - norm_ratio).mean() < 0.01,
+			f"T MVN ratio {tmvn_ratio} and gaussian ratio {norm_ratio} disagree for corr. t vars, df={df_t}"
+		)
+
+
+	def test_blockt_samples(self):
+
+		# Test to make sure low df --> heavy tails
+		# and therefore acceptances < 1
+		np.random.seed(110)
+		n = 2000000
+		p = 6
+		df_t = 5
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='daibarber2016',
+			rho=0.4,
+			gamma=0,
+			group_size=3,
+			x_dist='blockt',
+			df_t=df_t,
+		)
+		S = np.eye(p)
+
+		# Sample t 
+		tsampler = metro_generic.BlockTSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S=S,
+			metro_verbose=True
+		)
+
+		# Sample
+		Xk = tsampler.sample_knockoffs()
+
+		# Check empirical means
+		# Check empirical covariance matrix
+		muk_hat = np.mean(Xk, axis=0)
+		np.testing.assert_almost_equal(
+			muk_hat, np.zeros(p), decimal=2,
+			err_msg=f"For block T sampler, empirical mean of Xk does not match mean of X" 
+		)
+
+		# Check empirical covariance matrix
+		Vk_hat = np.cov(Xk.T)
+		np.testing.assert_almost_equal(
+			V, Vk_hat, decimal=2,
+			err_msg=f"For block T sampler, empirical covariance of Xk does not match cov of X" 
+		)
+
+		# Check that marginal fourth moments match
+		X4th = np.mean(np.power(X, 4), axis=0)
+		Xk4th = np.mean(np.power(Xk, 4), axis=0)
+		np.testing.assert_almost_equal(
+			X4th / 10, Xk4th / 10, decimal=1,
+			err_msg=f"For block T sampler, fourth moment of Xk does not match theoretical fourth moment" 
+		)
+
+
+
+
 if __name__ == '__main__':
 	unittest.main()
