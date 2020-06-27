@@ -22,6 +22,7 @@ import networkx as nx
 from . import tree_processing
 
 # Logging
+import warnings
 from tqdm import tqdm
 
 def gaussian_log_likelihood(
@@ -122,7 +123,9 @@ class MetropolizedKnockoffSampler():
 		# Undirected graph must be existent in this case
 		Q = utilities.chol2inv(V)
 		if undir_graph is not None:
+			warnings.filterwarnings('ignore')
 			mask = nx.to_numpy_matrix(undir_graph)
+			warnings.resetwarnings()
 			mask += np.eye(self.p)
 			# Handle case where the graph is dense
 			if (mask == 0).sum() > 0:
@@ -865,6 +868,13 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 		if Q is None:
 			Q = utilities.chol2inv(V)
 
+		# Account for the fact there will likely be rejections
+		if 'rec_prop' not in kwargs:
+			kwargs['rec_prop'] = 0.3
+			self.rej_rate = 0.3
+		else:
+			self.rej_rate = kwargs['rec_prop']
+
 		# Cliques and clique log-potentials - start
 		# with initial clique. Note that a log-potential
 		# for a clique of size k takes an array of size
@@ -948,9 +958,20 @@ class BlockTSampler():
 		self.df_t = df_t
 		self.X = X
 
+		# Dummy order / inv_order variables for consistency
+		self.order = np.arange(self.p)
+		self.inv_order = np.arange(self.p)
+
+		# Account for the fact there will likely be rejections
+		if 'rec_prop' not in kwargs:
+			kwargs['rec_prop'] = 0.3
+			self.rej_rate = 0.3
+		else:
+			self.rej_rate = kwargs['rec_prop']
 
 		# Loop through blocks and initialize samplers
 		self.samplers = []
+		self.S = []
 		for block, inds in zip(self.blocks, self.block_inds):
 
 			# Invert block and create scale matrix
@@ -970,7 +991,12 @@ class BlockTSampler():
 				undir_graph=undir_graph,
 				**kwargs
 			)
+			inv_order = block_sampler.inv_order
+			self.S.append(block_sampler.S[:, inv_order][inv_order])
 			self.samplers.append(block_sampler)
+
+		# Concatenate S
+		self.S = sp.linalg.block_diag(*self.S)
 
 	def sample_knockoffs(self, **kwargs):
 		"""
@@ -978,9 +1004,23 @@ class BlockTSampler():
 		kwargs = kwargs for sampler.
 		"""
 		# Loop through blocks and sample
-		Xk = []
-		for j in range(len(self.blocks)):
-			Xk_block = self.samplers[j].sample_knockoffs(**kwargs)
-			Xk.append(Xk_block)
+		self.Xk = []
+		self.final_acc_probs = []
+		self.acceptances = []
 
-		return np.concatenate(Xk, axis=1)
+		for j in range(len(self.blocks)):
+			# Sample knockoffs
+			Xk_block = self.samplers[j].sample_knockoffs(**kwargs)
+			self.Xk.append(Xk_block)
+
+			# Save final_acc_probs, acceptances
+			block_acc_probs = self.samplers[j].final_acc_probs[:, self.samplers[j].inv_order]
+			self.final_acc_probs.append(block_acc_probs)
+			block_acc = self.samplers[j].acceptances[:, self.samplers[j].inv_order]
+			self.acceptances.append(block_acc)
+
+		# Concatenate + return
+		self.Xk = np.concatenate(self.Xk, axis=1)
+		self.final_acc_probs = np.concatenate(self.final_acc_probs, axis=1)
+		self.acceptances = np.concatenate(self.acceptances, axis=1)
+		return self.Xk

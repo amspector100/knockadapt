@@ -1,9 +1,9 @@
 import numpy as np
 from . import utilities
-from . import metro
-from . import knockoff_stats as kstats
+from . import nonconvex_sdp as mcv
 from .knockoffs import gaussian_knockoffs, estimate_covariance
-
+from . import metro
+from . import knockoff_stats as kstats 
 
 class KnockoffFilter:
 	"""
@@ -53,18 +53,10 @@ class KnockoffFilter:
 			knockoffs = knockoffs[:, :, 0]
 		# Alternatively sample from ARTK
 		elif str(knockoff_type).lower() == 'artk':
-			
-			# Handle invSigma
-			if 'invSigma' in knockoff_kwargs:
-				Q = knockoff_kwargs.pop('invSigma')
-			else:
-				Q = None
-
 			# Sample
 			self.artk_sampler = metro.ARTKSampler(
 				X=X,
 				V=Sigma,
-				Q=Q,
 				**knockoff_kwargs,
 			)
 			knockoffs = self.artk_sampler.sample_knockoffs()
@@ -72,6 +64,18 @@ class KnockoffFilter:
 			# Extract S
 			inv_order = self.artk_sampler.inv_order
 			S = self.artk_sampler.S[inv_order][:, inv_order]
+		# Or block T metro
+		elif str(knockoff_type).lower() == 'blockt':
+			# Sample
+			self.blockt_sampler = metro.BlockTSampler(
+				X=X,
+				V=Sigma,
+				**knockoff_kwargs,
+			)
+			knockoffs = self.blockt_sampler.sample_knockoffs()
+
+			# Extract S
+			S = self.blockt_sampler.S
 
 		else:
 			raise ValueError(
@@ -110,6 +114,31 @@ class KnockoffFilter:
 		else:
 			self.Ginv = None
 		return knockoffs
+
+	def compute_quality_metrics(self, X, Sigma=None, knockoffs=None):
+		"""
+		Computes (empirical) mean absolute correlation and LMCV
+		for features and knockoffs. This is only useful
+		for metropolized knockoffs.
+
+		This requires inverting 2*V - S.
+		"""
+
+		p = X.shape[1]
+		if knockoffs is None:
+			knockoffs = self.knockoffs
+		if Sigma is None:
+			Sigma = self.Sigma
+
+		# Empirical feature / knockoff correlations
+		self.hatG = np.corrcoef(X.T, knockoffs.T)
+		self.hatS = np.diag(self.hatG[0:p, p:])
+
+		# Calculate MAC and LMCV
+		MAC = np.abs(self.hatS).mean()
+		LMCV = mcv.fk_precision_trace(self.Sigma, np.diag(self.hatS))
+
+		return MAC, LMCV
 
 	def make_selections(self, W, fdr):
 		"""" Calculate data dependent threshhold and selections """

@@ -115,6 +115,58 @@ class TestFdrControl(unittest.TestCase):
 class TestKnockoffFilter(TestFdrControl):
 	""" Tests knockoff filter (mostly MX, some FX tests) """
 
+	@pytest.mark.quick
+	def test_quality_metrics(self):
+
+		# Fake data
+		np.random.seed(110)
+		n = 5000000
+		p = 5
+		rho = 0.5
+		S = 0.9*np.eye(p)
+		X, y, _, _, V = graphs.sample_data(
+			method='daibarber2016', rho=rho, gamma=1, n=n, p=p,
+		)
+
+		# Quality metrics
+		mxfilter = KnockoffFilter()
+		mxfilter.Sigma = V
+		mxfilter.sample_knockoffs(
+			X=X,
+			mu=np.zeros(p),
+			Sigma=V,
+			groups=np.arange(p),
+			recycle_up_to=None,
+			knockoff_kwargs={'S':S},
+		)
+		MAC, LMCV1 = mxfilter.compute_quality_metrics(X)
+
+		# Since these are gaussian knockoffs, they should
+		# align with S
+		true_mac = np.abs(1-np.diag(S)).mean()
+		self.assertTrue(
+			np.abs(MAC - true_mac) < 0.001,
+			msg = f"Knockoff filter incorrectly computes MAC ({MAC} vs {true_mac})" 
+		)
+
+		# Compute LMCV again with different S
+		S2 = 0.5*np.eye(p)
+		mxfilter.sample_knockoffs(
+			X=X,
+			mu=np.zeros(p),
+			Sigma=V,
+			groups=np.arange(p),
+			recycle_up_to=None,
+			knockoff_kwargs={'S':S2},
+		)
+		_, LMCV2 = mxfilter.compute_quality_metrics(X)
+
+		# The LMCV should roughly proxy the true MCV loss
+		self.assertTrue(
+			LMCV1 > LMCV2,
+			msg = f"LMCV loss for optimal S >= LMCV loss for poor S ({LMCV2} >= {LMCV1})" 
+		)
+
 	def test_gnull_control(self):
 		""" Test FDR control under global null """
 
