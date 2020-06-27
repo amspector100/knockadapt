@@ -387,6 +387,69 @@ def sample_ar1t(
 
     return X
 
+def cov2blocks(V, tol=1e-5):
+    """
+    Decomposes a PREORDERED block-diagonal matrix V
+    into its blocks.
+    """
+    p = V.shape[0]
+    blocks = []
+    block_start = 0
+    for j in range(p+1):
+        # Detect if we have exited the block
+        if j == p:
+            blocks.append(V[block_start:j, block_start:j])
+        elif np.abs(V[block_start, j]) < tol:
+            # If so, reset the block_start
+            blocks.append(V[block_start:j, block_start:j])
+            block_start = j
+
+    return blocks
+
+def sample_block_tmvn(
+    blocks,
+    block_sqrts=None,
+    n=50,
+    df_t=3,
+):
+    """
+    Samples a block-diagonal multivariate t from a set of 
+    blocks. If these blocks have diagonal 1, the marginal
+    variances of the t-distribution will be 1 as well.
+    :param blocks: A list of square, PSD numpy arrays. These
+    are the block covariance matrices.
+    :param n: The number of data points to sample
+    :param block_sqrts: Possibly pass in the list of sqrts 
+    of the blocks for more efficiently sampling. By default
+    uses cholesky square roots.
+    :param df_t: The degrees of freedom of the t-distribution
+    """
+
+    # Possibly calculate sqrt roots
+    if block_sqrts is None:
+        block_sqrts = [np.linalg.cholesky(block) for block in blocks]
+    if len(block_sqrts) != len(blocks):
+        raise ValueError(f"Blocks and block_sqrts must have same length")
+
+    # Loop through blocks and sample multivariate t
+    X = []
+    for i, block_sqrt in enumerate(block_sqrts):
+        print(f"At block {i}, sqrt {block_sqrt}")
+        # Dimensionality and also sample chisquares
+        p_block = block_sqrt.shape[0]
+        chi_block = stats.chi2.rvs(df=df_t, size=(n,1))
+
+        # Linear transformatino + chi square multiplication
+        Z_block = np.random.randn(n,p_block) # n x p 
+        t_block = np.dot(Z_block, block_sqrt.T) # n x p
+        t_block = np.sqrt(df_t / chi_block) * t_block
+        X.append(t_block)
+
+    #  Append back together and scale such that variance is 1
+    scale = np.sqrt((df_t - 2) / (df_t))
+    X = scale * np.concatenate(X, axis=1)
+    return X
+
 def sample_data(
     p=100,
     n=50,
@@ -500,8 +563,11 @@ def sample_data(
         if str(method).lower() != 'ar1':
             raise ValueError(f"For x_dist={x_dist}, method ({method}) should equal 'ar1'")
         X = sample_ar1t(n=n, rhos=np.diag(corr_matrix, 1), df_t=df_t)
+    elif x_dist == 'blockt':
+        blocks = cov2blocks(corr_matrix)
+        X = sample_block_tmvn(blocks, n=n, df_t=df_t)
     else:
-        raise ValueError(f"x_dist must be one of 'gaussian', 'ar1t'")
+        raise ValueError(f"x_dist must be one of 'gaussian', 'ar1t', 'blockt'")
 
     y = sample_response(X=X, beta=beta, y_dist=y_dist, cond_mean=cond_mean)
 

@@ -389,6 +389,30 @@ class TestSampleData(unittest.TestCase):
 			"True (V)ErdosRenyi sampler fails to give correct mean val" 
 		)
 
+	def test_tblock_sample(self):
+
+		# Fake data --> we want the right cov matrix
+		np.random.seed(110)
+		n = 1000000
+		p = 4
+		df_t = 6
+		X,_,_,Q,V = graphs.sample_data(
+			n=n,
+			p=p,
+			method='daibarber2016',
+			gamma=0,
+			x_dist='blockt',
+			group_size=2,
+			df_t=df_t
+		)
+		emp_corr = np.cov(X.T)
+
+		# Check empirical covariance matrice
+		np.testing.assert_array_almost_equal(
+			V, emp_corr, decimal=2,
+			err_msg=f"t-block empirical correlation matrix does not match theoretical one"
+		)
+
 	def test_t_sample(self):
 
 		# Check that we get the right covariance matrix
