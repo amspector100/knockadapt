@@ -439,6 +439,57 @@ class TestSampleData(unittest.TestCase):
 			non_ar1_t
 		)
 
+	def test_gibbs_sample(self):
+
+		# Check that we get a decent correlation matrix
+		# with the right type of Q matrix
+		np.random.seed(110)
+		n = 5000
+		p = 9
+		X,_,_,Q,V = graphs.sample_data(
+			n=n, p=p, method='ising', x_dist='gibbs', 
+		)
+		# Mean test
+		np.testing.assert_almost_equal(
+			X.mean(), 0, decimal=1,
+			err_msg=f"Ising sampler has unexpected mean (expected 0, got {X.mean()})"
+		)
+		# Correlation matrix tests
+		np.testing.assert_almost_equal(
+			np.diag(V), np.ones(p), decimal=5,
+			err_msg=f"Ising sampler does not return a correlation matrix" 
+		)
+		np.testing.assert_almost_equal(
+			np.diag(np.cov(X.T)), np.ones(p), decimal=3,
+			err_msg=f"Ising sampler does not properly scale design matrix"
+		)
+		# Test Q
+		expected_edges = 4*p - (4*np.sqrt(p))
+		num_edges = (Q != 0).sum()
+		print(Q)
+		self.assertTrue(
+			num_edges == expected_edges,
+			f"Ising gibbs dist has unexpected number of edges ({num_edges}, expected {expected_edges})"
+		)
+		# Check the non-grid-based method
+		X,_,_,Q,V = graphs.sample_data(
+			n=n, p=p, method=3, x_dist='gibbs', y_dist='binomial',
+		)
+		# Mean test
+		np.testing.assert_almost_equal(
+			X.mean(), 0, decimal=1,
+			err_msg=f"Gibbs (non-ising) sampler has unexpected mean (expected 0, got {X.mean()})"
+		)
+		# Correlation matrix tests
+		np.testing.assert_almost_equal(
+			np.diag(V), np.ones(p), decimal=5,
+			err_msg=f"Gibbs (non-ising) sampler does not return a correlation matrix" 
+		)
+		np.testing.assert_almost_equal(
+			np.diag(np.cov(X.T)), np.ones(p), decimal=3,
+			err_msg=f"Gibbs (non-ising) sampler does not properly scale design matrix"
+		)
+
 	def test_xdist_error(self):
 
 		# Check that we get an error for wrong dist

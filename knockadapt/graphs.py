@@ -2,6 +2,7 @@ import numpy as np
 from scipy import stats
 
 # Utility functions
+from . import utilities
 from .utilities import shift_until_PSD, chol2inv, cov2corr
 
 # Tree methods
@@ -205,38 +206,6 @@ def daibarber2016_graph(
     y = sample_response(X, beta, **kwargs)
 
     return X, y, beta, Q, Sigma, groups + 1
-
-
-def create_correlation_tree(corr_matrix, method="average"):
-    """ Creates hierarchical clustering (correlation tree)
-    from a correlation matrix
-    :param corr_matrix: the correlation matrix
-    :param method: 'single', 'average', 'fro', or 'complete'
-    returns: 'link' of the correlation tree, as in scipy"""
-
-    # Distance matrix for tree method
-    if method == "fro":
-        dist_matrix = np.around(1 - np.power(corr_matrix, 2), decimals=7)
-    else:
-        dist_matrix = np.around(1 - np.abs(corr_matrix), decimals=7)
-    dist_matrix -= np.diagflat(np.diag(dist_matrix))
-
-    condensed_dist_matrix = ssd.squareform(dist_matrix)
-
-    # Create linkage
-    if method == "single":
-        link = hierarchy.single(condensed_dist_matrix)
-    elif method == "average" or method == "fro":
-        link = hierarchy.average(condensed_dist_matrix)
-    elif method == "complete":
-        link = hierarchy.complete(condensed_dist_matrix)
-    else:
-        raise ValueError(
-            f'Only "single", "complete", "average", "fro" are valid methods, not {method}'
-        )
-
-    return link
-
 
 def create_sparse_coefficients(
     p, sparsity=0.5, groups=None, coeff_size=1, coeff_dist=None, sign_prob=0.5,
@@ -452,6 +421,114 @@ def sample_block_tmvn(
     X = scale * np.concatenate(X, axis=1)
     return X
 
+def num2coords(i, gridwidth = 10):
+    """ Coordinates of variable i in the grid
+    :param i: Position of variable in ordering
+    :param width: Width of the grid
+    :returns: length_coord, width_coord (coordiantes)"""
+    length_coord = i % gridwidth
+    width_coord = i // gridwidth
+    return int(length_coord), int(width_coord)
+    
+def coords2num(l, w, gridwidth = 10):
+    """ Takes coordinates of variable in the grid, returns position"""
+    if l < 0 or w < 0:
+        return -1
+    if l >= gridwidth or w >= gridwidth:
+        return -1
+    return int(w * gridwidth + l)
+
+def sample_gibbs(
+        n, p, method='ising', temp=1, num_iter=15, K=20, max_val=2.5,
+    ):
+    """ Samples from a Gibbs measure on a square grid
+    using a Gibbs sampler."""
+
+    # Create buckets from (approximately) -max_val to max_val
+    buckets = np.arange(-K+1, K+1, 2) / (K/max_val)
+
+    # Infer dimensionality
+    gridwidth = int(np.sqrt(p))
+    variables = set(list(range(p)))
+    Q = np.zeros((p, p)) # The UGM
+
+    # Log potentials and cliques
+    def log_potential(X1, X2=None, temp=1):
+        if X2 is None:
+            X2 = X1[:, 1]
+            X1 = X1[:, 0]
+        return -1*temp*np.power(X1 - X2, 2)
+
+    # Construct cliques
+    clique_dict = {}
+    for i1 in range(p):
+        clique_dict[i1] = []
+        # For ising model
+        if method=='ising':
+            lc, wc = num2coords(i1, gridwidth=gridwidth)
+            for ladd in [-1, 1]:
+                i2 = coords2num(lc + ladd, wc, gridwidth=gridwidth)
+                if i2 != -1:
+                    clique_dict[i1].append((i1, i2))
+                    sign = 1 - 2*np.random.binomial(1, 0.5)
+                    Q[i1, i2] = temp * sign
+                    Q[i2, i1] = temp * sign
+                else:
+            for wadd in [-1, 1]:
+                i2 = coords2num(lc, wc + wadd, gridwidth=gridwidth)
+                if i2 != -1:
+                    print(i1,i2, lc, wc)
+                    clique_dict[i1].append((i1, i2))
+                    sign = 1 - 2*np.random.binomial(1, 0.5)
+                    Q[i1, i2] = temp * sign
+                    Q[i2, i1] = temp * sign
+        # Otherwise method must be an integer:
+        # we randomly connect this variable method others
+        else:
+            choices = list(variables.difference(set([i1])))
+            connections = np.random.choice(choices, method, replace=False)
+            for i2 in connections:
+                clique_dict[i1].append((i1, i2))
+                sign = 1 - 2*np.random.binomial(1, 0.5)
+                Q[i1, i2] = temp * sign
+                Q[i2, i1] = temp * sign
+    print(clique_dict)
+
+
+    # Initialize
+    X = np.random.randn(n, p, 1)
+    dists = np.abs(X - buckets.reshape(1, 1, -1))
+    indices = dists.argmin(axis=-1)
+    X = buckets[indices]
+
+    # Marginalize / gibbs sample
+    for _ in range(num_iter):
+        for j in range(p):
+            # Cliques and marginals for this node
+            cliques = clique_dict[j]
+            marginals = np.zeros((n, K))
+            for clique in cliques:
+                # Calculate log-potential from this clique
+                X1 = buckets.reshape(1, -1)
+                X2 = X[:, clique[-1]].reshape(-1, 1)
+                marginals += log_potential(
+                    X1=X1, X2=X2, temp=Q[j, clique[-1]]
+                )
+
+            # Resample distribution of this value of X
+            # Note the exp is a bottleneck here for efficiency
+            marginals = np.exp(marginals.astype(np.float32))
+            marginals = marginals / marginals.sum(axis=-1, keepdims=True)
+            marginals = marginals.cumsum(axis=-1)
+
+            # Batched multinomial sampling using uniforms
+            # (faster than for loops + numpy)
+            unifs = np.random.uniform(size=(n,1))
+            Xnew = buckets[np.argmax(unifs <= marginals, axis=-1)]
+            X[:, j] = Xnew
+
+    return X, Q
+
 def sample_data(
     p=100,
     n=50,
@@ -493,7 +570,24 @@ def sample_data(
     generate the response. (If 'binomial', uses logistic link fn). 
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
     returns: X, y, beta, Q, corr_matrix
+    Note that Q will be a precision matrix unless x_dist=='ising' 
+    or 'gibbs': in this case, Q will be the UGM structure of the graph.
     """
+
+    # Defaults
+    if mu is None:
+        mu = np.zeros(p)
+
+    # Ising / Gibbs Sampling
+    if x_dist == 'gibbs':
+        # Sample X, Q
+        X, Q = sample_gibbs(n=n, p=p, method=method, **kwargs)
+
+        # Normalize for consistency
+        V = np.cov(X.T)
+        scale = np.sqrt(np.diag(V))
+        X = X / scale
+        corr_matrix = utilities.cov2corr(V)
 
     # Create Graph
     if Q is None and corr_matrix is None:
@@ -557,9 +651,9 @@ def sample_data(
         )
 
     # Sample design matrix
-    if mu is None:
-        mu = np.zeros(p)
-    if x_dist == 'gaussian':
+    if x_dist == 'gibbs':
+        pass
+    elif x_dist == 'gaussian':
         X = stats.multivariate_normal.rvs(mean=mu, cov=corr_matrix, size=n)
     elif x_dist == 'ar1t':
         if str(method).lower() != 'ar1':
@@ -569,11 +663,44 @@ def sample_data(
         blocks, _ = cov2blocks(corr_matrix)
         X = sample_block_tmvn(blocks, n=n, df_t=df_t)
     else:
-        raise ValueError(f"x_dist must be one of 'gaussian', 'ar1t', 'blockt'")
+        raise ValueError(f"x_dist must be one of 'gaussian', 'gibbs', 'ar1t', 'blockt'")
 
+    # Sample y
     y = sample_response(X=X, beta=beta, y_dist=y_dist, cond_mean=cond_mean)
 
     return X, y, beta, Q, corr_matrix
+
+
+
+def create_correlation_tree(corr_matrix, method="average"):
+    """ Creates hierarchical clustering (correlation tree)
+    from a correlation matrix
+    :param corr_matrix: the correlation matrix
+    :param method: 'single', 'average', 'fro', or 'complete'
+    returns: 'link' of the correlation tree, as in scipy"""
+
+    # Distance matrix for tree method
+    if method == "fro":
+        dist_matrix = np.around(1 - np.power(corr_matrix, 2), decimals=7)
+    else:
+        dist_matrix = np.around(1 - np.abs(corr_matrix), decimals=7)
+    dist_matrix -= np.diagflat(np.diag(dist_matrix))
+
+    condensed_dist_matrix = ssd.squareform(dist_matrix)
+
+    # Create linkage
+    if method == "single":
+        link = hierarchy.single(condensed_dist_matrix)
+    elif method == "average" or method == "fro":
+        link = hierarchy.average(condensed_dist_matrix)
+    elif method == "complete":
+        link = hierarchy.complete(condensed_dist_matrix)
+    else:
+        raise ValueError(
+            f'Only "single", "complete", "average", "fro" are valid methods, not {method}'
+        )
+
+    return link
 
 
 def plot_dendrogram(link, title=None):
