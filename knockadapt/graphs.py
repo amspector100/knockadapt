@@ -457,7 +457,7 @@ def sample_gibbs(
         if X2 is None:
             X2 = X1[:, 1]
             X1 = X1[:, 0]
-        return -1*temp*np.power(X1 - X2, 2)
+        return -1*temp*np.abs(X1 - X2)
 
     # Construct cliques
     clique_dict = {}
@@ -473,11 +473,9 @@ def sample_gibbs(
                     sign = 1 - 2*np.random.binomial(1, 0.5)
                     Q[i1, i2] = temp * sign
                     Q[i2, i1] = temp * sign
-                else:
             for wadd in [-1, 1]:
                 i2 = coords2num(lc, wc + wadd, gridwidth=gridwidth)
                 if i2 != -1:
-                    print(i1,i2, lc, wc)
                     clique_dict[i1].append((i1, i2))
                     sign = 1 - 2*np.random.binomial(1, 0.5)
                     Q[i1, i2] = temp * sign
@@ -492,8 +490,6 @@ def sample_gibbs(
                 sign = 1 - 2*np.random.binomial(1, 0.5)
                 Q[i1, i2] = temp * sign
                 Q[i2, i1] = temp * sign
-    print(clique_dict)
-
 
     # Initialize
     X = np.random.randn(n, p, 1)
