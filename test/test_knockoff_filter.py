@@ -6,7 +6,6 @@ from .context import knockadapt
 
 from knockadapt import utilities
 from knockadapt import graphs
-from knockadapt.knockoffs import solve_group_SDP
 from knockadapt.knockoff_filter import KnockoffFilter
 
 class TestFdrControl(unittest.TestCase):
@@ -26,9 +25,13 @@ class TestFdrControl(unittest.TestCase):
 		np.random.seed(110)
 
 		# Create and name DGP
-		_, _, beta, _, Sigma = graphs.sample_data(
+		X0, _, beta, _, Sigma = graphs.sample_data(
 			**kwargs
 		)
+		# Now pop corr_matrix
+		if 'corr_matrix' in kwargs:
+			kwargs.pop('corr_matrix')
+
 		basename = ''
 		for key in kwargs:
 			basename += f'{key}={kwargs[key]} '
@@ -45,7 +48,13 @@ class TestFdrControl(unittest.TestCase):
 				
 			# Solve SDP
 			if S is None and not fixedX:
-				S = solve_group_SDP(Sigma, groups=groups)
+				_, S = knockadapt.knockoffs.gaussian_knockoffs(
+					X=X0,
+					Sigma=Sigma,
+					groups=groups,
+					method='sdp',
+					return_S=True,
+				)
 			if not fixedX:
 				invSigma = utilities.chol2inv(Sigma)
 			group_nonnulls = utilities.fetch_group_nonnulls(beta, groups)
@@ -315,6 +324,21 @@ class TestKnockoffFilter(TestFdrControl):
 			sparsity=0.5, x_dist='blockt', reps=15, df_t=5, 
 			filter_kwargs={
 				'knockoff_type':'blockt', 
+			},
+		)
+
+	@pytest.mark.slow
+	def test_ising_control(self):
+
+		# Need to pull in specially-estimated Sigma
+		from .context import file_directory
+		p = 49
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		self.check_fdr_control(
+			n=500, p=49, method='ising', corr_matrix=V,
+			sparsity=0.5, x_dist='gibbs', reps=15,
+			filter_kwargs={
+				'knockoff_type':'ising', 
 			},
 		)
 

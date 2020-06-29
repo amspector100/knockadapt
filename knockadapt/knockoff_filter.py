@@ -80,6 +80,23 @@ class KnockoffFilter:
 
 			# Extract S
 			S = self.blockt_sampler.S
+		elif self.knockoff_type == 'ising':
+			# Sample
+			Q = np.linalg.inv(self.Sigma)
+			undir_graph = np.abs(Q) > 1e-5
+			self.ising_sampler = metro.IsingKnockoffSampler(
+				X=self.X,
+				V=self.Sigma,
+				Q=Q,
+				undir_graph=undir_graph,
+				mu=self.mu,
+				**self.knockoff_kwargs
+			)
+			knockoffs = self.ising_sampler.sample_knockoffs()
+
+			# It is impossible to extract S here because there
+			# are different S's for different parts of the data
+			S = None
 
 		else:
 			raise ValueError(

@@ -603,7 +603,10 @@ def sample_data(
         X, Q = sample_gibbs(n=n, p=p, Q=Q, method=method, **kwargs)
 
         # This is admittedly not a correlation matrix
-        corr_matrix, _ = utilities.estimate_covariance(X, tol=1e-3, shrinkage=None)
+        if corr_matrix is None:
+            corr_matrix, _ = utilities.estimate_covariance(
+                X, tol=1e-3, shrinkage=None
+            )
 
     # Create Graph
     if Q is None and corr_matrix is None:

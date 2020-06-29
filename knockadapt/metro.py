@@ -161,7 +161,7 @@ class MetropolizedKnockoffSampler():
 			# Handle case where the graph is entirely dense
 			if (mask == 0).sum() > 0:
 				max_nonedge = np.max(np.abs(Q[mask == 0]))
-				if max_nonedge > 1e-3:
+				if max_nonedge > 1e-2:
 					raise ValueError(
 						f"Precision matrix Q is not compatible with undirected graph (nonedge has value {max_nonedge})"
 					)
@@ -1123,9 +1123,12 @@ class IsingKnockoffSampler():
 		if mu is None:
 			mu = X.mean(axis=0)
 
-		# Find the optimal S matrix
-		# if 'S' in kwargs:
-		# 	self.S = kwargs.pop('S')
+		# Div and conquer makes this nontrivial
+		# (Note to self: maybe TODO?)
+		if 'S' in kwargs:
+			kwargs.pop('S')
+		if 'invSigma' in kwargs:
+			kwargs.pop('invSigma')
 		# else:
 		# 	_, self.S = knockoffs.gaussian_knockoffs(
 		# 		X=X[0:10],
