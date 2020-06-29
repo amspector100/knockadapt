@@ -2,7 +2,7 @@ import numpy as np
 import unittest
 from .context import knockadapt
 
-from knockadapt import utilities
+from knockadapt import graphs, utilities
 
 class TestUtils(unittest.TestCase):
 	""" Tests some various utility functions """
@@ -114,7 +114,47 @@ class TestUtils(unittest.TestCase):
 			err_msg = 'chol2inv fails to correctly calculate inverses'
 		)
 
+	def test_misaligned_covariance_estimation(self):
 
+		# Inputs
+		seed = 110
+		sample_kwargs = {
+			'n':640,
+			'p':300,
+			'method':'daibarber2016',
+			'gamma':1,
+			'rho':0.8,
+		}
+
+		# Extracta couple of constants
+		n = sample_kwargs['n']
+		p = sample_kwargs['p']
+
+		# Create data generating process
+		np.random.seed(seed)
+		X, y, beta, _, V = graphs.sample_data(**sample_kwargs)  
+
+		# Make sure this does not raise an error
+		# (even though it is ill-conditioned and the graph lasso doesn't fail)
+		utilities.estimate_covariance(X, shrinkage='graphicallasso')
+
+	def test_covariance_estimation(self):
+
+		# Random data
+		np.random.seed(110)
+		n = 50
+		p = 100
+		rho = 0.3
+		V = (1-rho)*np.eye(p) + (rho)*np.ones((p,p))
+		X,_,_,_,_ = graphs.sample_data(n=n, corr_matrix=V)
+
+		# Estimate covariance matrix
+		Vest,_ = utilities.estimate_covariance(X, tol=1e-2)
+		frobenius = np.sqrt(np.power(Vest - V, 2).mean())
+		self.assertTrue(
+			frobenius < 0.2,
+			f"High-dimension covariance estimation is horrible"
+		)
 
 
 

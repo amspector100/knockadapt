@@ -3,7 +3,6 @@ import numpy as np
 import scipy as sp
 from scipy import stats
 import scipy.linalg
-import sklearn.covariance
 
 from .utilities import calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
@@ -530,54 +529,6 @@ def parse_method(method, groups, p):
             method = "sdp"
     return method
 
-def estimate_covariance(X, tol=1e-3, shrinkage = 'ledoitwolf'):
-    """ Estimates covariance matrix of X. 
-    :param X: n x p data matrix
-    :param tol: threshhold for minimum eigenvalue
-    :shrinkage: The type of shrinkage to apply.
-     One of "ledoitwolf," "graphicallasso," or 
-     None (no shrinkage). Note even if shrinkage is None,
-    if the minim eigenvalue of the empirical cov matrix
-    is below a certain tolerance, this will apply shrinkage
-    anyway.
-    :returns: Sigma, invSigma
-    """
-    Sigma = np.cov(X.T)
-    mineig = np.linalg.eigh(Sigma)[0].min()
-
-    # Parse none strng
-    if str(shrinkage).lower() == 'none':
-        shrinkage = None
-
-    # Possibly shrink Sigma
-    if mineig < tol or shrinkage is not None:
-        # Which shrinkage to use
-        if str(shrinkage).lower() == 'ledoitwolf' or shrinkage is None: 
-            ShrinkEst = sklearn.covariance.LedoitWolf()
-        elif str(shrinkage).lower() == 'graphicallasso':
-            ShrinkEst = sklearn.covariance.GraphicalLasso(alpha=0.1)
-        else:
-            raise ValueError(f"Shrinkage arg must be one of None, 'ledoitwolf', 'graphicallasso', not {shrinkage}")
-
-        # Fit shrinkage. Sometimes the Graphical Lasso raises errors
-        # so we handle these here.
-        try:
-            warnings.filterwarnings("ignore")
-            ShrinkEst.fit(X)
-            warnings.resetwarnings()
-        except FloatingPointError:
-            warnings.resetwarnings()
-            warnings.warn(f"Graphical lasso failed, using empirical covariance matrix")
-            return Sigma, utilities.chol2inv(Sigma)
-
-        # Return
-        Sigma = ShrinkEst.covariance_
-        invSigma = ShrinkEst.precision_
-        return Sigma, invSigma
-
-    # Else return empirical estimate
-    return Sigma, utilities.chol2inv(Sigma)
-
 def gaussian_knockoffs(
     X,
     fixedX=False,
@@ -678,7 +629,7 @@ def gaussian_knockoffs(
 
     # Possibly estimate mu, Sigma for MX 
     if Sigma is None and not fixedX: 
-        Sigma, invSigma = estimate_covariance(X, tol=sdp_tol)
+        Sigma, invSigma = utilities.estimate_covariance(X, tol=sdp_tol)
 
     # Scale for MX case (no shifting required)
     if not fixedX:
@@ -709,7 +660,7 @@ def gaussian_knockoffs(
         max_error = np.abs(product - np.eye(p)).max()
         if max_error > sample_tol:
             raise ValueError(
-                "Inverse Sigma provided was not actually the inverse of Sigma"
+                f"invSigma provided was not the inverse of Sigma (max_error {max_error} > sample_tol {sample_tol})"
             )
 
     # Calculate group-block diagonal matrix S
@@ -798,6 +749,8 @@ def gaussian_knockoffs(
 
     # For caching/debugging
     if return_S:
+        # Rescale S for original cov matrix
+        S = S * np.outer(scale, scale)
         return knockoffs, S
 
     return knockoffs

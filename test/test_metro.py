@@ -1,3 +1,4 @@
+import os
 import pytest
 import numpy as np
 import networkx as nx
@@ -47,6 +48,8 @@ class TestMetroProposal(unittest.TestCase):
 			undir_graph = np.abs(Q) > 1e-3,
 			S=np.eye(p),
 		)
+
+		raise ValueError()
 
 		# Test that invSigma is as it should be
 		G = metro_sampler.G
@@ -479,6 +482,169 @@ class TestBlockT(unittest.TestCase):
 		np.testing.assert_almost_equal(
 			X4th / 10, Xk4th / 10, decimal=1,
 			err_msg=f"For block T sampler, fourth moment of Xk does not match theoretical fourth moment" 
+		)
+
+class TestIsing(unittest.TestCase):
+
+	def test_divconquer_likelihoods(self):
+
+		# Test to make sure the way we split up
+		# cliques does not change the likelihood
+		np.random.seed(110)
+		n = 10
+		p = 625
+		mu = np.zeros(p)
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='ising',
+			x_dist='gibbs',
+		)
+
+		# Initialize sampler
+		metro_sampler = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=Q,
+			mu=mu,
+			V=V,
+			max_width=2,
+		)
+
+		# Non-divided likelihood
+		nondiv_like = 0
+		for clique, lp in zip(metro_sampler.cliques, metro_sampler.log_potentials):
+			nondiv_like += lp(X[:, np.array(clique)])
+		
+		# Divided likelihood for the many keys
+		many_div_like = np.zeros(n)
+		for dc_key in metro_sampler.dc_keys:
+			# Initialize likelihood for these data points
+			div_like = 0
+			# Helpful constants
+			seps = metro_sampler.separators[dc_key]
+			n_inds = metro_sampler.X_ninds[dc_key]
+			# Add separator-to-separator cliques manually
+			for clique, lp in zip(metro_sampler.cliques, metro_sampler.log_potentials):
+				if clique[0] not in seps or clique[1] not in seps:
+					continue
+				sepX = X[n_inds]
+				div_like += lp(sepX[:, np.array(clique)])
+
+			# Now loop through other blocks
+			div_dict_list = metro_sampler.divconq_info[dc_key]
+			for block_dict in div_dict_list:
+				blockX = X[n_inds][:, block_dict['inds']]
+				for clique, lp in zip(block_dict['cliques'], block_dict['lps']):
+					div_like +=  lp(blockX[:, clique])
+			many_div_like[n_inds] = np.array(div_like)
+
+		# Test to make sure these likelihoods agree
+		np.testing.assert_almost_equal(
+			nondiv_like, many_div_like, decimal=5,
+			err_msg=f"Non-divided clique potentials {nondiv_like} do not agree with divided cliques {div_like}"
+		)
+
+	def test_large_ising_samples(self):
+
+		# Test that sampling does not throw an error
+		np.random.seed(110)
+		n = 100
+		p = 625
+		mu = np.zeros(p)
+		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='ising',
+			x_dist='gibbs',
+		)
+		np.fill_diagonal(undir_graph, 1)
+
+		# We load custom cov/q matrices for this
+		file_directory = os.path.dirname(os.path.abspath(__file__))
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
+		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		self.assertTrue(
+			max_nonedge < 1e-5,
+			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
+		)
+
+		# Initialize sampler
+		metro_sampler = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=undir_graph,
+			mu=mu,
+			V=V,
+			Q=Q,
+			max_width=4,
+			method='equicorrelated',
+		)
+
+		# Sample and hope for no errors
+		Xk = metro_sampler.sample_knockoffs()
+
+	def test_small_ising_samples(self):
+
+		# Test samples to make sure the 
+		# knockoff properties hold
+		np.random.seed(110)
+		n = 100000
+		p = 9
+		mu = np.zeros(p)
+		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='ising',
+			x_dist='gibbs',
+		)
+		np.fill_diagonal(undir_graph, 1)
+
+		# We load custom cov/q matrices for this
+		file_directory = os.path.dirname(os.path.abspath(__file__))
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
+		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		self.assertTrue(
+			max_nonedge < 1e-5,
+			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
+		)
+
+		# Initialize sampler
+		metro_sampler = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=undir_graph,
+			mu=mu,
+			V=V,
+			Q=Q,
+			max_width=2,
+		)
+
+		# Sample
+		Xk = metro_sampler.sample_knockoffs()
+
+		# Check empirical means
+		# Check empirical covariance matrix
+		mu_hat = X.mean(axis=0)
+		muk_hat = np.mean(Xk, axis=0)
+		np.testing.assert_almost_equal(
+			muk_hat, mu_hat, decimal=2,
+			err_msg=f"For Ising sampler, empirical mean of Xk does not match mean of X" 
+		)
+
+		# Check empirical covariance matrix
+		V_hat = np.cov(X.T)
+		Vk_hat = np.cov(Xk.T)
+		np.testing.assert_almost_equal(
+			V_hat / 2, Vk_hat / 2, decimal=1,
+			err_msg=f"For Ising sampler, empirical covariance of Xk does not match cov of X" 
+		)
+
+		# Check that marginal fourth moments match
+		X4th = np.mean(np.power(X, 4), axis=0)
+		Xk4th = np.mean(np.power(Xk, 4), axis=0)
+		np.testing.assert_almost_equal(
+			X4th / 10, Xk4th / 10, decimal=1,
+			err_msg=f"For Ising sampler, fourth moment of Xk does not match theoretical fourth moment" 
 		)
 
 

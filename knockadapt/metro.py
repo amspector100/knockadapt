@@ -14,6 +14,7 @@ import sys
 import numpy as np
 import scipy as sp
 import itertools
+from functools import reduce
 from scipy import stats
 from . import utilities, knockoffs, graphs
 
@@ -24,6 +25,18 @@ from . import tree_processing
 # Logging
 import warnings
 from tqdm import tqdm
+
+def frobenius_error(
+	V, Q
+):
+	"""
+	Calculates ||VQ - I||_{frobenius}^2 / p
+	to check if V is truly an inverse of Q.
+	This is a fancy way of saying: mean squared error. 
+	"""
+	resid = np.dot(V, Q) - np.eye(V.shape[0])
+	error = np.power(resid, 2).mean()
+	return error
 
 def gaussian_log_likelihood(
 	X, mu, var
@@ -53,8 +66,8 @@ class MetropolizedKnockoffSampler():
 			self,
 			lf,
 			X,
-			mu,
-			V,
+			mu=None,
+			V=None,
 			undir_graph=None,
 			order=None,
 			active_frontier=None,
@@ -62,6 +75,7 @@ class MetropolizedKnockoffSampler():
 			metro_verbose=False,
 			cliques=None,
 			log_potentials=None,
+			buckets=None,
 			**kwargs
 			):
 		"""
@@ -74,6 +88,7 @@ class MetropolizedKnockoffSampler():
 		an n x p numpy array (n independent samples of a p-dim vector).
 		:param X: n x p array of data. (n independent samples of a 
 		p-dim vector).
+		This can be supplied as None if cliques are supplied.
 		:param mu: The mean of X. As described in
 		https://arxiv.org/abs/1903.00434, exact FDR control is maintained
 		even when this vector is incorrect.
@@ -98,6 +113,9 @@ class MetropolizedKnockoffSampler():
 		:param kwargs: kwargs to pass to a gaussian_knockoffs constructor.
 		This is used to create the S matrix which is then used for the
 		covariance-guided proposals.
+		:param buckets: If not None, a list of discrete values that X 
+		can take. Covariance-guided proposals will be rounded to these
+		values. This must be a K-length vector.
 		"""
 
 		# Random params
@@ -106,6 +124,15 @@ class MetropolizedKnockoffSampler():
 		self.gamma = gamma
 		self.metro_verbose = metro_verbose # Controls verbosity
 		self.F_queries = 0 # Counts how many queries we make
+		self.buckets = buckets
+
+		# Possibly estimate mean, cov matrix
+		if mu is None:
+			mu = X.mean(axis=0)
+		if V is None:
+			V, Q = utilities.estimate_covariance(
+				X, tol=1e-3, shrinkage=None
+			)
 
 		# Possibly learn order / active frontier
 		if order is None or active_frontier is None:
@@ -124,13 +151,14 @@ class MetropolizedKnockoffSampler():
 		if 'invSigma' in kwargs:
 			Q = kwargs.pop('invSigma')
 		else:
-			Q = utilities.chol2inv(V)
+			# This is more numerically stable for super sparse Q
+			Q = np.linalg.inv(V)
 		if undir_graph is not None:
 			warnings.filterwarnings('ignore')
 			mask = nx.to_numpy_matrix(undir_graph)
 			warnings.resetwarnings()
-			mask += np.eye(self.p)
-			# Handle case where the graph is dense
+			np.fill_diagonal(mask, 1)
+			# Handle case where the graph is entirely dense
 			if (mask == 0).sum() > 0:
 				max_nonedge = np.max(np.abs(Q[mask == 0]))
 				if max_nonedge > 1e-3:
@@ -150,6 +178,7 @@ class MetropolizedKnockoffSampler():
 		self.unordered_lf = lf
 
 		# Re-order the cliques 
+		# (internal order, not external order)
 		self.log_potentials = log_potentials
 		if cliques is not None:
 			self.cliques = []
@@ -193,8 +222,9 @@ class MetropolizedKnockoffSampler():
 
 		# Possibly reorder S if it's in kwargs
 		if 'S' in kwargs:
-			S = kwargs['S']
-			kwargs['S'] = S[self.order][:, self.order]
+			if kwargs['S'] is not None:
+				S = kwargs['S']
+				kwargs['S'] = S[self.order][:, self.order]
 
 		# Create proposal parameters
 		self.create_proposal_params(**kwargs)
@@ -288,9 +318,6 @@ class MetropolizedKnockoffSampler():
 			return_S=True,
 			**kwargs
 		)
-		# Scale (S is in correlation format currently)
-		S_scale = np.sqrt(np.diag(self.V))
-		self.S = self.S / np.outer(S_scale, S_scale)
 		self.G = np.concatenate(
 			[np.concatenate([self.V, self.V - self.S]),
 			 np.concatenate([self.V - self.S, self.V])],
@@ -328,7 +355,7 @@ class MetropolizedKnockoffSampler():
 			if j > 0:
 				# Extract extra components
 				gammaj = self.G[self.p+j-1, 0:self.p+j-1]
-				sigma2j = self.V[j, j]
+				sigma2j = self.G[self.p+j-1, self.p+j-1]
 
 				# Recursion for upper-left block
 				invSigma_gamma_j = np.dot(self.invSigma, gammaj)
@@ -354,8 +381,15 @@ class MetropolizedKnockoffSampler():
 
 				# Set the new inverse sigma: delete the old one
 				# to save memory
-				del self.invSigma
 				self.invSigma = np.concatenate([upper_half,lower_half], axis=0)
+ 
+				# Test for numerical stability - every now and then,
+				# we may take an inversion to improve accuracy
+				# Sigma = self.G[0:self.p+j, 0:self.p+j]
+				# fro_error = frobenius_error(Sigma, self.invSigma)
+				# if fro_error > 1e-4:
+				# 	self.invSigma = np.linalg.inv(Sigma)
+				# 	fro_error2 = frobenius_error(Sigma, self.invSigma)
 
 			# 2. Now compute conditional mean and variance
 			# Helpful bits
@@ -366,6 +400,17 @@ class MetropolizedKnockoffSampler():
 			self.cond_vars[j] -= np.dot(
 				Gamma12_j, np.dot(self.invSigma, Gamma12_j),
 			)
+
+			# Check the cond variance makes sense
+			# Recall that invSigma has dim p + j - 1
+			# for knockoff at index p + j, which is why
+			# this marg var is correct.
+			marg_var = self.G[self.p+j, self.p+j]
+			#margvar2 = self.G[self.p+j, self.p+j]
+			if self.cond_vars[j] < 0:
+				raise ValueError(f"Cond_vars[{j}] = {self.cond_vars[j]} < 0")
+			elif self.cond_vars[j] > marg_var:
+				raise ValueError(f"Cond_vars[{j}] = {self.cond_vars[j]} > marginal variance {marg_var}")
 
 			# Mean transform
 			mean_transform = np.dot(Gamma12_j, self.invSigma).reshape(1, -1)
@@ -466,10 +511,19 @@ class MetropolizedKnockoffSampler():
 		:param prev_proposals: n x (j - 1) numpy array of previous
 		proposals. If None, assumes j = 0.
 		"""
+
+		# Sample from gaussian
 		cond_mean, cond_var = self.fetch_proposal_params(
 			X=X, prev_proposals=prev_proposals
 		)
 		proposal = np.sqrt(cond_var)*np.random.randn(self.n, 1) + cond_mean
+		
+		# Possibly do a nearest-neighbor bucketization
+		if self.buckets is not None:
+			dists = np.abs(proposal - self.buckets.reshape(1, 1, -1))
+			indices = dists.argmin(axis=-1)
+			proposal = self.buckets[indices]
+
 		return proposal.reshape(-1)
 
 	def get_key(self, x_flags, j):
@@ -599,6 +653,7 @@ class MetropolizedKnockoffSampler():
 		if log_q1 is None or log_q2 is None:
 			log_q1, log_q2, Xtemp = self.log_q12(x_flags, j)
 		lq_ratio = log_q1 - log_q2
+
 
 		# Possibly ceate X temp variable
 		if Xtemp is None:
@@ -810,7 +865,14 @@ class MetropolizedKnockoffSampler():
 			self.Xk[:, j][mask] = self.X_prop[:, j][mask]
 			self.Xk[:, j][~mask] = self.X[:, j][~mask] 
 
-		# Return re-sorted knockoffs		
+		# Delete cache to save memory
+		if self.cache:
+			if self.metro_verbose:
+				print("Deleting cache to save memory...")
+			del self.cached_mean_obs_eq_obs
+			del self.cached_mean_obs_eq_prop
+
+		# Return re-sorted 
 		return self.Xk[:, self.inv_order]
 
 
@@ -888,15 +950,20 @@ class ARTKSampler(MetropolizedKnockoffSampler):
 		log_potentials.append(lambda X0: t_log_likelihood(inv_scale*X0, df_t=df_t)) 
 
 		# Pairwise log-potentials
+		def make_t_logpotential(rho, conj, invscale, df_t):
+			def lp(Xc):
+				return t_log_likelihood(
+					inv_scale*(Xc[:,1]-rho*Xc[:,0])/conj, df_t=df_t
+				)
+			return lp
+
 		conjugates = np.sqrt(1-self.rhos**2)
 		for i, rho, conj in zip(list(range(1, p)), self.rhos, conjugates):
 			# Append the clique: X[:, [i+1,i]]
 			cliques.append([i-1,i])
 			# Takes an n x 2 array as an input
 			log_potentials.append(
-				lambda Xc: t_log_likelihood(
-					inv_scale*(Xc[:,1]-rho*Xc[:,0])/conj, df_t=df_t
-				)
+				make_t_logpotential(rho, conj, inv_scale, df_t)
 			)
 
 		# Loss function (unordered)
@@ -1027,3 +1094,342 @@ class BlockTSampler():
 		self.final_acc_probs = np.concatenate(self.final_acc_probs, axis=1)
 		self.acceptances = np.concatenate(self.acceptances, axis=1)
 		return self.Xk
+
+class IsingKnockoffSampler():
+
+	def __init__(
+		self,
+		X,
+		undir_graph,
+		V,
+		Q=None,
+		mu=None,
+		max_width=6,
+		**kwargs
+	):
+		"""
+		:param X: design matrix
+		:param undir_graph: matrix of coefficients for log-potentials
+		"""
+
+		# Infer bucketization and V
+		self.n = X.shape[0]
+		self.p = X.shape[1]
+		self.X = X
+		self.gridwidth = int(np.sqrt(self.p))
+		if self.gridwidth**2 != self.p:
+			raise ValueError(f"p {self.p} must be a square number for ising grid")
+		self.buckets = np.unique(X)
+		if mu is None:
+			mu = X.mean(axis=0)
+
+		# Find the optimal S matrix
+		# if 'S' in kwargs:
+		# 	self.S = kwargs.pop('S')
+		# else:
+		# 	_, self.S = knockoffs.gaussian_knockoffs(
+		# 		X=X[0:10],
+		# 		Sigma=V,
+		# 		return_S=True,
+		# 		**kwargs
+		# 	)
+
+		# Dummy order / inv_order variables for consistency
+		self.order = np.arange(self.p)
+		self.inv_order = np.arange(self.p)
+
+		def make_ising_logpotential(temp, i, j):
+			def lp(X):
+				return -1*temp*np.abs(X[:, 0] - X[:, 1])
+			return lp
+
+		# Learn cliques, log-potentials
+		self.cliques = []
+		self.log_potentials = []
+		for i in range(self.p):
+			for j in range(i):
+				if undir_graph[i,j] != 0:
+					self.cliques.append((i,j))
+					temp = undir_graph[i,j]
+					self.log_potentials.append(make_ising_logpotential(temp, i, j))
+
+		# Maps variables to cliques they're part of
+		# Clique key maps the clique back to the log-potential
+		self.clique_dict = {i:[] for i in range(self.p)}
+		for clique_key, clique in enumerate(self.cliques):
+			for j in clique:
+				self.clique_dict[j].append((clique_key, clique))
+
+
+		# Split X up into blocks along the n-axis.
+		# Each divconq key corresponds to one way to
+		# divide/conquer the variables, and to one
+		# of these blocks.
+		self.dc_keys = []
+		for div_type in ['row','col']:
+			for trans in [max_width - 1, max_width - 2]:
+				self.dc_keys.append(f'{div_type}-{trans}')
+		rand_inds = np.arange(self.n)
+		np.random.shuffle(rand_inds)
+		self.X_ninds = {key:[] for key in self.dc_keys}
+		for i, j in enumerate(rand_inds):
+			key = self.dc_keys[j % len(self.dc_keys)]
+			self.X_ninds[key].append(i)
+
+		# Structure of self.divconq_info
+		# (1) Dictionary takes a divide-and-conquery key 
+		# (translation + row/col)
+		# (2) This maps to a list of dictionaries. Each
+		# dictionary corresponds to one of the blocks 
+		# in the divide and conquer procedure.
+		# (3) Each dictionary takes three keys: inds, 
+		# cliques, lps.
+		# - inds is the list of ORIGINAL coordinates 
+		# of the block of variables. E.g. if block 1
+		# corresponds to columns 1,5,6, in X,
+		# then inds = [1,5,6]
+		# - cliques is a list of cliques in the NEW coordinates
+		# of the block. So for example, if 1,5 was a clique in
+		# the prior example, then (0,1) would be in this list.  
+		# - lps are the log-potentials corresponding to 
+		# the cliques above.
+		self.divconq_info = {}
+
+		# This maps divconq key 
+		# to a list of separators (e.g. knockoffs = features)
+		# for these indices.
+		self.separators = {}
+
+		for dc_key in self.dc_keys:
+			div_type = dc_key.split('-')[0]
+			trans = int(dc_key.split('-')[-1])
+			seps, dict_list = self.divide_variables(
+				dc_key=dc_key,
+				translation=trans,
+				max_width=max_width,
+				div_type=div_type,
+			)
+			self.separators[dc_key] = seps
+			self.divconq_info[dc_key] = dict_list
+
+		# Initialize samplers. Each sampler will only sample
+		# a subset of variables for a subset of the data
+		# Structure: maps divconq key to list of n_inds, p_inds, sampler
+		self.samplers = {key:[] for key in self.dc_keys}
+		for key in self.dc_keys:
+			# Fetch indicies
+			n_inds = np.array(self.X_ninds[key])
+			sep_inds = self.separators[key]
+
+			# Helper for conditional cov matrices
+			V11 = V[sep_inds][:, sep_inds] # s x s
+			V11_inv = utilities.chol2inv(V11)
+
+
+			for div_group_dict in self.divconq_info[key]:
+				p_inds = div_group_dict['inds']
+
+
+				# Find conditional covariance matrix V
+				# for p_inds given 
+				# the conditioned-on-separators
+				V22 = V[p_inds][:, p_inds] # p_i x p_i
+				V21 = V[p_inds][:, sep_inds] # p_i x s
+				Vcond = V22 - np.dot(
+					V21, np.dot(V11_inv, V21.T),
+				)
+
+				sampler = MetropolizedKnockoffSampler(
+					lf=None,
+					X=X[n_inds][:, p_inds],
+					mu=mu[p_inds],
+					V=Vcond,
+					undir_graph=undir_graph[p_inds][:,p_inds],
+					cliques=div_group_dict['cliques'],
+					log_potentials=div_group_dict['lps'],
+					buckets=self.buckets,
+					S=None,
+					**kwargs
+				)
+				if sampler.width > max_width:
+					raise ValueError(
+						f"Divide/conquer failed, sampler for {p_inds} has width {sampler.width} > max_width {max_width}"
+					)
+
+				self.samplers[key].append((n_inds, p_inds, sampler))
+
+	def num2coords(self, i):
+		""" Wraps num2coords from knockadapt.graphs """
+		return graphs.num2coords(i=i, gridwidth=self.gridwidth)
+
+	def coords2num(self, lc, wc):
+		return graphs.coords2num(l=lc, w=wc, gridwidth=self.gridwidth)
+
+	def get_ac(self, i, div_type):
+		"""
+		Helper function for divide-and-conquer
+		in Ising model. Extracts active coordinate
+		from variable i.
+		Returns ac, lc, wc.
+		"""
+		lc, wc = self.num2coords(i)
+		if div_type == 'row':
+			return lc, lc, wc
+		else:
+			return wc, lc, wc
+
+	def sample_knockoffs(self, **kwargs):
+		"""
+		:param kwargs: kwargs for the metro sampler.
+		"""
+
+		self.Xk = np.zeros((self.n, self.p))
+		self.Xk[:] = np.nan
+		self.final_acc_probs = self.Xk.copy()
+		self.acceptances = self.Xk.copy()
+
+		# Loop through different ways of separating variables
+		for key in self.dc_keys:
+			# N inds for this particular method of separation
+			n_inds = np.array(self.X_ninds[key])
+
+			# Initialize output
+			Xkblock = np.zeros((len(n_inds), self.p))
+			Xkblock[:] = np.nan
+			accblock = Xkblock.copy()
+			probblock = Xkblock.copy()
+			
+			# Set separating knockoffs = to their features
+			sep_inds = self.separators[key]
+			Xkblock[:,sep_inds] = self.X[n_inds][:,sep_inds]
+			accblock[:,sep_inds] = 0
+			probblock[:,sep_inds] = 0
+
+			# Loop through blocks
+			for n_inds, p_inds, sampler in self.samplers[key]:
+
+				# Sample knockoffs
+				Xkblock[:,p_inds] = sampler.sample_knockoffs(**kwargs)
+
+				# Save final_acc_probs, acceptances
+				accblock[:,p_inds] = sampler.final_acc_probs[:, sampler.inv_order]
+				probblock[:,p_inds] = sampler.acceptances[:, sampler.inv_order]
+
+			# Set Xk value for this block
+			self.Xk[n_inds] = Xkblock
+			self.acceptances[n_inds] = accblock
+			self.final_acc_probs[n_inds] = probblock
+
+		return self.Xk
+
+	def divide_variables(self, dc_key, translation, max_width, div_type):
+		"""
+		Takes translation, max_width of junction tree, and div_type
+		and returns separator_inds + a list of dictionaries. 
+		dc_key is the divconq key.
+		"""
+		# 0. Create separator variables
+		separator_inds = [x for x in range(self.gridwidth) if x % max_width == translation]
+		separator_inds = np.array(separator_inds)
+		separator_vars = []
+		for s in separator_inds:
+			for j in range(self.gridwidth):
+				if div_type=='row':
+					separator_vars.append(self.coords2num(s,j))
+				else:
+					separator_vars.append(self.coords2num(j,s))
+		
+		# 1. Use graphs.num2coords to determine the blocks
+		# that each set of variables appear in (e.g.,
+		# one block is columns 6-10, etc)
+		div_groups = [[] for _ in range(len(separator_inds) + 1)]
+		for i in range(self.p):
+			# Determine the AC or active coordinate based on
+			# whether or not we are splitting up rows / columns
+			ac,_,_ = self.get_ac(i, div_type=div_type)
+			
+			# Ignore this variable if it is a separator
+			if ac in separator_inds:
+				continue
+
+			# Groups to the right of lc
+			right_groups = np.where(ac < separator_inds)[0]
+			if right_groups.shape[0] == 0:
+				div_groups[-1].append(i)
+			else:
+				div_groups[np.min(right_groups)].append(i)
+
+		# Remove empty groups
+		div_groups = [x for x in div_groups if len(x) > 0]
+			
+		# Quality check
+		num_sep = len(set(separator_vars))
+		nonsep = reduce(lambda x,y:x+y, div_groups)
+		if num_sep + len(nonsep) != self.p:
+			raise ValueError(f"Vars do not add to 1 ({num_sep} separators, {len(nonsep)} non-seps, p={self.p})")
+		
+		# 2. Each block is now conditionally indepenent --
+		# see proposition 3 of the paper. We need to change
+		# the cliques to excise the "conditioned-on" variables.
+		# Same thing holds for log-potentials
+		def construct_trunc_logpotent(lp, j2, dc_key):
+			def trunc_lp(Xj1):
+				n_inds = self.X_ninds[dc_key]
+				if Xj1.shape[0] != len(n_inds):
+					raise ValueError(f"Xj1 shape {Xj1.shape} does not match num n_inds ({len(n_inds)}) for dc_key={dc_key}")
+				Xc = np.stack(
+					[Xj1.reshape(-1), self.X[n_inds][:,j2]],
+					axis=1
+				)
+				return lp(Xc)
+			return trunc_lp
+
+
+
+		output = []
+		for div_group in div_groups:
+			output.append({'inds':div_group})
+			div_cliques = []
+			div_lps = []
+			for new_coord_j1, j1 in enumerate(div_group):
+				# Original cliques for item j
+				cliques_j = self.clique_dict[j1]
+				for clique_key, clique in cliques_j:
+					# Find out which clique member is new
+					ind = 0 if clique[0] == j1 else 1
+					j2 = clique[1 - ind]
+					# Coordinates for analysis
+					ac1, lc1, wc1 = self.get_ac(j1, div_type)
+					ac2, lc2, wc2 = self.get_ac(j2, div_type)
+					# Check if the new clique size is 1 after conditioning
+					if j2 not in div_group:
+						# This means j2 must be separating the groups
+						if j2 not in separator_vars:
+							raise ValueError(f"For j1={j1} (ac={ac1}, lc={lc1}, wc={lc2}), j2={j2} (ac={ac2}, lc={lc2}, wc={wc2}), div_group={div_group}, separators={separator_vars}, j2 not a separator")
+						# Replace Xj2 with X[:, j2] in log-potential
+						div_cliques.append([new_coord_j1])
+						# This only works because the log potentials are symmetric
+						# otherwise we'd have to condition on the ind
+						div_lps.append(
+							construct_trunc_logpotent(
+								lp = self.log_potentials[clique_key],
+								dc_key=dc_key,
+								j2=j2,
+							)
+						)
+					# Alternatively, for cliquesize = 2.
+					# We only append if j1 < j2, to prevent 
+					# double-counting
+					elif j1 >= j2:
+						# Find the new coordinate for j2
+						new_coord_j2 = np.where(j2 == np.array(div_group))[0][0]
+						div_cliques.append([new_coord_j1, new_coord_j2])
+						div_lps.append(
+							self.log_potentials[clique_key]
+						)
+
+			# Add cliques + lps to output
+			output[-1]['cliques'] = div_cliques
+			output[-1]['lps'] = div_lps 
+
+		return separator_vars, output

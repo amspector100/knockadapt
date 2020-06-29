@@ -274,48 +274,6 @@ class TestSDP(CheckSMatrix):
 class TestUtilFunctions(unittest.TestCase):
     """ Tests a couple of simple utility functions"""
 
-    def test_misaligned_covariance_estimation(self):
-
-        # Inputs
-        seed = 110
-        sample_kwargs = {
-            'n':640,
-            'p':300,
-            'method':'daibarber2016',
-            'gamma':1,
-            'rho':0.8,
-        }
-
-        # Extracta couple of constants
-        n = sample_kwargs['n']
-        p = sample_kwargs['p']
-
-        # Create data generating process
-        np.random.seed(seed)
-        X, y, beta, _, V = graphs.sample_data(**sample_kwargs)  
-
-        # Make sure this does not raise an error
-        # (even though it is ill-conditioned and the graph lasso doesn't fail)
-        knockoffs.estimate_covariance(X, shrinkage='graphicallasso')
-
-    def test_covariance_estimation(self):
-
-        # Random data
-        np.random.seed(110)
-        n = 50
-        p = 100
-        rho = 0.3
-        V = (1-rho)*np.eye(p) + (rho)*np.ones((p,p))
-        X,_,_,_,_ = graphs.sample_data(n=n, corr_matrix=V)
-
-        # Estimate covariance matrix
-        Vest,_ = knockoffs.estimate_covariance(X, tol=1e-2)
-        frobenius = np.sqrt(np.power(Vest - V, 2).mean())
-        self.assertTrue(
-            frobenius < 0.2,
-            f"High-dimension covariance estimation is horrible"
-        )
-
     def test_blockdiag_to_blocks(self):
 
         # Create block sizes and blocks
@@ -624,7 +582,7 @@ class CheckValidKnockoffs(unittest.TestCase):
 
         # Sigma should be
         if Sigma is None:
-            Sigma, _ = knockoffs.estimate_covariance(X, tol=1e-2)
+            Sigma, _ = utilities.estimate_covariance(X, tol=1e-2)
 
         # Also rescale X/Xk so S makes sense
         scale = np.sqrt(np.diag(Sigma))
@@ -635,6 +593,7 @@ class CheckValidKnockoffs(unittest.TestCase):
             mu = mu / scale 
         Xk = Xk / scale.reshape(1, -1)
         Sigma = Sigma / np.outer(scale, scale)
+        S = S / np.outer(scale, scale)
 
  
         # Empirical FK correlation matrix
@@ -748,7 +707,7 @@ class TestKnockoffGen(CheckValidKnockoffs):
         )
 
         # Method 1: infer cov first
-        V, _ = knockoffs.estimate_covariance(X, tol=1e-2)
+        V, _ = utilities.estimate_covariance(X, tol=1e-2)
         np.random.seed(110)
         Xk1 = knockoffs.gaussian_knockoffs(
             X=X, Sigma=V, method='sdp', max_epochs=1
@@ -860,6 +819,7 @@ class TestKnockoffGen(CheckValidKnockoffs):
                     scale = np.sqrt(np.diag(np.dot(X.T, X)).reshape(1, -1))
                     X = X / scale
                     knockoff_copy = all_knockoffs[:, :, -1] / scale
+                    S = S / np.outer(scale, scale)
 
                     # # Compute empirical (scaled) cov matrix
                     features = np.concatenate([X, knockoff_copy], axis = 1)

@@ -1,7 +1,7 @@
 import numpy as np
 from . import utilities
 from . import nonconvex_sdp as mcv
-from .knockoffs import gaussian_knockoffs, estimate_covariance
+from .knockoffs import gaussian_knockoffs
 from . import metro
 from . import knockoff_stats as kstats 
 
@@ -203,7 +203,7 @@ class KnockoffFilter:
 				tol = knockoff_kwargs['sdp_tol']
 			else:
 				tol = 1e-2
-			Sigma, _ = estimate_covariance(X, tol, shrinkage)
+			Sigma, _ = utilities.estimate_covariance(X, tol, shrinkage)
 
 		# Save objects
 		self.X = X

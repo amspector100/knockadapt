@@ -438,8 +438,24 @@ def coords2num(l, w, gridwidth = 10):
         return -1
     return int(w * gridwidth + l)
 
+def Q2cliques(Q):
+    """
+    Turns graph Q of connections into binary cliques
+    """
+    p = Q.shape[0]
+    clique_dict = {i:[] for i in range(p)}
+    for i in range(p):
+        for j in range(i):
+            if Q[i,j] != 0:
+                clique_dict[i].append((i,j))
+                clique_dict[j].append((j,i))
+    # Remove duplicates
+    for i in range(p):
+        clique_dict[i] = list(set(clique_dict[i]))
+    return clique_dict
+
 def sample_gibbs(
-        n, p, method='ising', temp=1, num_iter=15, K=20, max_val=2.5,
+        n, p, Q=None, method='ising', temp=1, num_iter=15, K=20, max_val=2.5,
     ):
     """ Samples from a Gibbs measure on a square grid
     using a Gibbs sampler."""
@@ -450,7 +466,6 @@ def sample_gibbs(
     # Infer dimensionality
     gridwidth = int(np.sqrt(p))
     variables = set(list(range(p)))
-    Q = np.zeros((p, p)) # The UGM
 
     # Log potentials and cliques
     def log_potential(X1, X2=None, temp=1):
@@ -460,36 +475,44 @@ def sample_gibbs(
         return -1*temp*np.abs(X1 - X2)
 
     # Construct cliques
-    clique_dict = {}
-    for i1 in range(p):
-        clique_dict[i1] = []
-        # For ising model
-        if method=='ising':
-            lc, wc = num2coords(i1, gridwidth=gridwidth)
-            for ladd in [-1, 1]:
-                i2 = coords2num(lc + ladd, wc, gridwidth=gridwidth)
-                if i2 != -1:
+    clique_dict = {i:[] for i in range(p)}
+    if Q is None:
+        Q = np.zeros((p, p)) # The UGM
+        for i1 in range(p):
+            # For ising model
+            if method=='ising':
+                lc, wc = num2coords(i1, gridwidth=gridwidth)
+                for ladd in [-1, 1]:
+                    i2 = coords2num(lc + ladd, wc, gridwidth=gridwidth)
+                    if i2 != -1:
+                        clique_dict[i1].append((i1, i2))
+                        sign = 1 - 2*np.random.binomial(1, 0.5)
+                        Q[i1, i2] = temp * sign
+                        Q[i2, i1] = temp * sign
+                for wadd in [-1, 1]:
+                    i2 = coords2num(lc, wc + wadd, gridwidth=gridwidth)
+                    if i2 != -1:
+                        clique_dict[i1].append((i1, i2))
+                        sign = 1 - 2*np.random.binomial(1, 0.5)
+                        Q[i1, i2] = temp * sign
+                        Q[i2, i1] = temp * sign
+            # Otherwise method must be an integer:
+            # we randomly connect this variable method others
+            else:
+                choices = list(variables.difference(set([i1])))
+                connections = np.random.choice(choices, method, replace=False)
+                for i2 in connections:
                     clique_dict[i1].append((i1, i2))
+                    clique_dict[i2].append((i2, i1))
                     sign = 1 - 2*np.random.binomial(1, 0.5)
                     Q[i1, i2] = temp * sign
                     Q[i2, i1] = temp * sign
-            for wadd in [-1, 1]:
-                i2 = coords2num(lc, wc + wadd, gridwidth=gridwidth)
-                if i2 != -1:
-                    clique_dict[i1].append((i1, i2))
-                    sign = 1 - 2*np.random.binomial(1, 0.5)
-                    Q[i1, i2] = temp * sign
-                    Q[i2, i1] = temp * sign
-        # Otherwise method must be an integer:
-        # we randomly connect this variable method others
-        else:
-            choices = list(variables.difference(set([i1])))
-            connections = np.random.choice(choices, method, replace=False)
-            for i2 in connections:
-                clique_dict[i1].append((i1, i2))
-                sign = 1 - 2*np.random.binomial(1, 0.5)
-                Q[i1, i2] = temp * sign
-                Q[i2, i1] = temp * sign
+        # Get rid of duplicates
+        for i in range(p):
+            clique_dict[i] = list(set(clique_dict[i]))
+    # Construct cliques from Q
+    else:
+        clique_dict = Q2cliques(Q)
 
     # Initialize
     X = np.random.randn(n, p, 1)
@@ -577,13 +600,10 @@ def sample_data(
     # Ising / Gibbs Sampling
     if x_dist == 'gibbs':
         # Sample X, Q
-        X, Q = sample_gibbs(n=n, p=p, method=method, **kwargs)
+        X, Q = sample_gibbs(n=n, p=p, Q=Q, method=method, **kwargs)
 
-        # Normalize for consistency
-        V = np.cov(X.T)
-        scale = np.sqrt(np.diag(V))
-        X = X / scale
-        corr_matrix = utilities.cov2corr(V)
+        # This is admittedly not a correlation matrix
+        corr_matrix, _ = utilities.estimate_covariance(X, tol=1e-3, shrinkage=None)
 
     # Create Graph
     if Q is None and corr_matrix is None:

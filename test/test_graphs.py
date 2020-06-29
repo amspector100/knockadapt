@@ -444,7 +444,7 @@ class TestSampleData(unittest.TestCase):
 		# Check that we get a decent correlation matrix
 		# with the right type of Q matrix
 		np.random.seed(110)
-		n = 5000
+		n = 50000
 		p = 9
 		X,_,_,Q,V = graphs.sample_data(
 			n=n, p=p, method='ising', x_dist='gibbs', 
@@ -454,19 +454,9 @@ class TestSampleData(unittest.TestCase):
 			X.mean(), 0, decimal=1,
 			err_msg=f"Ising sampler has unexpected mean (expected 0, got {X.mean()})"
 		)
-		# Correlation matrix tests
-		np.testing.assert_almost_equal(
-			np.diag(V), np.ones(p), decimal=5,
-			err_msg=f"Ising sampler does not return a correlation matrix" 
-		)
-		np.testing.assert_almost_equal(
-			np.diag(np.cov(X.T)), np.ones(p), decimal=3,
-			err_msg=f"Ising sampler does not properly scale design matrix"
-		)
 		# Test Q
 		expected_edges = 4*p - (4*np.sqrt(p))
 		num_edges = (Q != 0).sum()
-		print(Q)
 		self.assertTrue(
 			num_edges == expected_edges,
 			f"Ising gibbs dist has unexpected number of edges ({num_edges}, expected {expected_edges})"
@@ -480,15 +470,24 @@ class TestSampleData(unittest.TestCase):
 			X.mean(), 0, decimal=1,
 			err_msg=f"Gibbs (non-ising) sampler has unexpected mean (expected 0, got {X.mean()})"
 		)
-		# Correlation matrix tests
-		np.testing.assert_almost_equal(
-			np.diag(V), np.ones(p), decimal=5,
-			err_msg=f"Gibbs (non-ising) sampler does not return a correlation matrix" 
+		# Test consistency of Q
+		X2,_,_,Q2,V2 = graphs.sample_data(
+			n=n, p=p, Q=Q, method=3, x_dist='gibbs', y_dist='binomial'
 		)
-		np.testing.assert_almost_equal(
-			np.diag(np.cov(X.T)), np.ones(p), decimal=3,
-			err_msg=f"Gibbs (non-ising) sampler does not properly scale design matrix"
+		np.testing.assert_array_almost_equal(
+			Q, Q2, decimal=5,
+			err_msg=f"Gibbs (non-ising) sampler is not consistent when Q passed in"
 		)
+		self.assertTrue(
+			np.abs(V - V2).mean() < 0.01, 
+			msg=f"Gibbs (non-ising) data is not consistent when Q passed in"
+		)
+
+		# Test this works without errors for n < p
+		_ = graphs.sample_data(
+			n=5, p=p, method=3, x_dist='gibbs', y_dist='binomial'
+		)
+
 
 	def test_xdist_error(self):
 
