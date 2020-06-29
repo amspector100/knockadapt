@@ -626,6 +626,10 @@ def gaussian_knockoffs(
         scale = np.sqrt(np.diag(np.dot(X.T, X)))
         X = X / scale.reshape(1, -1)
         Sigma = np.dot(X.T, X)
+        if init_S is not None:
+            init_S = init_S / np.outer(scale, scale)
+        if S is not None:
+            S = S / np.outer(scale, scale)
 
     # Possibly estimate mu, Sigma for MX 
     if Sigma is None and not fixedX: 
@@ -642,6 +646,11 @@ def gaussian_knockoffs(
         Sigma = Sigma / scale_matrix
         if invSigma is not None:
             invSigma = invSigma * scale_matrix
+
+        if init_S is not None:
+            init_S = init_S / scale_matrix
+        if S is not None:
+            S = S / scale_matrix
 
     # Infer (and adjust) mu parameter
     if mu is None:

@@ -324,6 +324,10 @@ class MetropolizedKnockoffSampler():
 			axis=1
 		)
 
+		if self.metro_verbose:
+			print(f"Minimum eigenvalue of S is {np.min(np.diag(self.S))}")
+			print(f"Minimum eigenvalue 2V-S is {np.linalg.eigh(2*self.V - self.S)[0].min()}")
+
 		# Efficiently calculate p inverses of subsets 
 		# of feature-knockoff covariance matrix.
 		# Variable names follow the notation in 
@@ -385,11 +389,12 @@ class MetropolizedKnockoffSampler():
  
 				# Test for numerical stability - every now and then,
 				# we may take an inversion to improve accuracy
-				# Sigma = self.G[0:self.p+j, 0:self.p+j]
-				# fro_error = frobenius_error(Sigma, self.invSigma)
-				# if fro_error > 1e-4:
-				# 	self.invSigma = np.linalg.inv(Sigma)
-				# 	fro_error2 = frobenius_error(Sigma, self.invSigma)
+				Sigma = self.G[0:self.p+j, 0:self.p+j]
+				fro_error = frobenius_error(Sigma, self.invSigma)
+				if fro_error > 1e-4:
+					print(f"Frobenius error is super high for j={j}, {fro_error}")
+					self.invSigma = np.linalg.inv(Sigma)
+					fro_error2 = frobenius_error(Sigma, self.invSigma)
 
 			# 2. Now compute conditional mean and variance
 			# Helpful bits
