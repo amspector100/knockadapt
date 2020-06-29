@@ -49,8 +49,6 @@ class TestMetroProposal(unittest.TestCase):
 			S=np.eye(p),
 		)
 
-		raise ValueError()
-
 		# Test that invSigma is as it should be
 		G = metro_sampler.G
 		for j in [p-1]:
