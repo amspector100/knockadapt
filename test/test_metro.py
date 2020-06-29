@@ -492,17 +492,22 @@ class TestIsing(unittest.TestCase):
 		n = 10
 		p = 625
 		mu = np.zeros(p)
-		X,_,_,Q,V = knockadapt.graphs.sample_data(
+		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
 			n=n, 
 			p=p,
 			method='ising',
 			x_dist='gibbs',
 		)
+		np.fill_diagonal(undir_graph, 1)
+
+		# Read V
+		file_directory = os.path.dirname(os.path.abspath(__file__))
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
 
 		# Initialize sampler
 		metro_sampler = metro.IsingKnockoffSampler(
 			X=X,
-			undir_graph=Q,
+			undir_graph=undir_graph,
 			mu=mu,
 			V=V,
 			max_width=2,
