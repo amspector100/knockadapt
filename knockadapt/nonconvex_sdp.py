@@ -333,7 +333,7 @@ class NonconvexSDPSolver:
         # Optimizer
         params = list(self.losscalc.parameters())
         optimizer = torch.optim.Adam(params, lr=1e-2)
-        improvement = convergence_tol + 1
+        improvement = convergence_tol + 10
         for j in range(max_epochs):
 
             # Step 1: Calculate loss (trace of feature-knockoff precision)

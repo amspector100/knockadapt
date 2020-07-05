@@ -155,7 +155,7 @@ class TestMetroSample(unittest.TestCase):
 			V=V,
 			undir_graph=Q_graph,
 			S=S,
-			gamma=0.9999
+			gamma=gamma,
 		)
 
 		# Output knockoffs
@@ -650,8 +650,251 @@ class TestIsing(unittest.TestCase):
 			err_msg=f"For Ising sampler, fourth moment of Xk does not match theoretical fourth moment" 
 		)
 
+class TestEICV(unittest.TestCase):
+
+	def test_attribute_consistency(self):
+		"""
+		Tests that EICV method appropriately resets 
+		acc_prob, Xprop, and F dict after computation
+		"""
+
+		# Data generating process
+		np.random.seed(110)
+		n = 7
+		p = 6
+		df_t = 3
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='daibarber2016',
+			rho=0.4,
+			gamma=1,
+			group_size=5,
+			x_dist='blockt',
+			df_t=df_t,
+		)
+		S = np.eye(p)
+
+		# Sample t 
+		tsampler = metro.BlockTSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S=S,
+			metro_verbose=True
+		)
+		tsampler.sample_knockoffs()
+		
+		# Get some attributes
+		Xk = tsampler.samplers[0].Xk.copy()
+		Xprop = tsampler.samplers[0].X_prop.copy()
+		accs = tsampler.samplers[0].acceptances.copy()
+		acc_probs = tsampler.samplers[0].final_acc_probs.copy()
+		boolkey = np.zeros((n, p))
+		boolkey[:, 2] = 1
+		key = tsampler.samplers[0].get_key(boolkey, 3)
+		sample_acc_prob = tsampler.samplers[0].F_dicts[3][key]
+		sample_F_val = tsampler.samplers[0].acc_dicts[3][key]
+
+		# EICV for j = 0
+		tsampler.samplers[0].estimate_EICV(j=0, B=10)
+		tsampler.samplers[0].estimate_EICV(j=3, B=3)
+
+		# Check that we get the same answer
+		Xk2 = tsampler.samplers[0].Xk
+		Xprop2 = tsampler.samplers[0].X_prop
+		accs2 = tsampler.samplers[0].acceptances
+		acc_probs2 = tsampler.samplers[0].final_acc_probs.copy()
+		sample_acc_prob2 = tsampler.samplers[0].F_dicts[3][key]
+		sample_F_val2 = tsampler.samplers[0].acc_dicts[3][key]
+
+		np.testing.assert_almost_equal(
+			Xk, Xk2, decimal=6, 
+			err_msg=f"Xk is not consistent before / after estimating EICV"
+		)
+		np.testing.assert_almost_equal(
+			Xprop, Xprop2, decimal=6, 
+			err_msg=f"Xprop is not consistent before / after estimating EICV"
+		)
+		np.testing.assert_almost_equal(
+			accs, accs2, decimal=6, 
+			err_msg=f"accs is not consistent before / after estimating EICV"
+		)
+		np.testing.assert_almost_equal(
+			acc_probs, acc_probs2, decimal=6, 
+			err_msg=f"acc_probs is not consistent before / after estimating EICV"
+		)
+		np.testing.assert_almost_equal(
+			sample_acc_prob, sample_acc_prob2, decimal=6, 
+			err_msg=f"acc_dict is not consistent before / after estimating EICV"
+		)
+		np.testing.assert_almost_equal(
+			sample_F_val, sample_F_val2, decimal=6, 
+			err_msg=f"F_dict is not consistent before / after estimating EICV"
+		)
 
 
+	def test_gaussian_eicv(self):
+		"""
+		Checks that gaussian eicv matches theoretical eicv
+		"""
+
+		# Fake data
+		np.random.seed(110)
+		n = 30000
+		p = 5
+		X,_,_,Q,V = graphs.sample_data(method='AR1', rho=0.3, n=n, p=p)
+		_, S = knockadapt.knockoffs.gaussian_knockoffs(
+			X=X, Sigma=V, method='mcv', return_S=True
+		)
+
+		# Graph structure + junction tree
+		Q_graph = (np.abs(Q) > 1e-5)
+		Q_graph = Q_graph - np.eye(p)
+
+		# Metro sampler + likelihood
+		mvn = stats.multivariate_normal(mean=np.zeros(p), cov=V)
+		def mvn_likelihood(X):
+			return mvn.logpdf(X)
+		gamma = 0.9999999
+		metro_sampler = metro.MetropolizedKnockoffSampler(
+			lf=mvn_likelihood,
+			X=X,
+			mu=np.zeros(p),
+			V=V,
+			undir_graph=Q_graph,
+			S=S,
+			gamma=gamma,
+		)
+
+		# Output knockoffs
+		Xk = metro_sampler.sample_knockoffs()
+		for j in range(p):
+			ECV, _, _ = metro_sampler.estimate_EICV(j=j, B=5)
+			self.assertTrue(
+				np.abs(1 / ECV - metro_sampler.invG[j, j]) < 1e-2,
+				f"For gaussian case, j={j}, 1 / ECV (1 / {ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
+			)
+
+	def test_blockt_eicv(self):
+
+		# # Data generating process
+		# np.random.seed(110)
+		# n = 100
+		# p = 8
+		# df_t = 3
+		# X,_,_,Q,V = knockadapt.graphs.sample_data(
+		# 	n=n, 
+		# 	p=p,
+		# 	method='daibarber2016',
+		# 	rho=0.4,
+		# 	gamma=0,
+		# 	group_size=4,
+		# 	x_dist='blockt',
+		# 	df_t=df_t,
+		# )
+		# S = np.eye(p)
+
+		# # Sample t 
+		# tsampler = metro.BlockTSampler(
+		# 	X=X,
+		# 	V=V,
+		# 	df_t=df_t,
+		# 	S=S,
+		# 	metro_verbose=True
+		# )
+		# tsampler.sample_knockoffs()
+
+		# # Resample using ECV
+		# j = 0
+		# _, _, new_Xkj = tsampler.samplers[0].estimate_EICV(j=j, B=10)
+		# raise ValueError()
+		# Test samples to make sure the 
+		# knockoff properties hold
+		np.random.seed(110)
+		n = 10
+		p = 9
+		mu = np.zeros(p)
+		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='ising',
+			x_dist='gibbs',
+		)
+		np.fill_diagonal(undir_graph, 1)
+
+		# We load custom cov/q matrices for this
+		file_directory = os.path.dirname(os.path.abspath(__file__))
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
+		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		self.assertTrue(
+			max_nonedge < 1e-5,
+			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
+		)
+
+		# Initialize sampler
+		metro_sampler = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=undir_graph,
+			mu=mu,
+			V=V,
+			Q=Q,
+			max_width=100,
+		)
+		Xk = metro_sampler.sample_knockoffs()
+
+		# Estimate EICV
+		j = 1
+		key = metro_sampler.dc_keys[0]
+		print("HERE", metro_sampler.divconq_info[key][0]['cliques'])
+		metro_sampler.samplers[key][0][-1].estimate_EICV(j=j, B=100)
+		raise ValueError()
+
+	def test_artk_eicv(self):
+
+		# Test to make sure acceptances < 1
+		np.random.seed(110)
+		n = 10000#0
+		p = 7
+		df_t = 5
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, p=p, method='AR1', rho=0.3, x_dist='ar1t'
+		)
+		S = np.eye(p)
+
+		# Sample t 
+		tsampler = metro.ARTKSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S=S,
+			metro_verbose=True
+		)
+		tsampler.sample_knockoffs()
+		Xk = tsampler.Xk
+
+		# Resample using ECV
+		j = 1
+		_, _, new_Xkj = tsampler.estimate_EICV(j=j, B=10)
+
+		raise ValueError()
+		
+		# Check empirical means
+		muk_hat = Xk[:, j].mean()
+		muk_resampled = np.mean(new_Xkj[:, 0], axis=0)
+		np.testing.assert_almost_equal(
+			muk_hat, muk_resampled, decimal=2,
+			err_msg=f"For ARTK sampler, means of resampled Xk do not match mean of X" 
+		)
+
+		# Check that marginal fourth moments match
+		Xk4th = np.power(Xk[:, j], 4).mean()
+		Xk4th_resampled = np.power(new_Xkj[:, 1], 4).mean()
+		np.testing.assert_almost_equal(
+			Xk4th / 10, Xk4th_resampled / 10, decimal=1,
+			err_msg=f"For ARTK sampler, fourth moment of resampled Xk do not those of Xk" 
+		)
 
 if __name__ == '__main__':
 	unittest.main()

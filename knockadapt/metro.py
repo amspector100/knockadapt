@@ -11,6 +11,7 @@
 
 # The basics
 import sys
+import copy
 import numpy as np
 import scipy as sp
 import itertools
@@ -323,6 +324,7 @@ class MetropolizedKnockoffSampler():
 			 np.concatenate([self.V - self.S, self.V])],
 			axis=1
 		)
+		self.invG = None # We don't compute this unless we have to later
 
 		if self.metro_verbose:
 			print(f"Minimum eigenvalue of S is {np.min(np.diag(self.S))}")
@@ -401,7 +403,7 @@ class MetropolizedKnockoffSampler():
 			Gamma12_j = self.G[0:self.p+j, self.p+j]
 
 			# Conditional variance
-			self.cond_vars[j] = self.G[self.p+j, self.p+j]
+			self.cond_vars[j] = self.G[self.p+j, self.p+j]#.copy()
 			self.cond_vars[j] -= np.dot(
 				Gamma12_j, np.dot(self.invSigma, Gamma12_j),
 			)
@@ -539,6 +541,13 @@ class MetropolizedKnockoffSampler():
 		arr_key = x_flags[0, inds]
 		key = arr_key.tostring()
 		return key
+
+	def _key2bool(self, key):
+		"""
+		Takes a key from dp dicts
+		and turns it back into a boolean array.
+		"""
+		return np.frombuffer(key, dtype=bool)
 
 	def _create_Xtemp(self, x_flags, j):
 		"""
@@ -737,6 +746,55 @@ class MetropolizedKnockoffSampler():
 		self.acc_dicts[j][key] = acc_prob
 		return acc_prob
 
+	def cache_conditional_proposal_params(self, verbose=False, expensive_cache=True):
+		"""
+		Caches some of the conditional means for Xjstar | Xtemp.
+		If expensive_cache = True, this will be quite memory intensive
+		in order to achieve a 2-3x speedup. Otherwise, achieves a
+		a 20-30% speedup at a more modest memory cost.
+		"""
+
+		# Cache conditional means
+		if verbose:
+			print(f"Metro beginning to cache conditional means...")
+			j_iter = tqdm(range(self.p))
+		else:
+			j_iter = range(self.p)
+
+		# Precompute centerings
+		centX = self.center(self.X)
+		centX_prop = self.center(self.X_prop)
+		self.cached_mean_obs_eq_obs = [None for _ in range(self.p)]
+		self.cached_mean_obs_eq_prop = [None for _ in range(self.p)]
+		self.cached_mean_proposals = [None for _ in range(self.p)]
+		for j in j_iter:
+
+			# We only need to store the coordinates along the active 
+			# inds which saves some memory
+			active_inds = list(range(j+1)) + self.active_frontier[j]
+
+			# Cache some precomputed conditional means
+			# a. Cache the effect of conditioning on Xstar = self.X_prop
+			# This is very cheap
+			self.cached_mean_proposals[j] = np.dot(
+				self.center(self.X_prop[:, 0:j]),
+				self.mean_transforms[j][:, self.p:].T
+			).reshape(-1)
+
+			# b/c: Possibly cache the effect of conditioning on X = self.X / self.X_prop
+			# This is very memory intensive
+			if expensive_cache:
+				# a. Cache the effect of conditiong on X = self.X
+				cache_obs = (
+					centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				).astype(np.float32)
+				self.cached_mean_obs_eq_obs[j] = cache_obs
+				# b. Cache the effect of conditioning on X = self.X_prop
+				cache_prop = (
+					centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
+				).astype(np.float32)
+				self.cached_mean_obs_eq_prop[j] = cache_prop
+
 	def sample_knockoffs(self, clip=1e-5, cache=None):
 		"""
 		:param clip: To provide numerical stability,
@@ -756,6 +814,7 @@ class MetropolizedKnockoffSampler():
 			self.cache = cache
 		else:
 			self.cache = num_params < 1e9
+
 		# Possibly log
 		if self.metro_verbose:
 			if self.cache:
@@ -802,46 +861,12 @@ class MetropolizedKnockoffSampler():
 				prev_proposals=self.X_prop[:, 0:j]
 			).astype(np.float32)
 
-		# Cache conditional means
-		if self.metro_verbose:
-			print(f"Metro beginning to cache conditional means...")
-			j_iter = tqdm(range(self.p))
-		else:
-			j_iter = range(self.p)
 
-		# Precompute centerings
-		centX = self.center(self.X)
-		centX_prop = self.center(self.X_prop)
-		self.cached_mean_obs_eq_obs = [None for _ in range(self.p)]
-		self.cached_mean_obs_eq_prop = [None for _ in range(self.p)]
-		self.cached_mean_proposals = [None for _ in range(self.p)]
-		for j in j_iter:
-
-			# We only need to store the coordinates along the active 
-			# inds which saves some memory
-			active_inds = list(range(j+1)) + self.active_frontier[j]
-
-			# Cache some precomputed conditional means
-			# a. Cache the effect of conditioning on Xstar = self.X_prop
-			# This is very cheap
-			self.cached_mean_proposals[j] = np.dot(
-				self.center(self.X_prop[:, 0:j]),
-				self.mean_transforms[j][:, self.p:].T
-			).reshape(-1)
-
-			# b/c: Possibly cache the effect of conditioning on X = self.X / self.X_prop
-			# This is very memory intensive
-			if self.cache:
-				# a. Cache the effect of conditiong on X = self.X
-				cache_obs = (
-					centX[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
-				).astype(np.float32)
-				self.cached_mean_obs_eq_obs[j] = cache_obs
-				# b. Cache the effect of conditioning on X = self.X_prop
-				cache_prop = (
-					centX_prop[:, active_inds]*self.mean_transforms[j][:, 0:self.p][:, active_inds]
-				).astype(np.float32)
-				self.cached_mean_obs_eq_prop[j] = cache_prop
+		# Cache the conditional proposal params
+		self.cache_conditional_proposal_params(
+			verbose=self.metro_verbose,
+			expensive_cache=self.cache
+		)
 
 		# Loop across variables to compute acc ratios
 		prev_proposals = None
@@ -879,6 +904,185 @@ class MetropolizedKnockoffSampler():
 
 		# Return re-sorted 
 		return self.Xk[:, self.inv_order]
+
+	def estimate_EICV(self, j, B=5):
+		"""
+		Uses importance sampling to calculate
+		Var(tildeXj | X, tildeX_{-j}) = Var(Xj | X_{-j}, tildeX)
+		:param j: Which variable to compute this for.
+		:param B: Number of importance samples per observation.
+		"""
+
+		# Step 1: Sample new proposals from L(X_j^* | X, X_{-j}^*)
+		if self.invG is None:
+			self.invG = utilities.chol2inv(self.G)
+		cond_var = 1 / self.invG[j, j]
+		
+		# Woodbury trick to avoid extra inversion
+		# Adding np.dot(Uj, Vj) zeros out the rows/cols of Q 
+		gamma12 = self.G[self.p + j].copy()
+		gamma12[j + self.p] = 0
+		onehot = np.zeros(2*self.p)
+		onehot[j + self.p] = 1
+		Uj = np.stack([-1*gamma12, onehot]).T
+		Vj = np.stack([onehot, -1*gamma12])
+
+		# Invert core woodbury 2x2 matrix
+		inds = [i for i in range(2*self.p) if i != self.p + j]
+		woodbury_inv = np.linalg.inv(
+			np.eye(2) + np.dot(np.dot(Vj, self.invG), Uj)
+		) 		
+
+		# Calculate inverse of G excluding knockoff j
+		Gamma11_inv = self.invG - reduce(
+			np.dot, 
+			[self.invG, Uj, woodbury_inv, Vj, self.invG],
+		)
+		Gamma11_inv = Gamma11_inv[inds][:, inds]
+
+
+		# Test to make sure conditional variances are consistent
+		gamma12_j = self.G[self.p + j, inds]
+		cond_var2 = self.G[self.p + j, self.p + j]
+		cond_var2 = cond_var2 - np.dot(np.dot(gamma12_j, Gamma11_inv), gamma12_j)
+		if np.abs(cond_var - cond_var2) > 1e-2:
+			raise ValueError(f"Conditional variances do not agree: true {cond_var} != new {cond_var2}")
+
+		# Calculate conditional mean
+		new_mean_transform = np.dot(
+			Gamma11_inv, gamma12_j
+		).reshape(1, -1)
+		inds = [i for i in range(self.p) if i != j]
+		cond_mean = np.dot(
+			self.center(self.X), 
+			new_mean_transform[:, 0:self.p].T
+		)
+		cond_mean = cond_mean + np.dot(
+			self.center(self.X_prop[:, inds], active_inds=inds),
+			new_mean_transform[:, self.p:].T
+		)
+
+		# Sample B new proposals for j
+		new_Xprop_j = np.random.randn(self.n, B)
+		new_Xprop_j = np.sqrt(cond_var)*new_Xprop_j + cond_mean.reshape(-1, 1)
+
+		# Step 2: Compute acceptance probabilities for vars j and beyond
+		# to do importance sampling
+		# Now come the hacks. Here, we:
+		# (1) temporarily reset acceptance probabilities
+		# for variables after variable j (inclusive)
+		# (2) Temporarily reset proposals and knockoffs
+		# for variable j too.
+		orig_acc_dicts = {}
+		orig_F_dicts = {}
+		orig_Xprop_j = self.X_prop[:, j].copy()
+		orig_Xk_j = self.Xk[:, j].copy()
+		orig_acceptances = self.acceptances[:, j].copy()
+		for i in range(self.p):
+			orig_acc_dicts[i] = self.acc_dicts[i].copy()
+			orig_F_dicts[i] = self.F_dicts[i].copy()
+
+		def overwrite_dicts(acc_dicts, F_dicts):
+			# Determine which parts of the dicts we must 
+			# overwrite
+			for i in range(self.p):
+				if i >= j:
+					acc_dicts[i] = {}
+					F_dicts[i] = {}
+				else:
+					for key in list(self.acc_dicts[i].keys()).copy():
+						boolkey = self._key2bool(key)
+						if boolkey[j+1:].sum() > 0:
+							acc_dicts[i].pop(key)
+							F_dicts[i].pop(key)
+			return acc_dicts, F_dicts
+
+		# Loop through new proposals to calculate acceptances
+		new_acc_probs = np.zeros((self.n, self.p, B))
+		new_acc_probs[:] = np.nan
+		new_Xk_j = np.zeros((self.n, B))
+		new_Xk_j[:] = np.nan
+		for b in range(B):
+			# New proposal
+			self.X_prop[:, j] = new_Xprop_j[:, b]
+
+			# New cache
+			self.cache_conditional_proposal_params(
+				verbose=False,
+				expensive_cache=self.cache
+			)
+
+			# Acceptance probability for new proposals 
+			# so we can fill in the new_Xk_j
+			acc_prob_j = self.compute_acc_prob(
+				x_flags=np.zeros((self.n, self.p)),
+				j=j,
+			) 
+			new_acc_probs[:, j, b] = acc_prob_j
+			mask = np.random.binomial(1, acc_prob_j).astype(np.bool)
+			self.acceptances[:, j] = mask
+
+			# Store resampled knockoffs
+			new_Xk_j[:, b][mask] = new_Xprop_j[:, b][mask]
+			new_Xk_j[:, b][~mask] = self.X[:, j][~mask] 
+
+			# Compute acceptance probability
+			for j2 in range(j+1, self.p):
+				acc_prob = self.compute_acc_prob(
+					x_flags=np.zeros((self.n, self.p)),
+					j=j2,
+				) 
+				new_acc_probs[:, j2, b] = acc_prob
+
+			# Delete the new cached information we have learned,
+			# both in the DP dicts and for the conditional means,
+			# which will not be applicable later
+			self.acc_dicts, self.F_dicts = overwrite_dicts(self.acc_dicts, self.F_dicts)
+			if self.cache:
+				del self.cached_mean_obs_eq_obs
+				del self.cached_mean_obs_eq_prop
+
+
+		# Use the acceptance probabilities to calculate importance
+		# sampling weights. Note these weights depend on the TRUE
+		# acceptance pattern for Xk.
+		print(self.affected_vars[j])
+		print(self.active_frontier[j])
+		print(new_acc_probs[0])
+		inds = [i for i in range(self.p) if i > j]
+		acc_mask = self.acceptances[:, inds].reshape(self.n, self.p - j - 1, 1)
+
+		# Log-weights correspnding to TRUE acceptance pattern
+		weights = np.log(new_acc_probs[:, inds]) * acc_mask
+		weights = weights + np.log(1-new_acc_probs[:, inds]) * (1-acc_mask)
+		weights = weights.sum(axis=1)
+
+		# Normalize
+		weights = np.exp(weights.astype(np.float32))
+		weights = weights / weights.sum(axis=1, keepdims=True)
+
+		# Compute ECV - second moment minus first moment squared
+		moment1 = (new_Xk_j * weights).sum(axis=1).reshape(-1, 1)
+		final_cond_vars = (np.power(new_Xk_j - moment1, 2) * weights).sum(axis=1)
+		final_cond_vars = final_cond_vars / ((B-1)/B)
+		ECV = final_cond_vars.mean()
+		ECV_SE = final_cond_vars.std() / np.sqrt(self.n)
+
+		# Reset X_prop, Xk, acceptances at the end
+		self.X_prop[:, j] = orig_Xprop_j
+		self.Xk[:, j] = orig_Xk_j
+		self.acceptances[:, j] = orig_acceptances
+		for i in range(j, self.p):
+			self.acc_dicts[i] = orig_acc_dicts[i]
+			self.F_dicts[i] = orig_F_dicts[i]
+
+		# Return
+		return ECV, ECV_SE, new_Xk_j
+
+
+
+
+
 
 
 ### Knockoff Samplers for T-distributions
