@@ -1046,9 +1046,6 @@ class MetropolizedKnockoffSampler():
 		# Use the acceptance probabilities to calculate importance
 		# sampling weights. Note these weights depend on the TRUE
 		# acceptance pattern for Xk.
-		print(self.affected_vars[j])
-		print(self.active_frontier[j])
-		print(new_acc_probs[0])
 		inds = [i for i in range(self.p) if i > j]
 		acc_mask = self.acceptances[:, inds].reshape(self.n, self.p - j - 1, 1)
 

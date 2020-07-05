@@ -776,81 +776,6 @@ class TestEICV(unittest.TestCase):
 				f"For gaussian case, j={j}, 1 / ECV (1 / {ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
 			)
 
-	def test_blockt_eicv(self):
-
-		# # Data generating process
-		# np.random.seed(110)
-		# n = 100
-		# p = 8
-		# df_t = 3
-		# X,_,_,Q,V = knockadapt.graphs.sample_data(
-		# 	n=n, 
-		# 	p=p,
-		# 	method='daibarber2016',
-		# 	rho=0.4,
-		# 	gamma=0,
-		# 	group_size=4,
-		# 	x_dist='blockt',
-		# 	df_t=df_t,
-		# )
-		# S = np.eye(p)
-
-		# # Sample t 
-		# tsampler = metro.BlockTSampler(
-		# 	X=X,
-		# 	V=V,
-		# 	df_t=df_t,
-		# 	S=S,
-		# 	metro_verbose=True
-		# )
-		# tsampler.sample_knockoffs()
-
-		# # Resample using ECV
-		# j = 0
-		# _, _, new_Xkj = tsampler.samplers[0].estimate_EICV(j=j, B=10)
-		# raise ValueError()
-		# Test samples to make sure the 
-		# knockoff properties hold
-		np.random.seed(110)
-		n = 10
-		p = 9
-		mu = np.zeros(p)
-		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
-			n=n, 
-			p=p,
-			method='ising',
-			x_dist='gibbs',
-		)
-		np.fill_diagonal(undir_graph, 1)
-
-		# We load custom cov/q matrices for this
-		file_directory = os.path.dirname(os.path.abspath(__file__))
-		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
-		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
-		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
-		self.assertTrue(
-			max_nonedge < 1e-5,
-			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
-		)
-
-		# Initialize sampler
-		metro_sampler = metro.IsingKnockoffSampler(
-			X=X,
-			undir_graph=undir_graph,
-			mu=mu,
-			V=V,
-			Q=Q,
-			max_width=100,
-		)
-		Xk = metro_sampler.sample_knockoffs()
-
-		# Estimate EICV
-		j = 1
-		key = metro_sampler.dc_keys[0]
-		print("HERE", metro_sampler.divconq_info[key][0]['cliques'])
-		metro_sampler.samplers[key][0][-1].estimate_EICV(j=j, B=100)
-		raise ValueError()
-
 	def test_artk_eicv(self):
 
 		# Test to make sure acceptances < 1
@@ -877,8 +802,6 @@ class TestEICV(unittest.TestCase):
 		# Resample using ECV
 		j = 1
 		_, _, new_Xkj = tsampler.estimate_EICV(j=j, B=10)
-
-		raise ValueError()
 		
 		# Check empirical means
 		muk_hat = Xk[:, j].mean()
