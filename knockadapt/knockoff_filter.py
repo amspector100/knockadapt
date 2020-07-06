@@ -58,33 +58,33 @@ class KnockoffFilter:
 		# Alternatively sample from ARTK
 		elif self.knockoff_type == 'artk':
 			# Sample
-			self.artk_sampler = metro.ARTKSampler(
+			self.knockoff_sampler = metro.ARTKSampler(
 				X=self.X,
 				V=self.Sigma,
 				**self.knockoff_kwargs,
 			)
-			knockoffs = self.artk_sampler.sample_knockoffs()
+			knockoffs = self.knockoff_sampler.sample_knockoffs()
 
 			# Extract S
-			inv_order = self.artk_sampler.inv_order
-			S = self.artk_sampler.S[inv_order][:, inv_order]
+			inv_order = self.knockoff_sampler.inv_order
+			S = self.knockoff_sampler.S[inv_order][:, inv_order]
 		# Or block T metro
 		elif self.knockoff_type == 'blockt':
 			# Sample
-			self.blockt_sampler = metro.BlockTSampler(
+			self.knockoff_sampler = metro.BlockTSampler(
 				X=self.X,
 				V=self.Sigma,
 				**self.knockoff_kwargs,
 			)
-			knockoffs = self.blockt_sampler.sample_knockoffs()
+			knockoffs = self.knockoff_sampler.sample_knockoffs()
 
 			# Extract S
-			S = self.blockt_sampler.S
+			S = self.knockoff_sampler.S
 		elif self.knockoff_type == 'ising':
 			# Sample
 			Q = np.linalg.inv(self.Sigma)
 			undir_graph = np.abs(Q) > 1e-5
-			self.ising_sampler = metro.IsingKnockoffSampler(
+			self.knockoff_sampler = metro.IsingKnockoffSampler(
 				X=self.X,
 				V=self.Sigma,
 				Q=Q,
@@ -92,7 +92,7 @@ class KnockoffFilter:
 				mu=self.mu,
 				**self.knockoff_kwargs
 			)
-			knockoffs = self.ising_sampler.sample_knockoffs()
+			knockoffs = self.knockoff_sampler.sample_knockoffs()
 
 			# It is impossible to extract S here because there
 			# are different S's for different parts of the data
@@ -123,42 +123,48 @@ class KnockoffFilter:
 		self.S = S
 
 		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
+		self.G = np.concatenate(
+			[
+				np.concatenate([self.Sigma, self.Sigma - self.S]),
+				np.concatenate([self.Sigma - self.S, self.Sigma]),
+			],
+			axis=1,
+		)
 		if self.debias:
-			self.G = np.concatenate(
-				[
-					np.concatenate([self.Sigma, self.Sigma - self.S]),
-					np.concatenate([self.Sigma - self.S, self.Sigma]),
-				],
-				axis=1,
-			)
 			self.Ginv = utilities.chol2inv(self.G)
 		else:
 			self.Ginv = None
 		return knockoffs
 
-	def compute_quality_metrics(self, X, Sigma=None, knockoffs=None):
+	def compute_quality_metrics(self, **kwargs):
 		"""
-		Computes (empirical) mean absolute correlation and LMCV
-		for features and knockoffs. This is only useful
-		for metropolized knockoffs.
-
-		This requires inverting 2*V - S.
+		Computes:
+		(a) feature-knockoff correlations
+		(b) expected conditional variance values
+		for features and knockoffs. 
+		Note that (b) is quite computationally expensive.
+		:param **kwargs: Keyword arguments for EICV.
+		returns: feature-knockoff correlations, ecv values,
+		both as p-length numpy arrays.
 		"""
-
-		p = X.shape[1]
-		if knockoffs is None:
-			knockoffs = self.knockoffs
-		if Sigma is None:
-			Sigma = self.Sigma
 
 		# Empirical feature / knockoff correlations
-		self.hatG = np.corrcoef(X.T, knockoffs.T)
+		# Used to construct MAC.
+		p = self.Sigma.shape[0]
+		self.hatG = np.corrcoef(self.X.T, self.knockoffs.T)
 		self.hatS = np.diag(self.hatG[0:p, p:])
 
-		# Calculate MAC and LMCV
-		MAC = np.abs(self.hatS).mean()
-		LMCV = mcv.fk_precision_trace(Sigma, np.diag(self.hatS))
-		return MAC, LMCV
+		# Calculate ECVs.
+		# For gaussians, this requires almost no computation.
+		if self.knockoff_type == 'gaussian':
+			if self.Ginv is None:
+				self.Ginv = utilities.chol2inv(self.G)
+			self.ECVs = 1 / np.diag(self.Ginv[0:p][:, 0:p])
+		# For metro, this can be quite slow
+		else:
+			self.knockoff_sampler.estimate_EICV(**kwargs)
+			self.ECVs = self.knockoff_sampler.ECVs
+		return self.hatS, self.ECVs
 
 	def make_selections(self, W, fdr):
 		"""" Calculate data dependent threshhold and selections """

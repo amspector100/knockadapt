@@ -905,31 +905,7 @@ class MetropolizedKnockoffSampler():
 		# Return re-sorted 
 		return self.Xk[:, self.inv_order]
 
-	def estimate_total_EICV(self, B=5, tol=1e-5):
-		"""
-		Wraps the estimate_ECV method to calculate
-		the EICV knockoff quality metric.
-		"""
-
-		# Step 1: Sample new proposals from L(X_j^* | X, X_{-j}^*)
-		self.ECVS = np.zeros(self.p)
-		self.all_cond_vars = np.zeros((self.n, self.p))
-		if self.metro_verbose:
-			j_iter = range(self.p)
-		else:
-			j_iter = tqdm(list(range(self.p)))
-		for j in j_iter:
-			# Extract
-			ECV, final_cond_vars, _ = self.estimate_ECV(j=j, B=B)
-			self.ECVS[j] = ECV
-			self.all_cond_vars[:, j] = final_cond_vars
-
-		# Compute SES, EICV
-		self.ECV_SES = self.all_cond_vars.std(axis=0) / np.sqrt(self.n)
-		EICV = (1 / self.ECVS).sum()
-		return EICV
-
-	def estimate_ECV(self, j, B=5):
+	def estimate_single_ECV(self, j, B=5):
 		"""
 		Uses importance sampling to calculate
 		Var(tildeXj | X, tildeX_{-j}) = Var(Xj | X_{-j}, tildeX)
@@ -1099,10 +1075,29 @@ class MetropolizedKnockoffSampler():
 		# Return
 		return ECV, final_cond_vars, new_Xk_j
 
+	def estimate_EICV(self, B=5, tol=1e-5):
+		"""
+		Wraps the estimate_single_ECV method to calculate
+		the EICV knockoff quality metric.
+		"""
 
+		# Step 1: Sample new proposals from L(X_j^* | X, X_{-j}^*)
+		self.ECVS = np.zeros(self.p)
+		self.all_cond_vars = np.zeros((self.n, self.p))
+		if self.metro_verbose:
+			j_iter = range(self.p)
+		else:
+			j_iter = tqdm(list(range(self.p)))
+		for j in j_iter:
+			# Extract
+			ECV, final_cond_vars, _ = self.estimate_single_ECV(j=j, B=B)
+			self.ECVS[j] = ECV
+			self.all_cond_vars[:, j] = final_cond_vars
 
-
-
+		# Compute SES, EICV
+		self.ECV_SES = self.all_cond_vars.std(axis=0) / np.sqrt(self.n)
+		EICV = (1 / self.ECVS).sum()
+		return EICV
 
 
 ### Knockoff Samplers for T-distributions
@@ -1323,6 +1318,28 @@ class BlockTSampler():
 		self.final_acc_probs = np.concatenate(self.final_acc_probs, axis=1)
 		self.acceptances = np.concatenate(self.acceptances, axis=1)
 		return self.Xk
+
+	def estimate_EICV(self, **kwargs):
+		"""
+		Sequentially computes EICV for each block.
+		"""
+		self.ECVS = []
+		self.all_cond_vars = []
+		self.ECV_SES = []
+		for j in range(len(self.samplers)):
+			# Compute ECVs
+			self.samplers[j].estimate_EICV(**kwargs)
+			# Append
+			self.ECVS.append(self.samplers[j].ECVS)
+			self.all_cond_vars.append(self.samplers[j].all_cond_vars)
+			self.ECV_SES.append(self.samplers[j].ECV_SES)
+
+		# Concatenate + return
+		self.ECVS = np.concatenate(self.ECVS, axis=0)
+		self.ECV_SES = np.concatenate(self.ECV_SES, axis=0)
+		self.all_cond_vars = np.concatenate(self.all_cond_vars, axis=1)
+		EICV = (1 / self.ECVS).sum()
+		return EICV
 
 class IsingKnockoffSampler():
 

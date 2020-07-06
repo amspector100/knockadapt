@@ -133,9 +133,9 @@ class TestKnockoffFilter(TestFdrControl):
 	@pytest.mark.quick
 	def test_quality_metrics(self):
 
-		# Fake data
+		# Fake gaussian data
 		np.random.seed(110)
-		n = 5000000
+		n = 500000
 		p = 5
 		rho = 0.5
 		S = 0.9*np.eye(p)
@@ -154,27 +154,30 @@ class TestKnockoffFilter(TestFdrControl):
 			groups=None,
 			knockoff_kwargs={'S':S},
 		)
-		MAC, LMCV1 = mxfilter.compute_quality_metrics(X)
+		corrs, ecvs = mxfilter.compute_quality_metrics()
 
 		# Since these are gaussian knockoffs, they should
 		# align with S
 		true_mac = np.abs(1-np.diag(S)).mean()
+		est_mac = np.abs(corrs).mean()
 		self.assertTrue(
-			np.abs(MAC - true_mac) < 0.001,
-			msg = f"Knockoff filter incorrectly computes MAC ({MAC} vs {true_mac})" 
+			np.abs(true_mac - est_mac) < 0.001,
+			msg = f"Knockoff filter incorrectly computes gaussian MAC ({est_mac} vs {true_mac})" 
 		)
 
 		# Compute LMCV again with different S
-		S2 = 0.5*np.eye(p)
-		mxfilter.knockoff_kwargs = {'S':S2}
-		mxfilter.sample_knockoffs()
-		_, LMCV2 = mxfilter.compute_quality_metrics(X)
-
-		# The LMCV should roughly proxy the true MCV loss
-		self.assertTrue(
-			LMCV1 > LMCV2,
-			msg = f"LMCV loss for optimal S >= LMCV loss for poor S ({LMCV2} >= {LMCV1})" 
+		Ginv = np.linalg.inv(np.concatenate([
+			np.concatenate([V, V-S]),
+			np.concatenate([V-S, V])
+		], axis=1))
+		true_ECVs = 1 / np.diag(Ginv[0:p][:, 0:p])
+		np.testing.assert_almost_equal(
+			ecvs, true_ECVs, decimal=6,
+			err_msg = f"Knockoff filter incorrectly computes gaussian ECVS"
 		)
+
+		# Fake non-gaussian data
+
 
 	def test_gnull_control(self):
 		""" Test FDR control under global null """

@@ -698,8 +698,8 @@ class TestEICV(unittest.TestCase):
 		sample_F_val = tsampler.samplers[0].acc_dicts[3][key]
 
 		# EICV for j = 0
-		tsampler.samplers[0].estimate_ECV(j=0, B=10)
-		tsampler.samplers[0].estimate_ECV(j=3, B=3)
+		tsampler.samplers[0].estimate_single_ECV(j=0, B=10)
+		tsampler.samplers[0].estimate_single_ECV(j=3, B=3)
 
 		# Check that we get the same answer
 		Xk2 = tsampler.samplers[0].Xk
@@ -771,27 +771,25 @@ class TestEICV(unittest.TestCase):
 		# Output knockoffs
 		Xk = metro_sampler.sample_knockoffs()
 		for j in range(p):
-			ECV, _, _ = metro_sampler.estimate_ECV(j=j, B=5)
+			ECV, _, _ = metro_sampler.estimate_single_ECV(j=j, B=5)
 			self.assertTrue(
 				np.abs(1 / ECV - metro_sampler.invG[j, j]) < 1e-2,
 				f"For gaussian case, j={j}, 1 / ECV (1 / {ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
 			)
 
 		# Check EICV approx equal FK precision trace
-		EICV = metro_sampler.estimate_total_EICV(B=5)
+		EICV = metro_sampler.estimate_EICV(B=5)
 		expected = fk_precision_trace(Sigma=V, S=S, invSigma=Q)
 		self.assertTrue(
 			np.abs(EICV - expected) < 1e-2, 
 			f"For gaussian case, estimated EICV ({EICV}) != ground truth {expected}"
 		)
 		
-
-
 	def test_artk_ecv(self):
 
 		# Test to make sure acceptances < 1
 		np.random.seed(110)
-		n = 10000#0
+		n = 10000
 		p = 7
 		df_t = 5
 		X,_,_,Q,V = knockadapt.graphs.sample_data(
@@ -812,7 +810,7 @@ class TestEICV(unittest.TestCase):
 
 		# Resample using ECV
 		j = 1
-		_, _, new_Xkj = tsampler.estimate_ECV(j=j, B=10)
+		_, _, new_Xkj = tsampler.estimate_single_ECV(j=j, B=10)
 		
 		# Check empirical means
 		muk_hat = Xk[:, j].mean()
@@ -828,6 +826,55 @@ class TestEICV(unittest.TestCase):
 		np.testing.assert_almost_equal(
 			Xk4th / 10, Xk4th_resampled / 10, decimal=1,
 			err_msg=f"For ARTK sampler, fourth moment of resampled Xk do not those of Xk" 
+		)
+
+	def test_blockt_ecvs(self):
+
+		# Check with one S matrix
+		np.random.seed(110)
+		n = 10000
+		p = 10
+
+		# Sample t 
+		df_t = 5
+		rho = 0.5
+		X,_,_,Q,V = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='daibarber2016',
+			rho=rho,
+			gamma=0,
+			group_size=5,
+			x_dist='blockt',
+			df_t=df_t,
+		)
+
+		# Sample for one S matrix
+		S = (1-0.01)*np.eye(p)
+		tsampler = metro.BlockTSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S=S,
+			metro_verbose=True
+		)
+		tsampler.sample_knockoffs()
+		EICV_SDP = tsampler.estimate_EICV()
+
+		# Sample for MCV matrix
+		S_MCV = (1-rho)*np.eye(p)
+		tsampler = metro.BlockTSampler(
+			X=X,
+			V=V,
+			df_t=df_t,
+			S=S_MCV,
+			metro_verbose=True
+		)
+		tsampler.sample_knockoffs()
+		EICV_MCV = tsampler.estimate_EICV()
+		self.assertTrue(
+			EICV_MCV < EICV_SDP,
+			f"Unexpectedly SDP EICV ({EICV_SDP}) performs better for block T (vs {EICV_MCV})"
 		)
 
 if __name__ == '__main__':
