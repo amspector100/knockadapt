@@ -9,6 +9,7 @@ from .context import knockadapt
 from knockadapt import utilities
 from knockadapt import graphs
 from knockadapt import metro, tree_processing
+from knockadapt.nonconvex_sdp import fk_precision_trace
 import time
 
 class TestMetroProposal(unittest.TestCase):
@@ -697,8 +698,8 @@ class TestEICV(unittest.TestCase):
 		sample_F_val = tsampler.samplers[0].acc_dicts[3][key]
 
 		# EICV for j = 0
-		tsampler.samplers[0].estimate_EICV(j=0, B=10)
-		tsampler.samplers[0].estimate_EICV(j=3, B=3)
+		tsampler.samplers[0].estimate_ECV(j=0, B=10)
+		tsampler.samplers[0].estimate_ECV(j=3, B=3)
 
 		# Check that we get the same answer
 		Xk2 = tsampler.samplers[0].Xk
@@ -734,7 +735,7 @@ class TestEICV(unittest.TestCase):
 		)
 
 
-	def test_gaussian_eicv(self):
+	def test_gaussian_ecv(self):
 		"""
 		Checks that gaussian eicv matches theoretical eicv
 		"""
@@ -770,13 +771,23 @@ class TestEICV(unittest.TestCase):
 		# Output knockoffs
 		Xk = metro_sampler.sample_knockoffs()
 		for j in range(p):
-			ECV, _, _ = metro_sampler.estimate_EICV(j=j, B=5)
+			ECV, _, _ = metro_sampler.estimate_ECV(j=j, B=5)
 			self.assertTrue(
 				np.abs(1 / ECV - metro_sampler.invG[j, j]) < 1e-2,
 				f"For gaussian case, j={j}, 1 / ECV (1 / {ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
 			)
 
-	def test_artk_eicv(self):
+		# Check EICV approx equal FK precision trace
+		EICV = metro_sampler.estimate_total_EICV(B=5)
+		expected = fk_precision_trace(Sigma=V, S=S, invSigma=Q)
+		self.assertTrue(
+			np.abs(EICV - expected) < 1e-2, 
+			f"For gaussian case, estimated EICV ({EICV}) != ground truth {expected}"
+		)
+		
+
+
+	def test_artk_ecv(self):
 
 		# Test to make sure acceptances < 1
 		np.random.seed(110)
@@ -801,7 +812,7 @@ class TestEICV(unittest.TestCase):
 
 		# Resample using ECV
 		j = 1
-		_, _, new_Xkj = tsampler.estimate_EICV(j=j, B=10)
+		_, _, new_Xkj = tsampler.estimate_ECV(j=j, B=10)
 		
 		# Check empirical means
 		muk_hat = Xk[:, j].mean()

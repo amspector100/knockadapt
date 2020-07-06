@@ -905,7 +905,31 @@ class MetropolizedKnockoffSampler():
 		# Return re-sorted 
 		return self.Xk[:, self.inv_order]
 
-	def estimate_EICV(self, j, B=5):
+	def estimate_total_EICV(self, B=5, tol=1e-5):
+		"""
+		Wraps the estimate_ECV method to calculate
+		the EICV knockoff quality metric.
+		"""
+
+		# Step 1: Sample new proposals from L(X_j^* | X, X_{-j}^*)
+		self.ECVS = np.zeros(self.p)
+		self.all_cond_vars = np.zeros((self.n, self.p))
+		if self.metro_verbose:
+			j_iter = range(self.p)
+		else:
+			j_iter = tqdm(list(range(self.p)))
+		for j in j_iter:
+			# Extract
+			ECV, final_cond_vars, _ = self.estimate_ECV(j=j, B=B)
+			self.ECVS[j] = ECV
+			self.all_cond_vars[:, j] = final_cond_vars
+
+		# Compute SES, EICV
+		self.ECV_SES = self.all_cond_vars.std(axis=0) / np.sqrt(self.n)
+		EICV = (1 / self.ECVS).sum()
+		return EICV
+
+	def estimate_ECV(self, j, B=5):
 		"""
 		Uses importance sampling to calculate
 		Var(tildeXj | X, tildeX_{-j}) = Var(Xj | X_{-j}, tildeX)
@@ -1063,7 +1087,6 @@ class MetropolizedKnockoffSampler():
 		final_cond_vars = (np.power(new_Xk_j - moment1, 2) * weights).sum(axis=1)
 		final_cond_vars = final_cond_vars / ((B-1)/B)
 		ECV = final_cond_vars.mean()
-		ECV_SE = final_cond_vars.std() / np.sqrt(self.n)
 
 		# Reset X_prop, Xk, acceptances at the end
 		self.X_prop[:, j] = orig_Xprop_j
@@ -1074,7 +1097,7 @@ class MetropolizedKnockoffSampler():
 			self.F_dicts[i] = orig_F_dicts[i]
 
 		# Return
-		return ECV, ECV_SE, new_Xk_j
+		return ECV, final_cond_vars, new_Xk_j
 
 
 
