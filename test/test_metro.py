@@ -877,5 +877,61 @@ class TestEICV(unittest.TestCase):
 			f"Unexpectedly SDP EICV ({EICV_SDP}) performs better for block T (vs {EICV_MCV})"
 		)
 
+	def test_ising_eicv(self):
+
+		# Test that sampling does not throw an error
+		np.random.seed(110)
+		n = 1000
+		p = 9
+		mu = np.zeros(p)
+		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+			n=n, 
+			p=p,
+			method='ising',
+			x_dist='gibbs',
+		)
+		np.fill_diagonal(undir_graph, 1)
+
+		# We load custom cov/q matrices for this
+		file_directory = os.path.dirname(os.path.abspath(__file__))
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
+		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		self.assertTrue(
+			max_nonedge < 1e-5,
+			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
+		)
+
+		# Initialize sampler with high treewidth, see EICV
+		metro_sampler = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=undir_graph,
+			mu=mu,
+			V=V,
+			Q=Q,
+			max_width=6,
+			method='equicorrelated',
+		)
+		metro_sampler.sample_knockoffs()
+		EICV = metro_sampler.estimate_EICV()
+		
+		# Sample with low treewidth, see EICV
+		metro_sampler2 = metro.IsingKnockoffSampler(
+			X=X,
+			undir_graph=undir_graph,
+			mu=mu,
+			V=V,
+			Q=Q,
+			max_width=2,
+			method='equicorrelated',
+		)
+		metro_sampler2.sample_knockoffs()
+		EICV2 = metro_sampler2.estimate_EICV()
+
+		self.assertTrue(
+			EICV < EICV2, 
+			msg = f"EICV for large width {EICV} should be < EICV for small width {EICV2}"
+		)
+
 if __name__ == '__main__':
 	unittest.main()

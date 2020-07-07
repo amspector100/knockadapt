@@ -1571,7 +1571,7 @@ class IsingKnockoffSampler():
 
 		return self.Xk
 
-	def compute_EICV(self, tol=1e-5, **kwargs):
+	def estimate_EICV(self, tol=1e-5, **kwargs):
 
 		# Initialize
 		self.all_cond_vars = np.zeros((self.n, self.p))
@@ -1596,7 +1596,7 @@ class IsingKnockoffSampler():
 			for n_inds, p_inds, sampler in self.samplers[key]:
 
 				# Compute eicv / conditional variances
-				sampler.compute_EICV(**kwargs)
+				sampler.estimate_EICV(**kwargs)
 				cond_var_block[:, p_inds] = sampler.all_cond_vars[:, sampler.inv_order]
 
 			# Set Xk value for this block
