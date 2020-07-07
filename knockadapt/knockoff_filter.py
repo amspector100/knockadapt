@@ -122,14 +122,15 @@ class KnockoffFilter:
 		self.knockoffs = knockoffs
 		self.S = S
 
+		if self.S is not None:
+			self.G = np.concatenate(
+				[
+					np.concatenate([self.Sigma, self.Sigma - self.S]),
+					np.concatenate([self.Sigma - self.S, self.Sigma]),
+				],
+				axis=1,
+			)
 		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
-		self.G = np.concatenate(
-			[
-				np.concatenate([self.Sigma, self.Sigma - self.S]),
-				np.concatenate([self.Sigma - self.S, self.Sigma]),
-			],
-			axis=1,
-		)
 		if self.debias:
 			self.Ginv = utilities.chol2inv(self.G)
 		else:

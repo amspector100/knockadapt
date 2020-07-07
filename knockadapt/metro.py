@@ -1060,9 +1060,9 @@ class MetropolizedKnockoffSampler():
 
 		# Compute ECV - second moment minus first moment squared
 		moment1 = (new_Xk_j * weights).sum(axis=1).reshape(-1, 1)
-		final_cond_vars = (np.power(new_Xk_j - moment1, 2) * weights).sum(axis=1)
-		final_cond_vars = final_cond_vars / ((B-1)/B)
-		ECV = final_cond_vars.mean()
+		all_cond_vars = (np.power(new_Xk_j - moment1, 2) * weights).sum(axis=1)
+		all_cond_vars = all_cond_vars / ((B-1)/B)
+		ECV = all_cond_vars.mean()
 
 		# Reset X_prop, Xk, acceptances at the end
 		self.X_prop[:, j] = orig_Xprop_j
@@ -1073,7 +1073,7 @@ class MetropolizedKnockoffSampler():
 			self.F_dicts[i] = orig_F_dicts[i]
 
 		# Return
-		return ECV, final_cond_vars, new_Xk_j
+		return ECV, all_cond_vars, new_Xk_j
 
 	def estimate_EICV(self, B=5, tol=1e-5):
 		"""
@@ -1090,9 +1090,9 @@ class MetropolizedKnockoffSampler():
 			j_iter = tqdm(list(range(self.p)))
 		for j in j_iter:
 			# Extract
-			ECV, final_cond_vars, _ = self.estimate_single_ECV(j=j, B=B)
+			ECV, all_cond_vars_j, _ = self.estimate_single_ECV(j=j, B=B)
 			self.ECVS[j] = ECV
-			self.all_cond_vars[:, j] = final_cond_vars
+			self.all_cond_vars[:, j] = all_cond_vars_j
 
 		# Compute SES, EICV
 		self.ECV_SES = self.all_cond_vars.std(axis=0) / np.sqrt(self.n)
@@ -1571,6 +1571,45 @@ class IsingKnockoffSampler():
 
 		return self.Xk
 
+	def compute_EICV(self, tol=1e-5, **kwargs):
+
+		# Initialize
+		self.all_cond_vars = np.zeros((self.n, self.p))
+		self.all_cond_vars[:] = np.nan
+
+		# Loop through different ways of separating variables
+		# and compute conditional variances
+		for key in self.dc_keys:
+			# N inds for this particular method of separation
+			n_inds = np.array(self.X_ninds[key])
+
+			# Initialize output
+			cond_var_block = np.zeros((len(n_inds), self.p))
+			cond_var_block[:] = np.nan
+
+			# Set conditional var of separating knockoffs = 0
+			# for this subset of n
+			sep_inds = self.separators[key]
+			cond_var_block[:,sep_inds] = 0
+
+			# Loop through blocks
+			for n_inds, p_inds, sampler in self.samplers[key]:
+
+				# Compute eicv / conditional variances
+				sampler.compute_EICV(**kwargs)
+				cond_var_block[:, p_inds] = sampler.all_cond_vars[:, sampler.inv_order]
+
+			# Set Xk value for this block
+			self.all_cond_vars[n_inds] = cond_var_block 
+
+		# Compute ECVs, ECV_SES, and finally EICV
+		self.ECVS = self.all_cond_vars.mean(axis=0)
+		self.ECVS = np.maximum(self.ECVS, tol)
+		ECV_SES = self.all_cond_vars.std(axis=0) / np.sqrt(self.n)
+		EICV = (1 / self.ECVS).sum()
+		return EICV
+
+
 	def divide_variables(self, dc_key, translation, max_width, div_type):
 		"""
 		Takes translation, max_width of junction tree, and div_type
@@ -1632,8 +1671,6 @@ class IsingKnockoffSampler():
 				)
 				return lp(Xc)
 			return trunc_lp
-
-
 
 		output = []
 		for div_group in div_groups:
