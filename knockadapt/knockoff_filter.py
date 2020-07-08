@@ -122,7 +122,7 @@ class KnockoffFilter:
 		self.knockoffs = knockoffs
 		self.S = S
 
-		if self.S is not None:
+		if self.S is not None and self.Sigma is not None:
 			self.G = np.concatenate(
 				[
 					np.concatenate([self.Sigma, self.Sigma - self.S]),
@@ -153,19 +153,19 @@ class KnockoffFilter:
 		# Used to construct MAC.
 		p = self.Sigma.shape[0]
 		self.hatG = np.corrcoef(self.X.T, self.knockoffs.T)
-		self.hatS = np.diag(self.hatG[0:p, p:])
+		self.fkcorrs = np.diag(self.hatG[0:p, p:])
 
 		# Calculate ECVs.
 		# For gaussians, this requires almost no computation.
 		if self.knockoff_type == 'gaussian':
 			if self.Ginv is None:
 				self.Ginv = utilities.chol2inv(self.G)
-			self.ECVs = 1 / np.diag(self.Ginv[0:p][:, 0:p])
+			self.ECVS = 1 / np.diag(self.Ginv[0:p][:, 0:p])
 		# For metro, this can be quite slow
 		else:
 			self.knockoff_sampler.estimate_EICV(**kwargs)
-			self.ECVs = self.knockoff_sampler.ECVs
-		return self.hatS, self.ECVs
+			self.ECVS = self.knockoff_sampler.ECVS
+		return self.fkcorrs, self.ECVS
 
 	def make_selections(self, W, fdr):
 		"""" Calculate data dependent threshhold and selections """
