@@ -207,6 +207,28 @@ class TestSampleData(unittest.TestCase):
 				msg = f"sign_prob ({sign_prob}) fails to correctly control sign of beta"
 			)
 
+	def test_beta_corr_signals(self):
+
+		# Test signals are grouped together
+		p = 4
+		sparsity = 0.5
+		expected_nn = int(sparsity * p)
+		for j in range(10):
+			_,_,beta,_,_ = graphs.sample_data(
+				p=p,
+				sparsity=0.5,
+				corr_signals=True
+			)
+			nn_flags = (beta != 0)
+			self.assertTrue(
+				nn_flags.sum() == expected_nn,
+				f"Corr_signals breaks sparsity (beta = {beta}, should have {expected_nn} non-nulls)"
+			)
+			first_nonzero = np.where(nn_flags)[0].min()
+			self.assertTrue(
+				nn_flags[first_nonzero+1], 
+				f"Corr_signals does not produce correlated signals (beta = {beta})"
+			)
 
 	def test_daibarber2016_sample(self):
 

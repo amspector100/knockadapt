@@ -150,6 +150,7 @@ def daibarber2016_graph(
     coeff_size=3.5,
     coeff_dist=None,
     sign_prob=0.5,
+    corr_signals=False,
     beta=None,
     mu=None,
     **kwargs,
@@ -196,6 +197,7 @@ def daibarber2016_graph(
             groups=groups,
             sign_prob=sign_prob,
             coeff_dist=coeff_dist,
+            corr_signals=corr_signals,
         )
 
     # Sample design matrix
@@ -208,7 +210,13 @@ def daibarber2016_graph(
     return X, y, beta, Q, Sigma, groups + 1
 
 def create_sparse_coefficients(
-    p, sparsity=0.5, groups=None, coeff_size=1, coeff_dist=None, sign_prob=0.5,
+    p,
+    sparsity=0.5,
+    groups=None,
+    coeff_size=1,
+    coeff_dist=None,
+    sign_prob=0.5,
+    corr_signals=False,
 ):
     """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
     which are then plus/minus coeff_size with equal probability.
@@ -232,6 +240,8 @@ def create_sparse_coefficients(
         - If "normal", all nonzero coefficients are drawn
     from N(coeff_size, 1). 
         - If "uniform", drawn from Unif(coeff_size/2, coeff_size).
+    :param corr_signals: If true, all of the nonzero coefficients
+    will be clustered together.
     :return: p-length numpy array of sparse coefficients"""
 
     # First, decide which coefficients are nonzero, one of two methods
@@ -249,8 +259,13 @@ def create_sparse_coefficients(
 
         # Method two (default): a certain percentage of coefficients are nonzero
         num_nonzero = int(np.floor(sparsity * p))
-        beta = np.array([coeff_size] * num_nonzero + [0] * (p - num_nonzero))
-        np.random.shuffle(beta)
+        if corr_signals:
+            nonnull_start = np.random.randint(0, p - num_nonzero + 1)
+            beta = np.zeros(p)
+            beta[nonnull_start:nonnull_start + num_nonzero] = coeff_size
+        else:
+            beta = np.array([coeff_size] * num_nonzero + [0] * (p - num_nonzero))
+            np.random.shuffle(beta)
 
     # Now draw random signs
     signs = 1 - 2 * stats.bernoulli.rvs(sign_prob, size=p)
@@ -565,6 +580,7 @@ def sample_data(
     df_t=3,
     cond_mean='linear',
     sign_prob=0.5,
+    corr_signals=False,
     **kwargs,
 ):
     """ Creates a random covariance matrix using method
@@ -629,6 +645,7 @@ def sample_data(
                 coeff_dist=coeff_dist,
                 sparsity=sparsity,
                 sign_prob=sign_prob,
+                corr_signals=corr_signals,
                 beta=beta,
                 **kwargs,
             )
@@ -667,6 +684,7 @@ def sample_data(
             groups=groups,
             sign_prob=sign_prob,
             coeff_dist=coeff_dist,
+            corr_signals=corr_signals,
         )
 
     # Sample design matrix
