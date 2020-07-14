@@ -185,7 +185,7 @@ def daibarber2016_graph(
     # Create correlation matrix, invert
     Xcoords, Ycoords = np.meshgrid(groups, groups)
     Sigma = get_corr(Xcoords, Ycoords)
-    Sigma += np.eye(p) - np.diagflat(np.diag(Sigma))
+    Sigma = Sigma + np.eye(p) - np.diagflat(np.diag(Sigma))
     Q = chol2inv(Sigma)
 
     # Create beta
