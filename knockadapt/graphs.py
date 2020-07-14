@@ -198,6 +198,7 @@ def daibarber2016_graph(
             sign_prob=sign_prob,
             coeff_dist=coeff_dist,
             corr_signals=corr_signals,
+            n=n
         )
 
     # Sample design matrix
@@ -217,6 +218,7 @@ def create_sparse_coefficients(
     coeff_dist=None,
     sign_prob=0.5,
     corr_signals=False,
+    n=None,
 ):
     """ Randomly selects floor(p * sparsity) coefficients to be nonzero,
     which are then plus/minus coeff_size with equal probability.
@@ -277,6 +279,13 @@ def create_sparse_coefficients(
             beta = (beta + np.random.randn(p)) * beta_nonzeros
         elif str(coeff_dist).lower() == "uniform":
             beta = beta * np.random.uniform(size=p) / 2 + beta / 2
+        elif str(coeff_dist).lower() == 'dsliu2020':
+            num_nonzero = beta_nonzeros.sum()
+            if num_nonzero != 50:
+                raise ValueError(
+                    f"To replicate dsliu2020 paper, need num_nonzero ({num_nonzero})=50")
+            variance = 10 * np.sqrt(np.log(p) / n)
+            beta = (beta_nonzeros * np.sqrt(variance) * np.random.randn(p))
         elif str(coeff_dist).lower() == "none":
             pass
         else:
@@ -685,6 +694,7 @@ def sample_data(
             sign_prob=sign_prob,
             coeff_dist=coeff_dist,
             corr_signals=corr_signals,
+            n=n,
         )
 
     # Sample design matrix

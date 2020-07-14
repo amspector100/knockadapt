@@ -272,6 +272,32 @@ class TestSampleData(unittest.TestCase):
 			msg = f'Default daibarber2016 beta has {num_nonzero_features} nonzero features, expected 100'
 		)
 
+	def test_dsliu2020_sample(self):
+
+		rho = 0.8
+		n = 500
+		p = 500
+		_,_,beta,_,_ = graphs.sample_data(
+			rho=rho, gamma=1, p=p, n=n, sparsity=0.1,
+			method='daibarber2016',
+			coeff_dist='dsliu2020',
+		)
+		self.assertTrue(
+			(beta != 0).sum() == 50,
+			f"Sparsity constraint for dsliu2020 violated"
+		)
+
+		p = 2000
+		_,_,beta,_,_ = graphs.sample_data(
+			rho=rho, gamma=1, p=p, n=n, sparsity=0.025,
+			method='daibarber2016',
+			coeff_dist='dsliu2020',
+		)
+		self.assertTrue(
+			(beta != 0).sum() == 50,
+			f"Sparsity constraint for dsliu2020 violated"
+		)
+
 	def test_AR1_sample(self):
 
 		# Check that rho parameter works
