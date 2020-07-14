@@ -298,6 +298,22 @@ class TestSampleData(unittest.TestCase):
 			f"Sparsity constraint for dsliu2020 violated"
 		)
 
+	def test_gmliu2019_sample(self):
+
+		n = 300
+		p = 1000
+		rho = 0.8
+		np.random.seed(110)
+		_,_,beta,_,_ = graphs.sample_data(
+			rho=rho, gamma=1, p=p, n=n, sparsity=0.06,
+			method='daibarber2016',
+			coeff_dist='gmliu2019',
+		)
+		self.assertTrue(
+			(beta != 0).sum() == 60,
+			f"Sparsity constraint for gmliu2019 violated"
+		)
+
 	def test_AR1_sample(self):
 
 		# Check that rho parameter works

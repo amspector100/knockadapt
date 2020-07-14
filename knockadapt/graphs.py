@@ -275,16 +275,22 @@ def create_sparse_coefficients(
     # Possibly change the absolute values of beta
     if coeff_dist is not None:
         beta_nonzeros = beta != 0
+        num_nonzero = beta_nonzeros.sum()
         if str(coeff_dist).lower() == "normal":
             beta = (beta + np.random.randn(p)) * beta_nonzeros
         elif str(coeff_dist).lower() == "uniform":
             beta = beta * np.random.uniform(size=p) / 2 + beta / 2
         elif str(coeff_dist).lower() == 'dsliu2020':
-            num_nonzero = beta_nonzeros.sum()
             if num_nonzero != 50:
                 raise ValueError(
                     f"To replicate dsliu2020 paper, need num_nonzero ({num_nonzero})=50")
             variance = 10 * np.sqrt(np.log(p) / n)
+            beta = (beta_nonzeros * np.sqrt(variance) * np.random.randn(p))
+        elif str(coeff_dist).lower() == 'gmliu2019':
+            if num_nonzero != 60:
+                raise ValueError(
+                    f"To replicate gmliu2019 paper, need num_nonzero ({num_nonzero})=60")
+            variance = 20 / np.sqrt(n)
             beta = (beta_nonzeros * np.sqrt(variance) * np.random.randn(p))
         elif str(coeff_dist).lower() == "none":
             pass
