@@ -123,6 +123,7 @@ class FKPrecisionTraceLoss(nn.Module):
         invSigma=None,
         rec_prop=0,
         smoothing=0.01,
+        min_smoothing=1e-4,
     ):
 
         super().__init__()
@@ -145,6 +146,7 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # Save recycling proportion and smoothing
         self.smoothing = smoothing
+        self.min_smoothing = min_smoothing
         self.rec_prop = rec_prop
 
         # Make sure init_S is a numpy array
@@ -373,9 +375,9 @@ class NonconvexSDPSolver:
 
                 # Break if improvement is small
                 if improvement < convergence_tol:
-                    if self.losscalc.smoothing > 1e-4:
+                    if self.losscalc.smoothing > self.losscalc.min_smoothing:
                         improvement = 1 + convergence_tol # Reset
-                        self.losscalc.smoothing = self.losscalc.smoothing / 10
+                        self.losscalc.smoothing = max(self.losscalc.min_smoothing, self.losscalc.smoothing / 10)
                         if sdp_verbose:
                             print(f"Nearing convergence, reducing smoothing to {self.losscalc.smoothing} \n")
                     elif sdp_verbose:

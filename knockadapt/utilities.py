@@ -166,7 +166,7 @@ def random_permutation_inds(length):
 
 ### Helper for MX knockoffs when we infer Sigma, and also when
 ### X comes from the gibbs model
-def estimate_covariance(X, tol=1e-3, shrinkage = 'ledoitwolf'):
+def estimate_covariance(X, tol=1e-4, shrinkage = 'ledoitwolf'):
     """ Estimates covariance matrix of X. 
     :param X: n x p data matrix
     :param tol: threshhold for minimum eigenvalue
@@ -203,8 +203,9 @@ def estimate_covariance(X, tol=1e-3, shrinkage = 'ledoitwolf'):
             warnings.resetwarnings()
         except FloatingPointError:
             warnings.resetwarnings()
-            warnings.warn(f"Graphical lasso failed, using empirical covariance matrix")
-            return Sigma, chol2inv(Sigma)
+            warnings.warn(f"Graphical lasso failed, LedoitWolf matrix")
+            ShrinkEst = sklearn.covariance.LedoitWolf()
+            ShrinkEst.fit(X)
 
         # Return
         Sigma = ShrinkEst.covariance_
