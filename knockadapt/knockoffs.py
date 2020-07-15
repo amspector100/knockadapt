@@ -694,7 +694,6 @@ def gaussian_knockoffs(
                 **kwargs,
             )
         elif method == "equicorrelated":
-            print(kwargs)
             S = equicorrelated_block_matrix(Sigma, groups, **kwargs)
         elif method == "asdp":
             S = solve_group_ASDP(

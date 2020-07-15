@@ -139,6 +139,18 @@ def TrueErdosRenyi(p=300, delta=0.2, lower=0.1, upper=1, tol=1e-1):
 
     return V
 
+def PartialCorr(
+    p=300,
+    rho=0.3,
+):
+    """
+    Creates graph with partial correlation rho
+    """
+    Q_init = rho*np.ones((p, p)) + (1-rho)*np.eye(p)
+    V = utilities.chol2inv(Q_init)
+    V = utilities.cov2corr(V)
+    Q = utilities.chol2inv(V)
+    return V, Q
 
 def daibarber2016_graph(
     n=3000,
@@ -652,6 +664,8 @@ def sample_data(
         elif method == "ar1":
             corr_matrix = AR1(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
+        elif method == 'partialcorr':
+            corr_matrix, Q = PartialCorr(p=p, **kwargs)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
                 p=p,

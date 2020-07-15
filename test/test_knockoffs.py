@@ -838,6 +838,33 @@ class TestKnockoffGen(CheckValidKnockoffs):
                     msg += f"for daibarber graph, FX knockoffs, rho = {rho}, gamma = {gamma}"
                     np.testing.assert_array_almost_equal(G_hat, G, 5, msg)
 
+    def test_scaling_consistency(self):
+        """
+        Checks whether if we first calculate S
+        and then pass it back into the knockoff
+        generator, we'll get the same answer back.
+        """
+
+        p = 100
+        n = 300
+        X, y, beta, Q, V = knockadapt.graphs.sample_data(
+            method='qer', p=p, n=n, coeff_size=0.5, sparsity=0.5, 
+        )
+        _, S1 = knockadapt.knockoffs.gaussian_knockoffs(
+            X=X,
+            fixedX=True,
+            return_S=True,
+        )
+        _, S2 = knockadapt.knockoffs.gaussian_knockoffs(
+            X=X,
+            fixedX=True,
+            return_S=True,
+            S=S1,
+        )
+        np.testing.assert_array_almost_equal(
+            S1, S2, decimal=6,
+            err_msg = f"Repeatedly passing S into/out of knockoff gen yields inconsistencies"
+        )
 
 if __name__ == '__main__':
     unittest.main()

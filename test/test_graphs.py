@@ -230,6 +230,24 @@ class TestSampleData(unittest.TestCase):
 				f"Corr_signals does not produce correlated signals (beta = {beta})"
 			)
 
+	def test_partialcorr_sample(self):
+
+		p = 50
+		rho = 0.99
+		_,_,_,_,V = graphs.sample_data(p=p, method='partialcorr', rho=rho)
+		diag_diff = np.mean(np.abs(np.diag(V) - 1))
+		self.assertTrue(
+			diag_diff < 1e-4, 
+			f'Partial corr corr_matrix={V} for rho={rho} is not a correlation matrix'
+		)
+		pairwise_corr = V[0,1]
+		expected = -1 / (p-1)
+		self.assertTrue(
+			np.abs(pairwise_corr - expected) < 1e-4,
+			f"Partial corr pairwise_corr {pairwise_corr} deviates from expectation {expected} for rho={rho}"
+		)
+
+
 	def test_daibarber2016_sample(self):
 
 		# Check that defaults are correct - start w cov matrix
