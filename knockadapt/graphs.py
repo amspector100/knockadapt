@@ -648,7 +648,7 @@ def sample_data(
         # This is admittedly not a correlation matrix
         if corr_matrix is None:
             corr_matrix, _ = utilities.estimate_covariance(
-                X, tol=1e-3, shrinkage=None
+                X, tol=1e-6, shrinkage=None
             )
 
     # Create Graph

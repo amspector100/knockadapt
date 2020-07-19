@@ -139,7 +139,7 @@ def solve_SDP(
 
     # Constants 
     p = Sigma.shape[0]
-    maxtol = np.linalg.eigh(Sigma)[0].min() / 1.1
+    maxtol = np.linalg.eigh(Sigma)[0].min() / 10
     if tol > maxtol and sdp_verbose:
         warnings.warn(
             f"Reducing SDP tol from {tol} to {maxtol}, otherwise SDP would be infeasible"
@@ -147,7 +147,9 @@ def solve_SDP(
     tol = min(maxtol, tol)
 
     # Construct C (-b + vec(F0) from above)
-    Cl1 = np.zeros((1,p**2))
+    # Note the tolerance here prevents the min. val
+    # of S from being too small.
+    Cl1 = np.diag(-1*tol*np.ones(p)).reshape(1, p**2)
     Cl2 = np.diag(np.ones(p)).reshape(1, p**2)
     Cs = np.reshape(2*Sigma,[1,p*p])
     C = np.concatenate([Cl1,Cl2,Cs],axis=1)
