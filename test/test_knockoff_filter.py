@@ -47,7 +47,7 @@ class TestFdrControl(unittest.TestCase):
 		for name, groups in zip([name1, name2], [groups1, groups2]):
 				
 			# Solve SDP
-			if S is None and not fixedX:
+			if S is None and not fixedX and not infer_sigma:
 				_, S = knockadapt.knockoffs.gaussian_knockoffs(
 					X=X0,
 					Sigma=Sigma,
@@ -284,13 +284,24 @@ class TestKnockoffFilter(TestFdrControl):
 	@pytest.mark.slow
 	def test_inferred_mx_control(self):
 		self.check_fdr_control(
-			reps=15, n=200, p=100, method='AR1', sparsity=0, y_dist='gaussian', 
+			reps=15,
+			n=200,
+			p=100,
+			method='AR1',
+			sparsity=0,
+			y_dist='gaussian', 
 			infer_sigma=True
 		)
 
 		self.check_fdr_control(
-			reps=15, n=200, p=150, method='ErdosRenyi', sparsity=0, y_dist='gaussian', 
-			infer_sigma=True, filter_kwargs = {'shrinkage':'graphicallasso'}
+			reps=15,
+			n=200, 
+			p=150,
+			method='ErdosRenyi',
+			sparsity=0,
+			y_dist='gaussian', 
+			infer_sigma=True, 
+			filter_kwargs = {'shrinkage':'graphicallasso'}
 		)
 
 
