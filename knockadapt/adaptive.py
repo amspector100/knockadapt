@@ -72,6 +72,8 @@ class KnockoffBicycle(KnockoffFilter):
             mu=self.mu,
             Sigma=self.Sigma,
             knockoffs=self.preknockoffs,
+            groups=self.groups,
+            **filter_kwargs
         )
 
         # Re-cycled features and knockoffs
@@ -84,6 +86,8 @@ class KnockoffBicycle(KnockoffFilter):
             mu=self.mu,
             Sigma=self.Sigma,
             knockoffs=self.preknockoffs,
+            groups=self.groups,
+            **filter_kwargs
         )
 
 
