@@ -7,6 +7,49 @@ from knockadapt import utilities, graphs, adaptive
 from knockadapt import knockoff_stats as kstats
 from knockadapt.adaptive import GroupKnockoffEval
 
+class TestPrecycle(unittest.TestCase):
+	""" Test KnockoffPrecycler """
+
+	def test_precycling_property(self):
+
+		# DGP + S matrix
+		n = 6
+		p = 4
+		rho = 0.7
+		X, y, beta, Q, V = knockadapt.graphs.sample_data(
+			n=n, p=p, method='ar1', rho=rho,
+		)
+		S = (1 - rho)*np.eye(p)
+
+		# Precycler
+		rec_prop = 0.5
+		knockoff_kwargs = {'method':'mcv', 'S':S}
+		kbi = knockadapt.adaptive.KnockoffBicycle(knockoff_kwargs)
+		kbi.forward(
+			X, y, mu=np.zeros(p), Sigma=V, rec_prop=rec_prop
+		)
+
+		# Check preknockoffs
+		nrec = int(rec_prop*n)
+		np.testing.assert_array_almost_equal(
+			kbi.preX[nrec:], kbi.preknockoffs[nrec:],
+			err_msg=f'PreX and preknockoffs do not match for indices after {nrec}'
+		)
+		np.testing.assert_array_almost_equal(
+			kbi.preknockoffs[nrec:],
+			(kbi.knockoffs[nrec:] + X[nrec:])/2,
+			err_msg=f'preknockoffs != (knockoffs + X)/2 for indices after {nrec}'
+		)
+		# Check reknockoffs
+		np.testing.assert_array_almost_equal(
+			kbi.X[0:nrec], kbi.reknockoffs[0:nrec],
+			err_msg=f"reknockoffs != X for first {nrec} datapoints"
+		)
+		np.testing.assert_array_almost_equal(
+			kbi.knockoffs[nrec:], kbi.reknockoffs[nrec:],
+			err_msg=f"reknockoffs != knockoffs for indices after {nrec}"
+		)
+
 class TestGroupKnockoffEval(unittest.TestCase):
 	""" Tests GroupKnockoffEval class """
 

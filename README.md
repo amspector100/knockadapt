@@ -30,19 +30,25 @@ To run cprofilev, copy and paste the test to proftest/* and then run
 1. See footnote h on page 25. Maybe condition on the knockoffs, not 
 Xjstar. This will make the within-knockoff correlations more similar
 maybe?
-2. 
-3. 
+
+### Knockoff Generation
+
+1. Gaussian knockoff generator should be class based
+2. There should be an overarching "sample knockoffs"
+function where you can put the type of knockoffs
+you want to sample in as an input argument.
+3. There should be an overarching "compute S" function,
+ESPECIALLY for the MCV. The class-based stuff is beautiful
+but inconvenient.
 
 ### FX Knockoff Support
 
 1. Knockoff Filter + Debiased Lasso
-2. Need to think about whether we'll actually scale X
+2. Need to think about whether we'll actually shift X
 
 ### Knockoff Construction
 
 1. Add hierarchical clustering to ASDP group-making
-2. Metro: should probably pass a UGM object to the metro 
-class. It's much more convenient.
 
 ### MCV Computation
 
@@ -69,8 +75,7 @@ sample_split, double_dipping procedure, so they're
 ### Naming conventions
 
 - Basically follow the knockoff package in R (which is beautiful)
-- Also can probably add useful pieces of functionality based on the knockoff
-filter package (e.g., add a mu option for group gaussian knockoffs)
+
 
 ### Adaptive to-do
 

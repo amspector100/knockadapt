@@ -6,6 +6,85 @@ from . import utilities
 from . import knockoff_stats
 from .knockoffs import gaussian_knockoffs
 from .knockoff_stats import LassoStatistic, data_dependent_threshhold
+from .knockoff_filter import KnockoffFilter
+
+class KnockoffBicycle(KnockoffFilter):
+    """
+    A class which implements pre/recycling
+    for adaptive knockoff selection.
+    TODO: could also call this the bicycle
+    """
+    def __init__(
+        self,
+        fixedX=False,
+        knockoff_kwargs={},
+        knockoff_type = 'gaussian',
+    ):
+        self.fixedX = fixedX
+        self.knockoff_kwargs = knockoff_kwargs
+        if knockoff_type != 'gaussian':
+            raise ValueError(
+                f"Non-gaussian knockoff types not implemented yet"
+            )
+
+    def forward(
+        self,
+        X,
+        y,
+        groups=None,
+        mu=None,
+        Sigma=None,
+        rec_prop=0.5,
+        **filter_kwargs
+    ):
+
+        # Save params
+        self.n = X.shape[0]
+        self.X = X
+        self.y = y
+        self.mu = mu
+        self.p = Sigma.shape[0]
+        self.Sigma = Sigma
+        self.groups = groups
+
+        # Generate knockoffs
+        if 'knockoffs' in filter_kwargs:
+            self.knockoffs = filter_kwargs['knockoffs']
+        else:
+            self.knockoffs = gaussian_knockoffs(
+                X=self.X, 
+                groups=self.groups,
+                mu=self.mu,
+                Sigma=self.Sigma,
+                **self.knockoff_kwargs,
+            )[:, :, 0]
+
+        # Pre-cycled features and knockfoffs
+        nrec = int(rec_prop*self.n)
+        self.preknockoffs = self.knockoffs.copy()
+        self.preknockoffs[nrec:] = (self.knockoffs[nrec:] + self.X[nrec:])/2
+        self.preX = self.X.copy()
+        self.preX[nrec:] = self.preknockoffs[nrec:]
+        self.prefilter = KnockoffFilter(fixedX=self.fixedX)
+        self.prefilter.forward(
+            X=self.preX,
+            y=self.y,
+            mu=self.mu,
+            Sigma=self.Sigma,
+            knockoffs=self.preknockoffs,
+        )
+
+        # Re-cycled features and knockoffs
+        self.reknockoffs = self.knockoffs.copy()
+        self.reknockoffs[0:nrec] = self.X[0:nrec].copy()
+        self.refilter = KnockoffFilter(fixedX=self.fixedX)
+        self.refilter.forward(
+            X=self.preX,
+            y=self.y,
+            mu=self.mu,
+            Sigma=self.Sigma,
+            knockoffs=self.preknockoffs,
+        )
 
 
 def calc_epowers(Ws, group_sizes, non_nulls=None, **kwargs):
