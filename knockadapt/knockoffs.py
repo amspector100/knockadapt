@@ -66,7 +66,8 @@ def calc_min_group_eigenvalue(Sigma, groups, tol=1e-5, verbose=False):
         raise ValueError(f"Minimum eigenvalue of block matrix D is {min_d_eig}")
 
     # Find minimum eigenvalue
-    DSigD = np.einsum("pk,kj,jl->pl", D, Sigma, D)
+    DSig = np.dot(D, Sigma)
+    DSigD = np.dot(DSig, D)
     gamma = min(2 * np.linalg.eigh(DSigD)[0].min(), 1)
 
     # Warn if imaginary
