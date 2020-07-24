@@ -357,6 +357,22 @@ class TestKnockoffFilter(TestFdrControl):
 		)
 
 	@pytest.mark.slow
+	def test_ising_dlasso(self):
+		""" Makes sure Ising works in combination with debiased lasso """
+
+		# Need to pull in specially-estimated Sigma
+		from .context import file_directory
+		p = 49
+		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
+		self.check_fdr_control(
+			n=500, p=49, method='ising', corr_matrix=V,
+			sparsity=0.5, x_dist='gibbs', reps=2, q=1,
+			filter_kwargs={
+				'knockoff_type':'ising', 'feature_stat':'dlasso',
+			},
+		)
+
+	@pytest.mark.slow
 	def test_lars_control(self):
 
 		# Scenario 1: daibarber2016

@@ -94,13 +94,14 @@ class KnockoffFilter:
 			)
 			knockoffs = self.knockoff_sampler.sample_knockoffs()
 
-			# It is impossible to extract S here because there
-			# are different S's for different parts of the data
+			# It is impossible to extract S analytically 
+			# here because there are different S's for
+			# different parts of the data
 			S = None
 
 		else:
 			raise ValueError(
-				f"knockoff_type must be one of 'gaussian', 'artk', not {knockoff_type}"
+				f"knockoff_type must be one of 'gaussian', 'artk', 'ising', 'blockt', not {knockoff_type}"
 			)
 
 		# Possibly use recycling
@@ -122,6 +123,8 @@ class KnockoffFilter:
 		self.knockoffs = knockoffs
 		self.S = S
 
+		# Construct the feature-knockoff covariance matrix, or estimate
+		# it if construction is not possible
 		if self.S is not None and self.Sigma is not None:
 			self.G = np.concatenate(
 				[
@@ -130,11 +133,18 @@ class KnockoffFilter:
 				],
 				axis=1,
 			)
-		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
-		if self.debias:
-			self.Ginv = utilities.chol2inv(self.G)
 		else:
-			self.Ginv = None
+			self.G = None
+			self.hatG, self.Ginv = utilities.estimate_covariance(
+				np.concatenate([self.X, self.knockoffs], axis=1)
+			)
+			print(self.X.shape)
+			print(self.Ginv.shape)
+
+		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
+		if self.debias and self.G is not None:
+			self.Ginv = utilities.chol2inv(self.G)
+
 		return knockoffs
 
 	def compute_quality_metrics(self, **kwargs):
