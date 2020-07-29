@@ -114,6 +114,7 @@ class FKPrecisionTraceLoss(nn.Module):
     as opposed to sum 1/eigs. This is helpful if fitting lasso 
     statistics on extremely degenerate covariance matrices. Over the 
     course of optimization, this smoothing parameter will go to 0.
+    :param method: One of mcv or maxent.
     """
 
     def __init__(self, 
@@ -124,6 +125,7 @@ class FKPrecisionTraceLoss(nn.Module):
         rec_prop=0,
         smoothing=0.01,
         min_smoothing=1e-4,
+        method='mcv',
     ):
 
         super().__init__()
@@ -148,6 +150,7 @@ class FKPrecisionTraceLoss(nn.Module):
         self.smoothing = smoothing
         self.min_smoothing = min_smoothing
         self.rec_prop = rec_prop
+        self.method = method
 
         # Make sure init_S is a numpy array
         if init_S is None:
@@ -223,8 +226,12 @@ class FKPrecisionTraceLoss(nn.Module):
         # Take eigenvalues
         eigvals = torch.symeig(G_schurr, eigenvectors=True)
         eigvals = eigvals[0]
-        inv_eigvals = 1 / (smoothing + eigvals)
-        return inv_eigvals.sum()
+        if self.method == 'mcv':
+            inv_eigs = 1 / (smoothing + eigvals)
+        elif self.method == 'maxent':
+            inv_eigs = np.log(1 / (smoothing + eigvals))
+        return inv_eigs.sum()
+
 
     def scale_sqrt_S(self, tol, num_iter):
         """ Scales sqrt_S such that 2 Sigma - S is PSD."""

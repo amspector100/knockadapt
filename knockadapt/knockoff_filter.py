@@ -138,8 +138,7 @@ class KnockoffFilter:
 			self.hatG, self.Ginv = utilities.estimate_covariance(
 				np.concatenate([self.X, self.knockoffs], axis=1)
 			)
-			print(self.X.shape)
-			print(self.Ginv.shape)
+
 
 		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
 		if self.debias and self.G is not None:
