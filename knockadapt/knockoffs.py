@@ -707,7 +707,7 @@ def gaussian_knockoffs(
                 sdp_verbose=sdp_verbose,
                 **kwargs,
             )
-        elif method == "mcv":
+        elif method == "mcv" or method == 'maxent':
             if init_S is None:
                 S_init = solve_group_ASDP(
                     Sigma,
@@ -723,6 +723,7 @@ def gaussian_knockoffs(
                 groups=groups,
                 init_S=init_S,
                 rec_prop=rec_prop,
+                method=method
             )
             S = opt.optimize(
                 max_epochs=max_epochs,

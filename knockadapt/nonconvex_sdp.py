@@ -229,7 +229,7 @@ class FKPrecisionTraceLoss(nn.Module):
         if self.method == 'mcv':
             inv_eigs = 1 / (smoothing + eigvals)
         elif self.method == 'maxent':
-            inv_eigs = np.log(1 / (smoothing + eigvals))
+            inv_eigs = torch.log(1 / (smoothing + eigvals))
         return inv_eigs.sum()
 
 
