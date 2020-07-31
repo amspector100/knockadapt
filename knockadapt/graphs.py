@@ -86,6 +86,38 @@ def AR1(p=30, a=1, b=1, tol=1e-3, rho=None):
 
     return corr_matrix
 
+def NestedAR1(p=500, a=7, b=1, tol=1e-3, num_nests=5, nest_size=2):
+    """
+    Generates correlation matrix for AR(1) Gaussian process
+    with hierarchical correlation structure.
+    """
+    # First set of correlations
+    rhos = np.log(stats.beta.rvs(size=p, a=a, b=b))
+    rhos[0] = 0
+
+    # Create nested structure
+    for j in range(1, num_nests+1):
+        rho_samples = np.log(stats.beta.rvs(size=p, a=a, b=b))
+        # These indexes will get smaller correlations
+        nest_inds = np.array([
+            x for x in range(p) if x % (nest_size**j) == int(nest_size / 2)
+        ]).astype('int')
+        mask = np.zeros(p)
+        mask[nest_inds] = 1
+        rhos += mask * rho_samples
+
+    # Generate cov matrix
+    rhos[0] = 0
+    cumrhos = np.cumsum(rhos).reshape(p, 1)
+
+    # Use cumsum tricks to calculate all correlations
+    log_corrs = -1 * np.abs(cumrhos - cumrhos.transpose())
+    corr_matrix = np.exp(log_corrs)
+
+    # Ensure PSD-ness
+    corr_matrix = cov2corr(shift_until_PSD(corr_matrix, 1e-3))
+
+    return corr_matrix
 
 def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol=1e-1):
     """ Randomly samples bernoulli flags as well as values
@@ -663,6 +695,9 @@ def sample_data(
             Q = chol2inv(corr_matrix)
         elif method == "ar1":
             corr_matrix = AR1(p=p, **kwargs)
+            Q = chol2inv(corr_matrix)
+        elif method == "nestedar1":
+            corr_matrix = NestedAR1(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
         elif method == 'partialcorr':
             corr_matrix, Q = PartialCorr(p=p, **kwargs)

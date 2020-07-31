@@ -371,6 +371,23 @@ class TestSampleData(unittest.TestCase):
 			err_msg=f'random AR1 gen has unexpected avg rho {mean_rho} vs {expected} '
 		)
 
+	def test_nested_AR1(self):
+
+		# Check that a, b parameters work
+		np.random.seed(110)
+		a = 100
+		b = 40
+		_,_,_,_,Sigma = graphs.sample_data(
+			p=500, method='nestedar1', a=a, b=b, nest_size=2, num_nests=1
+		)
+		mean_rho = np.diag(Sigma, k=1).mean()
+		expected = a/(2*(a+b)) + (a/(a+b))**2 / 2
+		np.testing.assert_almost_equal(
+			mean_rho, expected,
+			decimal=2, 
+			err_msg=f'random nested AR1 gen has unexpected avg rho {mean_rho}, should be ~ {expected} '
+		)
+
 	def test_dot_corr_matrices(self):
 		""" Tests wishart and uniform corr matrices """
 
