@@ -119,32 +119,7 @@ def NestedAR1(p=500, a=7, b=1, tol=1e-3, num_nests=5, nest_size=2):
 
     return corr_matrix
 
-def ErdosRenyi(p=300, delta=0.8, values=[-0.8, -0.3, -0.05, 0.05, 0.3, 0.8], tol=1e-1):
-    """ Randomly samples bernoulli flags as well as values
-    for partial correlations to generate sparse precision
-    matrices."""
-
-    # Initialization
-    values = np.array(values)
-    Q = np.zeros((p, p))
-    triang_size = int((p ** 2 + p) / 2)
-
-    # Sample the upper triangle
-    mask = stats.bernoulli.rvs(delta, size=triang_size)
-    vals = np.random.choice(values, size=triang_size, replace=True)
-    triang = mask * vals
-
-    # Set values and add diagonal
-    upper_inds = np.triu_indices(p, 0)
-    Q[upper_inds] = triang
-    Q = np.dot(Q, Q.T)
-
-    # Force to be positive definite -
-    Q = shift_until_PSD(Q, tol=tol)
-
-    return Q
-
-def TrueErdosRenyi(p=300, delta=0.2, lower=0.1, upper=1, tol=1e-1):
+def ErdosRenyi(p=300, delta=0.2, lower=0.1, upper=1, tol=1e-1):
     """ Randomly samples bernoulli flags as well as values
     for partial correlations to generate sparse precision
     matrices. Follows https://arxiv.org/pdf/1908.11611.pdf.
@@ -651,7 +626,6 @@ def sample_data(
     sparse linear coefficients. (The noise of the 
     response itself is standard normal).
     :param method: How to generate the covariance matrix.
-    One of 'ErdosRenyi', 'AR1', 'identity', 'daibarber2016'
     :param mu: If supplied, a p-dimensional vector of means for
     the covariates. Defaults to zero.
     :param Q: p x p precision matrix. If supplied, will not generate
@@ -687,13 +661,7 @@ def sample_data(
     if Q is None and corr_matrix is None:
 
         method = str(method).lower()
-        if method == "erdosrenyi":
-            Q = ErdosRenyi(p=p, **kwargs)
-            corr_matrix = cov2corr(chol2inv(Q))
-            corr_matrix -= np.diagflat(np.diag(corr_matrix))
-            corr_matrix += np.eye(p)
-            Q = chol2inv(corr_matrix)
-        elif method == "ar1":
+        if method == "ar1":
             corr_matrix = AR1(p=p, **kwargs)
             Q = chol2inv(corr_matrix)
         elif method == "nestedar1":
@@ -714,10 +682,10 @@ def sample_data(
                 **kwargs,
             )
         elif method == 'ver':
-            corr_matrix = cov2corr(TrueErdosRenyi(p=p, **kwargs))
+            corr_matrix = cov2corr(ErdosRenyi(p=p, **kwargs))
             Q = chol2inv(corr_matrix)
         elif method == 'qer':
-            Q = TrueErdosRenyi(p=p, **kwargs)
+            Q = ErdosRenyi(p=p, **kwargs)
             corr_matrix = cov2corr(chol2inv(Q))
             Q = chol2inv(corr_matrix)
         elif method == 'dirichlet':

@@ -189,13 +189,13 @@ class TestKnockoffFilter(TestFdrControl):
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=300, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15,
+			n=300, p=50, method='ver', sparsity=0, y_dist='gaussian', reps=15,
 			filter_kwargs = {'feature_stat':'ols'}
 		)
 
 		# Erdos Renyi, but with Ridge Statistic
 		self.check_fdr_control(
-			n=100, p=50, method='ErdosRenyi', sparsity=0, y_dist='gaussian', reps=15,
+			n=100, p=50, method='ver', sparsity=0, y_dist='gaussian', reps=15,
 			filter_kwargs = {'feature_stat':'ridge'}
 		)
 
@@ -213,7 +213,7 @@ class TestKnockoffFilter(TestFdrControl):
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=100, p=100, method='ErdosRenyi', sparsity=0.2, y_dist='gaussian', reps=15,
+			n=100, p=100, method='ver', sparsity=0.2, y_dist='gaussian', reps=15,
 			filter_kwargs={'feature_stat_kwargs':{'debias':True}}
 		)
 
@@ -232,7 +232,7 @@ class TestKnockoffFilter(TestFdrControl):
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(
-			n=100, p=50, method='ErdosRenyi', sparsity=0.5, y_dist='binomial', reps=15
+			n=100, p=50, method='ver', sparsity=0.5, y_dist='binomial', reps=15
 		)
 
 		# Scenario 3: Dai Barber
@@ -260,7 +260,7 @@ class TestKnockoffFilter(TestFdrControl):
 		self.check_fdr_control(
 			n=100,
 			p=50,
-			method='ErdosRenyi',
+			method='ver',
 			sparsity=0.5,
 			y_dist='binomial',
 			cond_mean='pairint',
@@ -297,7 +297,7 @@ class TestKnockoffFilter(TestFdrControl):
 			reps=15,
 			n=200, 
 			p=150,
-			method='ErdosRenyi',
+			method='ver',
 			sparsity=0,
 			y_dist='gaussian', 
 			infer_sigma=True, 

@@ -531,7 +531,7 @@ class TestSampleData(unittest.TestCase):
 		# Check that this fails correctly for non-ar1-method
 		def non_ar1_t():
 			graphs.sample_data(
-				n=n, p=p, method='ErdosRenyi', x_dist='ar1t' 
+				n=n, p=p, method='ver', x_dist='ar1t' 
 			)
 		self.assertRaisesRegex(
 			ValueError, "should equal 'ar1'",
@@ -593,7 +593,7 @@ class TestSampleData(unittest.TestCase):
 		# Check that we get an error for wrong dist
 		def bad_xdist():
 			graphs.sample_data(
-				method='ErdosRenyi', x_dist='t_dist' 
+				method='ver', x_dist='t_dist' 
 			)
 
 		self.assertRaisesRegex(
