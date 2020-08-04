@@ -465,10 +465,31 @@ class PSGDSolver:
 	S matrix as well as (2*Sigma - S) are PSD.
 	- .pull_S(), which returns the internally-stored S matrix.
 	If None, creates a MVRLoss class. 
+	:param lr: Initial learning rate (default 1e-2)
+	:param verbose: if true, reports progress
+	:param max_epochs: Maximum number of epochs in SGD
+	:param tol: Mimimum eigenvalue allowed for PSD matrices
+	:param line_search_iter: Number of line searches to do
+	when scaling sqrt_S.
+	:param convergence_tol: After each projection, we calculate
+	improvement = 2/3 * ||prev_opt_S - opt_S||_1 + 1/3 * (improvement)
+	When improvement < convergence_tol, we return.
 	:param kwargs: Passed to MVRLoss 
 	"""
 
-	def __init__(self, Sigma, groups, losscalc=None, **kwargs):
+	def __init__(
+		self,
+		Sigma,
+		groups,
+		losscalc=None,
+		lr=1e-2,
+		verbose=False,
+		max_epochs=100,
+		tol=1e-5,
+		line_search_iter=10,
+		convergence_tol=1e-1,
+		**kwargs
+	):
 
 		# Add Sigma
 		self.p = Sigma.shape[0]
@@ -476,6 +497,14 @@ class PSGDSolver:
 		self.groups = groups
 		self.opt_S = None # Output initialization
 		self.opt_loss = np.inf
+
+		# Save parameters for optimization
+		self.lr = lr
+		self.verbose = verbose
+		self.max_epochs = max_epochs
+		self.tol = tol
+		self.line_search_iter = line_search_iter
+		self.convergence_tol = convergence_tol
 
 		# Sort by groups for ease of computation
 		inds, inv_inds = utilities.permute_matrix_by_groups(groups)
@@ -512,32 +541,15 @@ class PSGDSolver:
 			self.opt_loss = new_loss
 			self.opt_S = self.losscalc.pull_S().clone().detach().numpy()
 
-	def optimize(
-		self,
-		lr=1e-2,
-		sdp_verbose=False,
-		max_epochs=100,
-		tol=1e-5,
-		line_search_iter=10,
-		convergence_tol=1e-1,
-		**kwargs,
-	):
+	def optimize(self):
 		"""
-		:param lr: Initial learning rate (default 1e-2)
-		:param sdp_verbose: if true, reports progress
-		:param max_epochs: Maximum number of epochs in SGD
-		:param tol: Mimimum eigenvalue allowed for PSD matrices
-		:param line_search_iter: Number of line searches to do
-		when scaling sqrt_S.
-		:param convergence_tol: After each projection, we calculate
-		improvement = 2/3 * ||prev_opt_S - opt_S||_1 + 1/3 * (improvement)
-		When improvement < convergence_tol, we return.
+		See __init__ for arguments.
 		"""
 		# Optimizer
 		params = list(self.losscalc.parameters())
-		optimizer = torch.optim.Adam(params, lr=1e-2)
-		improvement = convergence_tol + 10
-		for j in range(max_epochs):
+		optimizer = torch.optim.Adam(params, lr=self.lr)
+		improvement = self.convergence_tol + 10
+		for j in range(self.max_epochs):
 
 			# Step 1: Calculate loss (trace of feature-knockoff precision)
 			loss = self.losscalc()
@@ -555,8 +567,8 @@ class PSGDSolver:
 
 
 			# Step 3: Reproject to be PSD
-			if j % 3 == 0 or j == max_epochs - 1:
-				self.losscalc.project(tol=tol, num_iter=line_search_iter)
+			if j % 3 == 0 or j == self.max_epochs - 1:
+				self.losscalc.project(tol=self.tol, num_iter=self.line_search_iter)
 
 				# If this is optimal after reprojecting, save
 				with torch.no_grad():
@@ -575,36 +587,41 @@ class PSGDSolver:
 					diff = self.prev_opt_loss - self.opt_loss
 					l1diff = np.abs(self.opt_S - self.prev_opt_S).sum()
 					improvement = 2*(diff)/3 + improvement/3
-					if sdp_verbose:
+					if self.verbose:
 						print(f"L1 diff is {l1diff}, loss diff={diff}, improvement is {improvement}, best loss is {self.opt_loss} at iter {j}")
 				self.improvements.append(improvement)
 
 				# Break if improvement is small
-				if improvement < convergence_tol and j % 10 == 0:
+				if improvement < self.convergence_tol and j % 10 == 0:
 					if self.losscalc.smoothing > self.losscalc.min_smoothing:
 						improvement = 1 + convergence_tol # Reset
 						self.losscalc.smoothing = max(self.losscalc.min_smoothing, self.losscalc.smoothing / 10)
-						if sdp_verbose:
+						if self.verbose:
 							print(f"Nearing convergence, reducing smoothing to {self.losscalc.smoothing} \n")
-					elif sdp_verbose:
+					elif self.verbose:
 						print(f"Converged at iteration {j}")
 					break
 
 		# Shift, scale, and return
 		sorted_S = self.opt_S
 		S = sorted_S[self.inv_inds][:, self.inv_inds]
-		S = utilities.shift_until_PSD(S, tol=tol)
+		S = utilities.shift_until_PSD(S, tol=self.tol)
 		S, _ = utilities.scale_until_PSD(
-			self.Sigma, S, tol=tol, num_iter=line_search_iter
+			self.Sigma, S, tol=self.tol, num_iter=self.line_search_iter
 		)
 		return S
 
 def solve_mrc_psgd(
-	Sigma, init_kwargs, optimize_kwargs
+	Sigma,
+	groups=None,
+	method='mvr',
+	**kwargs,
 ):
 	"""
 	Wraps the PSGDSolver class.
 	:param Sigma: Covariance matrix
+	:param groups: groups for group knockoffs
+	:param method: MRC loss (mvr or maxent)
 	:param init_kwargs: kwargs to pass to 
 	PSGDSolver.
 	:param optimize_kwargs: kwargs to pass 
@@ -613,9 +630,8 @@ def solve_mrc_psgd(
 	"""
 	solver = PSGDSolver(
 		Sigma=Sigma,
-		**init_kwargs
+		groups=groups,
+		**kwargs
 	)
-	opt_S = solver.optimize(
-		**optimize_kwargs
-	)
+	opt_S = solver.optimize()
 	return opt_S

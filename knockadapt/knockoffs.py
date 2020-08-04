@@ -7,7 +7,7 @@ import scipy.linalg
 from .utilities import calc_group_sizes, preprocess_groups
 from .utilities import shift_until_PSD, scale_until_PSD
 from . import utilities
-from . import nonconvex_sdp
+from . import mrc
 
 # Multiprocessing tools
 from functools import partial
@@ -112,7 +112,6 @@ def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter
 def solve_SDP(
     Sigma,
     verbose=False,
-    sdp_verbose=False,
     num_iter=10,
     tol=1e-2,
     **kwargs
@@ -141,7 +140,7 @@ def solve_SDP(
     # Constants 
     p = Sigma.shape[0]
     maxtol = np.linalg.eigh(Sigma)[0].min() / 10
-    if tol > maxtol and sdp_verbose:
+    if tol > maxtol and verbose:
         warnings.warn(
             f"Reducing SDP tol from {tol} to {maxtol}, otherwise SDP would be infeasible"
         )
@@ -177,9 +176,9 @@ def solve_SDP(
     OPTIONS = {
         'gaptol':1e-6,
         'maxit':1000,
-        'logsummary':1 if sdp_verbose else 0,
-        'outputstats':1 if sdp_verbose else 0,
-        'print':1 if sdp_verbose else 0
+        'logsummary':1 if verbose else 0,
+        'outputstats':1 if verbose else 0,
+        'print':1 if verbose else 0
     }
 
     # Solve
@@ -197,7 +196,7 @@ def solve_SDP(
 
     # Scale to make this PSD using binary search
     S, gamma = scale_until_PSD(Sigma, S, tol, num_iter)
-    if sdp_verbose:
+    if verbose:
         mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
         print(
             f"After SDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
@@ -209,7 +208,6 @@ def solve_group_SDP(
     Sigma,
     groups=None,
     verbose=False,
-    sdp_verbose=False,
     objective="abs",
     norm_type=2,
     num_iter=10,
@@ -269,7 +267,7 @@ def solve_group_SDP(
         )
     # Find minimum tolerance, possibly warn user if lower than they specified
     maxtol = np.linalg.eigh(Sigma)[0].min() / 1.1
-    if tol > maxtol and sdp_verbose:
+    if tol > maxtol and verbose:
         warnings.warn(
             f"Reducing SDP tol from {tol} to {maxtol}, otherwise SDP would be infeasible"
         )
@@ -284,7 +282,6 @@ def solve_group_SDP(
         return solve_SDP(
             Sigma=Sigma,
             verbose=verbose,
-            sdp_verbose=sdp_verbose,
             num_iter=num_iter,
             tol=tol,
         )
@@ -348,8 +345,8 @@ def solve_group_SDP(
 
     # Construct, solve the problem.
     problem = cp.Problem(objective, constraints)
-    problem.solve(verbose=sdp_verbose, **kwargs)
-    if sdp_verbose:
+    problem.solve(verbose=verbose, **kwargs)
+    if verbose:
         print("Finished solving SDP!")
 
     # Unsort and get numpy
@@ -366,7 +363,7 @@ def solve_group_SDP(
 
     # Scale to make this PSD using binary search
     S, gamma = scale_until_PSD(Sigma, S, tol, num_iter)
-    if sdp_verbose:
+    if verbose:
         mineig = np.linalg.eigh(2 * Sigma - S)[0].min()
         print(
             f"After SDP, mineig is {mineig} after {num_iter} line search iters. Gamma is {gamma}"
@@ -530,13 +527,74 @@ def parse_method(method, groups, p):
     if method is not None:
         return method
     if np.all(groups == np.arange(1, p + 1, 1)):
-        method = "mcv"
+        method = "mvr"
     else:
         if p > 1000:
             method = "asdp"
         else:
             method = "sdp"
     return method
+
+def compute_S_matrix(
+    Sigma,
+    groups=None,
+    method=None,
+    solver='cd',
+    **kwargs
+):
+    """
+    Wraps a variety of S-matrix generation
+    functions.
+    :param Sigma: covariance matrix
+    :param groups: groups for group knockoffs
+    :param method: Method for constructing
+    S-matrix. One of mvr, maxent, sdp, asdp,
+    equicorrelated.
+    :param solver: Method for solving mrc knockoffs.
+    One of 'cd' (coordinate descent) or 'psgd'
+    (projected gradient descent).
+    :param **kwargs: kwargs to one of the downstream
+    functions.
+    """
+    p = Sigma.shape[0]
+    if method is not None:
+        method = str(method).lower()
+    method = parse_method(method, groups, p)
+    # Currently cd solvers cannot do group knockoffs
+    # (this is todo)
+    if groups is not None:
+        if not np.all(groups == np.arange(1, p + 1, 1)):
+            solver = 'psgd'
+    if (method == 'mvr' or method == 'maxent') and solver == 'psgd':
+        return mrc.solve_mrc_psgd(
+            Sigma=Sigma, groups=groups, **kwargs
+        )
+    elif method == 'mvr':
+        return mrc.solve_mvr(
+            Sigma=Sigma, **kwargs
+        )
+    elif method == 'mrc':
+        return mrc.solve_maxent(
+            Sigma=Sigma, **kwargs
+        )
+    elif method == "sdp":
+        return solve_group_SDP(
+            Sigma,
+            groups,
+            **kwargs,
+        )
+    elif method == "asdp":
+        return solve_group_ASDP(
+            Sigma,
+            groups,
+            **kwargs,
+        )
+    elif method == "equicorrelated":
+        return equicorrelated_block_matrix(
+            Sigma, groups, **kwargs
+        )
+    else:
+        raise ValueError(f"Unrecognized method {method}")
 
 def gaussian_knockoffs(
     X,
@@ -547,16 +605,11 @@ def gaussian_knockoffs(
     invSigma=None,
     copies=1,
     sample_tol=1e-5,
-    sdp_tol=1e-2,
     S=None,
     init_S=None,
     method=None,
-    objective="pnorm",
     return_S=False,
     verbose=False,
-    sdp_verbose=False,
-    rec_prop=0,
-    max_epochs=1000,
     **kwargs,
 ):
     """ Constructs group Gaussian MX knockoffs.
@@ -570,8 +623,8 @@ def gaussian_knockoffs(
     :param S: the S matrix defined s.t. Cov(X, tilde(X)) = Sigma - S. Defaults to None
     and will be constructed by knockoff generator.
     :param init_S: An initial guess for the S matrix. This is helpful when using
-    the mcv method (defined below).
-    :param method: How to construct S matrix. There are three options:
+    the mvr method (defined below).
+    :param method: How to construct S matrix. There are several options:
         - 'equicorrelated': In this construction, the correlation between 
         each feature and its knockoff is the same (gamma). Minimizes this 
         gamma while preserving validity. See Dai and Barber 2016 for the
@@ -581,10 +634,10 @@ def gaussian_knockoffs(
         while keeping knockoffs valid.
         - 'asdp': Same as SDP, but to increase speed, approximates correlation
         matrix as a block-diagonal matrix.
-        - 'mcv': minimizes trace of feature-knockoff precision matrix. Solves this
+        - 'mvr': minimizes trace of feature-knockoff precision matrix. Solves this
         (nonconvex) problem with projected gradient, using either SDP or ASDP 
         to initialize. 
-    The default is to use mcv for non-group knockoffs, and to use the group-SDP
+    The default is to use mvr for non-group knockoffs, and to use the group-SDP
     for grouped knockoffs. In both cases we use the ASDP if p > 1000.
     :param objective: How to optimize the S matrix if using SDP.
     There are several options:
@@ -596,19 +649,14 @@ def gaussian_knockoffs(
         (see norm_type below).
     :param sample_tol: Minimum eigenvalue allowed for cov matrix of knockoffs.
     Keep this extremely small (1e-5): it's just to prevent linalg errors downstream.
-    :param sdp_tol: Minimum eigenvalue allowed for grahm matrix of knockoff 
-    generations. This is used as a constraint in the SDP formulation. Keep this
-    small but not inconsequential (1e-2) as if this gets too small, the 
-    feature-knockoff combinations may become unidentifiable.
     :param bool verbose: If true, will print stuff as it goes
-    :param bool sdp_verbose: If true, will tell the SDP solver to be verbose.
     :param rec_prop: The proportion of knockoffs you are planning to recycle
     (see Barber and Candes 2018, https://arxiv.org/abs/1602.03574). If 
-    method = 'mcv',then the method takes this into account and should 
+    method = 'mvr',then the method takes this into account and should 
     dramatically increase the power of recycled knockoffs, especially in
     sparsely-correlated, high-dimensional settings.
-    :param max_epochs: number of epochs (gradient steps) for MCV solver.
-    :param smoothing: Smoothing parameter for MCV solver.
+    :param max_epochs: number of epochs (gradient steps) for mvr solver.
+    :param smoothing: Smoothing parameter for mvr solver.
     :param kwargs: other kwargs for either equicorrelated/SDP/ASDP solvers.
 
     returns: n x p x copies numpy array of knockoffs"""
@@ -642,7 +690,7 @@ def gaussian_knockoffs(
 
     # Possibly estimate mu, Sigma for MX 
     if Sigma is None and not fixedX: 
-        Sigma, invSigma = utilities.estimate_covariance(X, tol=sdp_tol)
+        Sigma, invSigma = utilities.estimate_covariance(X, tol=1e-2)
 
     # Scale for MX case (no shifting required)
     if not fixedX:
@@ -667,9 +715,6 @@ def gaussian_knockoffs(
     else:
         mu = mu / scale
 
-    # Parse which method to use if not supplied
-    method = parse_method(method, groups, p)
-
     # Get precision matrix
     if invSigma is None:
         invSigma = utilities.chol2inv(Sigma)
@@ -683,63 +728,16 @@ def gaussian_knockoffs(
 
     # Calculate group-block diagonal matrix S
     # using SDP, equicorrelated, or (maybe) ASDP
-    method = str(method).lower()
     if S is None:
-        if method == "sdp":
-            if verbose:
-                print(f"Solving SDP for S with p = {p}")
-            S = solve_group_SDP(
-                Sigma,
-                groups,
-                objective=objective,
-                sdp_verbose=sdp_verbose,
-                tol=sdp_tol,
-                **kwargs,
-            )
-        elif method == "equicorrelated":
-            S = equicorrelated_block_matrix(Sigma, groups, **kwargs)
-        elif method == "asdp":
-            S = solve_group_ASDP(
-                Sigma,
-                groups,
-                objective=objective,
-                verbose=verbose,
-                sdp_verbose=sdp_verbose,
-                **kwargs,
-            )
-        elif method == "mcv" or method == 'maxent':
-            if init_S is None:
-                S_init = solve_group_ASDP(
-                    Sigma,
-                    groups,
-                    objective=objective,
-                    verbose=verbose,
-                    sdp_verbose=sdp_verbose,
-                    max_block=500,
-                    tol=1e-5, # The initialization will rescale anyway
-                )
-            opt = nonconvex_sdp.NonconvexSDPSolver(
-                Sigma=Sigma, 
-                groups=groups,
-                init_S=init_S,
-                rec_prop=rec_prop,
-                method=method
-            )
-            S = opt.optimize(
-                max_epochs=max_epochs,
-                sdp_verbose=sdp_verbose,
-                **kwargs
-            )
-        else:
-            raise ValueError(
-                f'Method must be one of "equicorrelated", "sdp", "asdp", "mcv" not {method}'
-            )
+        S = compute_S_matrix(
+            Sigma=Sigma, groups=groups, method=method, **kwargs
+        )
 
     # Check to make sure the methods worked
     min_eig1 = np.linalg.eigh(2 * Sigma - S)[0].min()
     if verbose:
         print(f"Minimum eigenvalue of 2Sigma - S is {min_eig1}")
-    if min_eig1 < -1e-3:
+    if min_eig1 < -1e-6:
         raise np.linalg.LinAlgError(
             f"Minimum eigenvalue of 2Sigma - S is {min_eig1}, meaning FDR control violations are extremely likely"
         )

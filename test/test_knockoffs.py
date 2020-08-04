@@ -114,15 +114,6 @@ class TestEquicorrelated(CheckSMatrix):
 
         )
 
-        # # Do it again with a block matrix - start by constructing
-        # # something we can easily analyze
-        # group_sizes = [3, 2, 3, 4, 1]
-        # groups = []
-        # for i, size in enumerate(group_sizes):
-        #   to_add = [i]*size
-        #   groups += to_add
-        # groups = np.array(groups) + 1
-
     def test_psd(self):
 
         # Test S matrix construction
@@ -163,7 +154,7 @@ class TestSDP(CheckSMatrix):
         # Repeat for gaussian_knockoffs method
         _, S_triv2 = knockoffs.gaussian_knockoffs(
             X = X, Sigma = corr_matrix, groups = trivial_groups, 
-            return_S = True, sdp_verbose = False, verbose = False,
+            return_S = True, verbose = False,
             method = 'sdp'
         )
         np.testing.assert_array_almost_equal(
@@ -178,7 +169,7 @@ class TestSDP(CheckSMatrix):
         )
         _, S_harder = knockoffs.gaussian_knockoffs(
             X = X, Sigma = corr_matrix, groups = groups, 
-            return_S = True, sdp_verbose = False, verbose = False,
+            return_S = True, verbose = False,
             method = 'sdp'
         )
         np.testing.assert_almost_equal(
@@ -194,7 +185,6 @@ class TestSDP(CheckSMatrix):
             groups=groups,
             method='ASDP',
             return_S=True,
-            sdp_verbose=False,
             verbose=False,
             max_block=10
         )
@@ -232,7 +222,6 @@ class TestSDP(CheckSMatrix):
             S = knockoffs.solve_group_SDP(
                 Sigma=V, 
                 groups=groups, 
-                sdp_verbose=False, 
                 objective="pnorm",  
                 num_iter=10,
                 tol=tol
@@ -348,7 +337,7 @@ class TestMRCSolvers(CheckSMatrix):
         rhos = [0.1, 0.3, 0.5, 0.7, 0.9]
         for rho in rhos:
             for smoothing in smoothings:
-                for method in ['mcv', 'maxent']:
+                for method in ['mvr', 'maxent']:
                     # Construct Sigma
                     Sigma = np.zeros((p, p)) + rho
                     Sigma += (1-rho)*np.eye(p)
@@ -361,18 +350,14 @@ class TestMRCSolvers(CheckSMatrix):
                     # Test optimizer
                     opt_S = mrc.solve_mrc_psgd(
                         Sigma=Sigma,
-                        init_kwargs=dict(
-                            groups=groups,
-                            init_S=None,
-                            smoothing=smoothing
-                        ),
-                        optimize_kwargs=dict(
-                            sdp_verbose=True,
-                            tol=1e-5,
-                            max_epochs=100,
-                            line_search_iter=10,
-                            lr=1e-2,
-                        )
+                        groups=groups,
+                        init_S=None,
+                        smoothing=smoothing,
+                        verbose=True,
+                        tol=1e-5,
+                        max_epochs=100,
+                        line_search_iter=10,
+                        lr=1e-2,
                     )
                     self.check_S_properties(Sigma, opt_S, groups)
                     np.testing.assert_almost_equal(
@@ -424,17 +409,12 @@ class TestMRCSolvers(CheckSMatrix):
             # Test PSGD optimizer
             opt_S = mrc.solve_mrc_psgd(
                 Sigma=Sigma,
-                init_kwargs=dict(
-                    groups=groups,
-                    init_S=None,
-                    rec_prop=true_rec_prop
-                ),
-                optimize_kwargs=dict(
-                    sdp_verbose=False,
-                    tol=1e-5,
-                    max_epochs=100,
-                    line_search_iter=10,
-                )
+                groups=groups,
+                init_S=None,
+                rec_prop=true_rec_prop,
+                tol=1e-5,
+                max_epochs=100,
+                line_search_iter=10,
             )
             self.check_S_properties(Sigma, opt_S, groups)
             np.testing.assert_almost_equal(
@@ -464,16 +444,11 @@ class TestMRCSolvers(CheckSMatrix):
             # Apply gradient solver
             opt_S = mrc.solve_mrc_psgd(
                 Sigma=Sigma,
-                init_kwargs=dict(
-                    groups=groups,
-                    init_S=init_S
-                ),
-                optimize_kwargs=dict(
-                    sdp_verbose=False,
-                    tol=1e-5,
-                    max_epochs=100,
-                    line_search_iter=10,
-                )
+                groups=groups,
+                init_S=init_S,
+                tol=1e-5,
+                max_epochs=100,
+                line_search_iter=10,
             )
             psgd_mvr_loss = mrc.mvr_loss(Sigma, opt_S)
 
@@ -528,16 +503,11 @@ class TestMRCSolvers(CheckSMatrix):
             # Apply gradient solver
             opt_S = mrc.solve_mrc_psgd(
                 Sigma=Sigma,
-                init_kwargs=dict(
-                    groups=groups,
-                    init_S=init_S
-                ),
-                optimize_kwargs=dict(
-                    sdp_verbose=False,
-                    tol=1e-5,
-                    max_epochs=100,
-                    line_search_iter=10,
-                )
+                groups=groups,
+                init_S=init_S,
+                tol=1e-5,
+                max_epochs=100,
+                line_search_iter=10,
             )
             psgd_loss = mrc.mvr_loss(Sigma, opt_S)
 
@@ -567,9 +537,7 @@ class CheckValidKnockoffs(unittest.TestCase):
             mu=mu,
             Sigma=Sigma,
             return_S=True,
-            sdp_verbose=False, 
-            verbose=False,
-            sdp_tol=1e-2,
+            verbose=True,
             **kwargs
         )
 
@@ -632,13 +600,13 @@ class TestKnockoffGen(CheckValidKnockoffs):
             "parse method fails to return non-None methods"
         )
 
-        # Default is mcv
+        # Default is mvr
         p = 1000
         groups = np.arange(1, p+1, 1)
         out2 = knockoffs.parse_method(None, groups, p)
         self.assertTrue(
-            out2 == 'mcv', 
-            "parse method fails to return mcv by default"
+            out2 == 'mvr', 
+            "parse method fails to return mvr by default"
         )
 
         # Otherwise SDP
@@ -673,7 +641,6 @@ class TestKnockoffGen(CheckValidKnockoffs):
                 X=X, 
                 Sigma=corr_matrix,
                 S=S_bad,
-                sdp_verbose=False, 
                 verbose=False
             )
 
@@ -732,7 +699,7 @@ class TestKnockoffGen(CheckValidKnockoffs):
 
     def test_MX_knockoff_dist(self):
 
-        # Test knockoff construction for MCV and SDP
+        # Test knockoff construction for mvr and SDP
         # on equicorrelated matrices
         np.random.seed(110)
         n = 100000
@@ -769,7 +736,7 @@ class TestKnockoffGen(CheckValidKnockoffs):
         # Check for many types of data
         for rho in [0.1, 0.9]:
             for gamma in [0.5, 1]:
-                for method in ['mcv', 'sdp']:
+                for method in ['mvr', 'sdp']:
 
                     mu = 10*np.random.randn(p)
                     X,_,_,_, corr_matrix,_ = graphs.daibarber2016_graph(
@@ -798,13 +765,13 @@ class TestKnockoffGen(CheckValidKnockoffs):
 
 
     def test_FX_knockoff_dist(self):
-        # Test knockoff construction for MCV and SDP
+        # Test knockoff construction for mvr and SDP
         # on equicorrelated matrices
         n = 500
         p = 5
         for rho in [0.1, 0.9]:
             for gamma in [0.5, 1]:
-                for method in ['mcv', 'sdp']:
+                for method in ['mvr', 'sdp']:
                     # X values
                     X,_,_,_,corr_matrix,_ = graphs.daibarber2016_graph(
                         n = n, p = p, gamma = gamma, rho = rho
@@ -817,7 +784,6 @@ class TestKnockoffGen(CheckValidKnockoffs):
                         copies=int(gamma)+1,
                         method=method, 
                         return_S=True,
-                        sdp_verbose=False, 
                         verbose=False
                     )
 
