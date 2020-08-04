@@ -45,7 +45,7 @@ def maxent_loss(Sigma, S, smoothing=0):
 	Does not support group knockoffs as of yet.
 	"""
 	p = Sigma.shape[0]
-	detG = np.log(np.linalg.det(2*Sigma - S + smoothing*np.eye(p)))
+	detG = np.log(np.linalg.det(2*Sigma - S + smoothing * np.eye(p)))
 	detG = detG + np.log(np.diag(S+smoothing)).sum()
 	return -1*detG
 
@@ -77,14 +77,11 @@ def solve_mvr(
 	# Initialize values
 	decayed_improvement = 10
 	S = np.linalg.eigh(V)[0].min() * np.eye(p)
-	L = np.linalg.cholesky(2*V - S)
+	L = np.linalg.cholesky(2*V - S + smoothing * np.eye(p))
 
 	for i in range(num_iter):
 		np.random.shuffle(inds)
 		for j in inds:
-			# Initial computations
-			diff = 2*V - S
-			
 			# 1. Compute inverse of 2*V - S using cholesky matrix L.
 			# This is currently a bottleneck and it may not be necessary.
 			Linv, _ = sp.linalg.lapack.dtrtri(
@@ -103,8 +100,8 @@ def solve_mvr(
 			# 2b. Construct quadratic equation
 			# We want to minimize 1/(sj + delta) - (delta * cn)/(1 - delta * cd)
 			coef2 = -1*cn - np.power(cd, 2)
-			coef1 = 2*(-1*cn*S[j,j] + cd)
-			coef0 = -1*cn*S[j,j]**2 - 1
+			coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
+			coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
 			options = np.roots(np.array([coef2,coef1,coef0]))
 
 			# 2c. Eliminate complex solutions
@@ -169,6 +166,9 @@ def solve_maxent(
 	:param verbose: if true, will give progress reports
 	:param smoothing: computes smoothed maxent loss
 	"""
+
+	if smoothing > 0:
+		raise NotImplementedError(f"Smoothing is not implemented yet")
 
 	# Initial constants
 	time0 = time.time()

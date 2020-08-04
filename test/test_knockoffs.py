@@ -344,6 +344,27 @@ class TestMRCSolvers(CheckSMatrix):
             init_unsorted_model
         )
 
+    def test_smoothing(self):
+        """
+        Tests that one small eigenvalue of the cov matrix
+        doesn't ruin the performance of the methods
+        """
+        p = 50
+        smoothing = 0.1
+        _,_,_,_,V = knockadapt.graphs.sample_data(
+            method='partialcorr', rho=0.1,
+        )
+        S_MVR = mrc.solve_mvr(Sigma=V, smoothing=smoothing)
+        # Not implemented yet
+        #S_ENT = mrc.solve_maxent(Sigma=V, smoothing=smoothing)
+        S_SDP = knockoffs.solve_SDP(Sigma=V, tol=1e-5)
+        mvr_mean = np.diag(S_MVR).mean()
+        sdp_mean = np.diag(S_SDP).mean()
+        self.assertTrue(
+            sdp_mean - mvr_mean < 1e-3,
+            f"Highly smoothed S_MVR ({S_MVR}) too far from S_SDP ({S_SDP}) for equi partial corr"
+        )
+
     def test_equicorrelated_soln(self):
         """ Tests that solvers yield expected
         solution for equicorrelated matrices """
@@ -385,17 +406,16 @@ class TestMRCSolvers(CheckSMatrix):
                         err_msg=f'For equicorrelated cov rho={rho}, PSGD solver yields unexpected solution'
                     )
 
-                # TODO: implement smoothing for coord descent solvers
-                if smoothing == 0:
-                    # Test MVR coordinate descent optimizer
-                    opt_S = mrc.solve_mvr(Sigma=Sigma, smoothing=smoothing, verbose=True)
-                    self.check_S_properties(Sigma, opt_S, groups)
-                    np.testing.assert_almost_equal(
-                        opt_S, expected, decimal=2,
-                        err_msg=f'For equicorrelated cov rho={rho}, mvr_solver yields unexpected solution'
-                    )
+                # Test MVR coordinate descent optimizer
+                opt_S = mrc.solve_mvr(Sigma=Sigma, smoothing=smoothing, verbose=True)
+                self.check_S_properties(Sigma, opt_S, groups)
+                np.testing.assert_almost_equal(
+                    opt_S, expected, decimal=2,
+                    err_msg=f'For equicorrelated cov rho={rho}, mvr_solver yields unexpected solution'
+                )
 
-                    # Test maximum entropy coordinate descent optimizer
+                # Test maximum entropy coordinate descent optimizer
+                if smoothing == 0:
                     opt_S = mrc.solve_maxent(Sigma=Sigma, smoothing=smoothing, verbose=True)
                     self.check_S_properties(Sigma, opt_S, groups)
                     np.testing.assert_almost_equal(
