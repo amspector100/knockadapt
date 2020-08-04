@@ -272,7 +272,6 @@ def block_diag_sparse(*arrs):
 		c += cc
 	return out
 
-
 class MVRLoss(nn.Module):
 	"""
 	A pytorch class to compute S-matrices for 
@@ -360,10 +359,9 @@ class MVRLoss(nn.Module):
 		best_gamma = 1
 		best_loss = np.inf
 		for gamma in GAMMA_VALS:
-			loss = fk_precision_trace(
+			loss = mvr_loss(
 				Sigma=Sigma,
 				S=(1-self.rec_prop)*gamma*init_S,
-				invSigma=invSigma
 			)
 			if loss >= 0 and loss < best_loss:
 				best_gamma = gamma
@@ -456,7 +454,7 @@ class PSGDSolver:
 	""" 
 	Projected gradient descent to solve for MRC knockoffs.
 	This will work for non-convex loss objectives as well,
-	although it's a heuristic method.
+	although it's a heuristic optimization method.
 	:param Sigma: p x p numpy array, the correlation matrix
 	:param groups: p-length numpy array specifying groups
 	:param losscalc: A pytorch class wrapping nn.module
@@ -557,7 +555,7 @@ class PSGDSolver:
 
 
 			# Step 3: Reproject to be PSD
-			if True:#j % 10 == 0 or j == max_epochs - 1:
+			if j % 3 == 0 or j == max_epochs - 1:
 				self.losscalc.project(tol=tol, num_iter=line_search_iter)
 
 				# If this is optimal after reprojecting, save
@@ -600,3 +598,24 @@ class PSGDSolver:
 			self.Sigma, S, tol=tol, num_iter=line_search_iter
 		)
 		return S
+
+def solve_mrc_psgd(
+	Sigma, init_kwargs, optimize_kwargs
+):
+	"""
+	Wraps the PSGDSolver class.
+	:param Sigma: Covariance matrix
+	:param init_kwargs: kwargs to pass to 
+	PSGDSolver.
+	:param optimize_kwargs: kwargs to pass 
+	to optimizer method.
+	:returns: opt_S
+	"""
+	solver = PSGDSolver(
+		Sigma=Sigma,
+		**init_kwargs
+	)
+	opt_S = solver.optimize(
+		**optimize_kwargs
+	)
+	return opt_S

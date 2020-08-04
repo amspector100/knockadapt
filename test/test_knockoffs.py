@@ -4,7 +4,7 @@ import unittest
 from .context import knockadapt
 from statsmodels.stats.moment_helpers import cov2corr
 
-from knockadapt import utilities, graphs, knockoffs, nonconvex_sdp
+from knockadapt import utilities, graphs, knockoffs, mrc
 
 
 class CheckSMatrix(unittest.TestCase):
@@ -139,14 +139,10 @@ class TestEquicorrelated(CheckSMatrix):
         # Check S properties
         self.check_S_properties(V, S, groups)
 
-
-
-
 class TestSDP(CheckSMatrix):
     """ Tests an easy case of SDP and ASDP """
 
     def test_easy_sdp(self):
-
 
         # Test non-group SDP first
         n = 200
@@ -286,17 +282,17 @@ class TestUtilFunctions(unittest.TestCase):
 
         # Create block diagonal matrix in scipy
         block_diag = sp.linalg.block_diag(*blocks)
-        blocks2 = nonconvex_sdp.blockdiag_to_blocks(block_diag, block_nos)
+        blocks2 = mrc.blockdiag_to_blocks(block_diag, block_nos)
         for expected, out in zip(blocks, blocks2):
             np.testing.assert_almost_equal(
                 out, expected, err_msg='blockdiag_to_blocks incorrectly separates blocks'
             )
 
-class TestNonconvexSDP(CheckSMatrix):
-    """ Tests the NonconvexSDPSOlver, FKPRecisionTraceLoss classes"""
+class TestMRCSolvers(CheckSMatrix):
+    """ Tests the various MRC solvers / classes"""
 
     def test_scale_sqrt_S(self):
-        """ Tests the function which scales sqrt S"""
+        """ Tests the function which scales sqrt S for PSGD solver"""
 
         # Construct covariance matrix
         p = 50
@@ -308,7 +304,7 @@ class TestNonconvexSDP(CheckSMatrix):
 
         # Create model - this automatically scales the
         # initial blocks properly
-        fk_precision_calc = nonconvex_sdp.FKPrecisionTraceLoss(
+        fk_precision_calc = mrc.MVRLoss(
             Sigma, groups, init_S=init_blocks
         )
         # Check for proper scaling
@@ -320,7 +316,7 @@ class TestNonconvexSDP(CheckSMatrix):
         )
 
     def test_group_sorting_error(self):
-        """ Tests that InvGrahmTrace class raises an error if the cov 
+        """ Tests PSGD class raieses error if the cov 
         matrix/groups are improperly sorted"""
 
         # Groups and sigma 
@@ -332,57 +328,15 @@ class TestNonconvexSDP(CheckSMatrix):
 
         # Try to initialize
         def init_unsorted_model():
-            model = nonconvex_sdp.FKPrecisionTraceLoss(Sigma, groups)
+            model = mrc.MVRLoss(Sigma, groups)
 
         self.assertRaisesRegex(
             ValueError, "Sigma and groups must be sorted prior to input",
             init_unsorted_model
         )
 
-    def test_identity_soln(self):
-        """ Tests that InvGrahmTrace comes up with the correct
-        solution for the identity matrix""" 
-
-        # Calc group sizes 
-        p = 50
-        groups = knockadapt.utilities.preprocess_groups(
-            np.random.randint(1, p+1, p)
-        )
-        groups = np.sort(groups)
-        group_sizes = knockadapt.utilities.calc_group_sizes(groups)
-
-        # Set up model
-        Sigma = np.eye(p)
-        init_blocks = [0.5*np.eye(gj) for gj in group_sizes]
-        model = nonconvex_sdp.FKPrecisionTraceLoss(
-            Sigma, groups, init_S=init_blocks
-        )
-
-        # Run basic functions (foward, scale_sqrt_S)
-        out = model.forward()
-        model.scale_sqrt_S(tol=1e-5, num_iter=10)
-
-        # Run optimizer
-        opt = nonconvex_sdp.NonconvexSDPSolver(
-            Sigma=Sigma,
-            groups=groups,
-            init_S=init_blocks
-        )
-        opt_S = opt.optimize(
-            sdp_verbose=False,
-            tol=1e-5,
-            max_epochs=100,
-            line_search_iter=10,
-        )
-        self.check_S_properties(Sigma, opt_S, groups)
-        np.testing.assert_almost_equal(
-            opt_S, np.eye(p), decimal=1,
-            err_msg=f'For identity, SDPgrad_solver returns {opt_S}, expected {np.eye(p)}'
-        )
-
-
     def test_equicorrelated_soln(self):
-        """ Tests that InvGrahmTrace comes up with the correct
+        """ Tests that solvers yield expected
         solution for equicorrelated matrices """
 
         # Main constants 
@@ -405,24 +359,45 @@ class TestNonconvexSDP(CheckSMatrix):
                     expected = (1-rho)*np.eye(p)
 
                     # Test optimizer
-                    opt = nonconvex_sdp.NonconvexSDPSolver(
+                    opt_S = mrc.solve_mrc_psgd(
                         Sigma=Sigma,
-                        groups=groups,
-                        init_S=None,
-                        smoothing=smoothing
-                    )
-                    opt_S = opt.optimize(
-                        sdp_verbose=True,
-                        tol=1e-5,
-                        max_epochs=100,
-                        line_search_iter=10,
-                        lr=1e-2,
+                        init_kwargs=dict(
+                            groups=groups,
+                            init_S=None,
+                            smoothing=smoothing
+                        ),
+                        optimize_kwargs=dict(
+                            sdp_verbose=True,
+                            tol=1e-5,
+                            max_epochs=100,
+                            line_search_iter=10,
+                            lr=1e-2,
+                        )
                     )
                     self.check_S_properties(Sigma, opt_S, groups)
                     np.testing.assert_almost_equal(
                         opt_S, expected, decimal=1,
-                        err_msg=f'For equicorrelated cov rho={rho}, SDPgrad_solver w smoothing={smoothing} returns {opt_S}, expected {expected}'
+                        err_msg=f'For equicorrelated cov rho={rho}, PSGD solver yields unexpected solution'
                     )
+
+                # TODO: implement smoothing for coord descent solvers
+                if smoothing == 0:
+                    # Test MVR coordinate descent optimizer
+                    opt_S = mrc.solve_mvr(Sigma=Sigma, smoothing=smoothing, verbose=True)
+                    self.check_S_properties(Sigma, opt_S, groups)
+                    np.testing.assert_almost_equal(
+                        opt_S, expected, decimal=2,
+                        err_msg=f'For equicorrelated cov rho={rho}, mvr_solver yields unexpected solution'
+                    )
+
+                    # Test maximum entropy coordinate descent optimizer
+                    opt_S = mrc.solve_maxent(Sigma=Sigma, smoothing=smoothing, verbose=True)
+                    self.check_S_properties(Sigma, opt_S, groups)
+                    np.testing.assert_almost_equal(
+                        opt_S, expected, decimal=2,
+                        err_msg=f'For equicorrelated cov rho={rho}, maxent_solver yields unexpected solution'
+                    )
+
 
     def test_equicorrelated_soln_recycled(self):
 
@@ -446,102 +421,133 @@ class TestNonconvexSDP(CheckSMatrix):
             new_opt = min(2-2*rho, normal_opt/(1-true_rec_prop))
             expected = new_opt*np.eye(p)
 
-            # Test optimizer
-            opt = nonconvex_sdp.NonconvexSDPSolver(
+            # Test PSGD optimizer
+            opt_S = mrc.solve_mrc_psgd(
                 Sigma=Sigma,
-                groups=groups,
-                init_S=None,
-                rec_prop=true_rec_prop
-            )
-            opt_S = opt.optimize(
-                sdp_verbose=False,
-                tol=1e-5,
-                max_epochs=300,
-                line_search_iter=10,
+                init_kwargs=dict(
+                    groups=groups,
+                    init_S=None,
+                    rec_prop=true_rec_prop
+                ),
+                optimize_kwargs=dict(
+                    sdp_verbose=False,
+                    tol=1e-5,
+                    max_epochs=100,
+                    line_search_iter=10,
+                )
             )
             self.check_S_properties(Sigma, opt_S, groups)
             np.testing.assert_almost_equal(
                 opt_S, expected, decimal=2,
-                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, SDPgrad_solver returns {opt_S}, expected {expected}'
+                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, PSDSolver returns {opt_S}, expected {expected}'
             )
 
-    def test_ar1_soln(self):
 
-        # Construct AR1 graph + groups
+    def test_complex_solns(self):
+        """
+        Check the solution of the various solvers
+        for non-grouped knockoffs.
+        """
+        np.random.seed(110)
+        p = 100
+        methods = ['ar1', 'ver']
+        groups = np.arange(1, p+1, 1)
+        for method in methods:
+            _,_,_,_,Sigma = knockadapt.graphs.sample_data(
+                method=method, p=p
+            )
+
+            # Use SDP as baseline
+            init_S = knockadapt.knockoffs.solve_group_SDP(Sigma, groups)
+            sdp_mvr_loss = mrc.mvr_loss(Sigma, init_S)
+
+            # Apply gradient solver
+            opt_S = mrc.solve_mrc_psgd(
+                Sigma=Sigma,
+                init_kwargs=dict(
+                    groups=groups,
+                    init_S=init_S
+                ),
+                optimize_kwargs=dict(
+                    sdp_verbose=False,
+                    tol=1e-5,
+                    max_epochs=100,
+                    line_search_iter=10,
+                )
+            )
+            psgd_mvr_loss = mrc.mvr_loss(Sigma, opt_S)
+
+            # Check S matrix
+            self.check_S_properties(Sigma, opt_S, groups)
+            # Check new loss < init_loss
+            self.assertTrue(
+                psgd_mvr_loss <= sdp_mvr_loss,
+                msg=f"For {method}, PSGD solver has higher loss {psgd_mvr_loss} v. sdp {sdp_mvr_loss}"
+            )
+
+            # MVR solver outperforms PSGD
+            opt_S_mvr = mrc.solve_mvr(Sigma=Sigma)
+            self.check_S_properties(Sigma, opt_S_mvr, groups)
+            cd_mvr_loss = mrc.mvr_loss(Sigma, opt_S_mvr)
+            self.assertTrue(
+                cd_mvr_loss <= psgd_mvr_loss,
+                msg=f"For {method}, coord descent MVR solver has higher loss {cd_mvr_loss} v. PSGD {psgd_mvr_loss}"
+            )
+
+            # Maxent solver outperforms PSGD
+            opt_S_maxent = mrc.solve_maxent(Sigma=Sigma)
+            self.check_S_properties(Sigma, opt_S_maxent, groups)
+            cd_maxent_loss = mrc.maxent_loss(Sigma, opt_S_maxent)
+            psgd_maxent_loss = mrc.maxent_loss(Sigma, opt_S)
+            self.assertTrue(
+                cd_maxent_loss <= psgd_maxent_loss,
+                msg=f"For {method}, coord descent maxent solver has higher loss {cd_maxent_loss} v. PSGD {psgd_maxent_loss}"
+            )           
+
+    def test_complex_group_solns(self):
+        """
+        Check the solutions of the PSGD solver
+        for group knockoffs.
+        """
+
+        # Construct graph + groups
         np.random.seed(110)
         p = 50
-        a = 1
-        b = 1
         groups = knockadapt.utilities.preprocess_groups(
             np.random.randint(1, p+1, p)
         )
-        Sigma = knockadapt.graphs.AR1(a=a, b=b, p=p)
+        for method in ['ar1', 'ver']:
+            _,_,_,_,Sigma = knockadapt.graphs.sample_data(
+                method=method, p=p,
+            )
 
-        # Use SDP as baseline
-        init_S = knockadapt.knockoffs.solve_group_SDP(Sigma, groups)
-        init_loss = nonconvex_sdp.fk_precision_trace(Sigma, init_S)
+            # Use SDP as baseline
+            init_S = knockadapt.knockoffs.solve_group_SDP(Sigma, groups)
+            init_loss = mrc.mvr_loss(Sigma, init_S)
 
-        # Apply gradient solver
-        opt = nonconvex_sdp.NonconvexSDPSolver(
-            Sigma,
-            groups,
-            init_S=init_S
-        )
-        opt_S = opt.optimize(
-            sdp_verbose=False,
-            tol=1e-5,
-            max_epochs=100,
-            line_search_iter=10,
-        )
-        new_loss = nonconvex_sdp.fk_precision_trace(Sigma, opt_S)
+            # Apply gradient solver
+            opt_S = mrc.solve_mrc_psgd(
+                Sigma=Sigma,
+                init_kwargs=dict(
+                    groups=groups,
+                    init_S=init_S
+                ),
+                optimize_kwargs=dict(
+                    sdp_verbose=False,
+                    tol=1e-5,
+                    max_epochs=100,
+                    line_search_iter=10,
+                )
+            )
+            psgd_loss = mrc.mvr_loss(Sigma, opt_S)
 
-        # Check S matrix
-        self.check_S_properties(Sigma, opt_S, groups)
-        
-        # Check new loss < init_loss
-        self.assertTrue(
-            new_loss <= init_loss,
-            msg=f"For AR1, noncnvx solver has higher loss {new_loss} v. convex baseline {init_loss}"
-        )
-
-    def test_ER_solution(self):
-
-        # Create DGP
-        np.random.seed(110)
-        p=50
-        groups = knockadapt.utilities.preprocess_groups(
-            np.random.randint(1, int(p/2), p)
-        )
-        _,_,_,_,Sigma = knockadapt.graphs.sample_data(
-            method='ErdosRenyi', p=p,
-        )
-
-        # Use SDP as baseline
-        init_S = knockadapt.knockoffs.solve_group_SDP(Sigma, groups)
-        init_loss = nonconvex_sdp.fk_precision_trace(Sigma, init_S)
-
-        # Apply gradient solver
-        opt = nonconvex_sdp.NonconvexSDPSolver(
-            Sigma,
-            groups,
-            init_S=init_S
-        )
-        opt_S = opt.optimize(
-            sdp_verbose=False,
-            tol=1e-5,
-            max_epochs=100,
-            line_search_iter=10,
-        )
-        new_loss = nonconvex_sdp.fk_precision_trace(Sigma, opt_S)
-
-        # Check S matrix
-        self.check_S_properties(Sigma, opt_S, groups)
-        
-        # Check new loss < init_loss
-        self.assertTrue(
-            new_loss <= init_loss,
-            msg=f"For ERenyi (p={p}), noncnvx has higher loss {new_loss} v. convex baseline {init_loss}"
-        )
+            # Check S matrix
+            self.check_S_properties(Sigma, opt_S, groups)
+            # Check new loss < init_loss
+            self.assertTrue(
+                psgd_loss <= init_loss,
+                msg=f"For {method}, PSGD solver has higher loss {psgd_loss} v. sdp {init_loss}"
+            )
 
 
 class CheckValidKnockoffs(unittest.TestCase):
