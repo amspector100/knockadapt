@@ -589,7 +589,7 @@ def compute_S_matrix(
         S = mrc.solve_mvr(
             Sigma=Sigma, **kwargs
         )
-    elif method == 'mrc':
+    elif method == 'maxent':
         S = mrc.solve_maxent(
             Sigma=Sigma, **kwargs
         )

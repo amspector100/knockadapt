@@ -92,10 +92,6 @@ class TestGroupKnockoffEval(unittest.TestCase):
 									   verbose = True,
 									   method = 'ASDP')
 
-
-
-
-
 	def test_combine_S_kwargs(self):
 
 		old_kwargs = copy.copy(self.gkval.knockoff_kwargs)
