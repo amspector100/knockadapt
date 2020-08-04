@@ -229,7 +229,9 @@ class FKPrecisionTraceLoss(nn.Module):
         if self.method == 'mcv':
             inv_eigs = 1 / (smoothing + eigvals)
         elif self.method == 'maxent':
-            inv_eigs = torch.log(1 / (smoothing + eigvals))
+            inv_eigs = torch.log(
+                1 / torch.max((smoothing + eigvals), torch.tensor(smoothing).float()),
+            )
         return inv_eigs.sum()
 
 
@@ -238,6 +240,12 @@ class FKPrecisionTraceLoss(nn.Module):
 
         # No gradients
         with torch.no_grad():
+
+            # This shift only applies for 
+            for block in self.blocks:
+                if block.data.shape[0] == 1:
+                    block.data = torch.max(torch.tensor(tol).float(), block.data)
+
 
             # Construct S
             S = self.pull_S()
@@ -347,6 +355,11 @@ class NonconvexSDPSolver:
 
             # Step 1: Calculate loss (trace of feature-knockoff precision)
             loss = self.losscalc()
+            if np.isnan(loss.detach().item()):
+                warnings.warn(
+                    f"Loss of {self.losscalc.method} solver is NaN"
+                )
+                break
             self.all_losses.append(loss.item())
 
             # Step 2: Step along the graient
@@ -356,7 +369,7 @@ class NonconvexSDPSolver:
 
 
             # Step 3: Reproject to be PSD
-            if j % 10 == 0 or j == max_epochs - 1:
+            if True:#j % 10 == 0 or j == max_epochs - 1:
                 self.losscalc.project(tol=tol, num_iter=line_search_iter)
 
                 # If this is optimal after reprojecting, save
@@ -372,7 +385,7 @@ class NonconvexSDPSolver:
                 self.projected_losses.append(new_loss.item())
 
                 # Calculate improvement
-                if j != 0:
+                if j != 0 and j % 10 == 0:
                     diff = self.prev_opt_loss - self.opt_loss
                     l1diff = np.abs(self.opt_S - self.prev_opt_S).sum()
                     improvement = 2*(diff)/3 + improvement/3
@@ -381,7 +394,7 @@ class NonconvexSDPSolver:
                 self.improvements.append(improvement)
 
                 # Break if improvement is small
-                if improvement < convergence_tol:
+                if improvement < convergence_tol and j % 10 == 0:
                     if self.losscalc.smoothing > self.losscalc.min_smoothing:
                         improvement = 1 + convergence_tol # Reset
                         self.losscalc.smoothing = max(self.losscalc.min_smoothing, self.losscalc.smoothing / 10)
@@ -399,49 +412,3 @@ class NonconvexSDPSolver:
             self.Sigma, S, tol=tol, num_iter=line_search_iter
         )
         return S
-
-
-# def SDP_gradient_solver(
-#     Sigma,
-#     groups,
-#     lr=1e-2,
-#     sdp_verbose=False,
-
-# ):
-#     """ Projected gradient descent to solve the SDP.
-
-#     TODO: possibly use diagnostic here: https://arxiv.org/pdf/1710.06382.pdf
-#     to reduce the learning rate appropriately. (page 7)
-
-#     :param Sigma: p x p numpy array, the correlation matrix
-#     :param groups: p-length numpy array specifying groups
-#     :param lr: Initial learning rate (default 1e-2)
-#     :param sdp_verbose: if true, reports progress
-#     :param max_epochs: Maximum number of epochs in SGD
-#     :param tol: Mimimum eigenvalue allowed for PSD matrices
-#     :param line_search_iter: Number of line searches to do
-#     when scaling sqrt_S."""
-
-#     # Initialize the model
-#     fk_precision_calc = FKPrecisionTraceLoss(
-#         Sigma=Sigma, groups=groups, **kwargs
-#     )
-#     # Optimizer
-#     params = list(fk_precision_calc.parameters())
-#     optimizer = torch.optim.Adam(params,lr=1e-2)
-
-#     for j in range(max_epochs):
-
-#         # Step 1: Calculate inverse of trace of grahm matrix
-#         # and step along the gradient
-#         loss = fk_precision_calc()
-#         optimizer.zero_grad()
-#         loss.backward(retain_graph=True)
-#         optimizer.step()
-
-#         # Step 2: Reproject to be PSD
-#         if j % 10 == 0:
-#             fk_precision_calc.scale_sqrt_S(tol=tol, num_iter=line_search_iter)
-
-#     S = fk_precision_calc.pull_S().detach().numpy()
-#     return S

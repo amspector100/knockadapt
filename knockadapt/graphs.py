@@ -41,7 +41,7 @@ def DirichletCorr(p=100, temp=1, tol=1e-6):
      BIT 2000, Vol. 40, No. 4, pp. 640 651
      using the scipy implementation.
      We set the eigenvalues using a dirichlet.
-     The p dirichlet parameters are i.i.d. uniform [0, temp].
+     The p dirichlet parameters are i.i.d. uniform [tol, temp].
     """
     alpha = np.random.uniform(temp, size=p)
     d = stats.dirichlet(alpha=alpha).rvs().reshape(-1)
