@@ -7,7 +7,6 @@ all = [
     "knockoffs",
     "metro",
     "mrc",
-    "nonconvex_sdp",
     "tree_processing"
     "utilities",
 ]
@@ -19,6 +18,5 @@ from . import knockoff_filter
 from . import knockoff_stats
 from . import metro
 from . import mrc
-from . import nonconvex_sdp
 from . import tree_processing
 from . import utilities

@@ -654,7 +654,7 @@ def gaussian_knockoffs(
         - 'asdp': Same as SDP, but to increase speed, approximates correlation
         matrix as a block-diagonal matrix.
         - 'mvr': minimizes trace of feature-knockoff precision matrix. Solves this
-        (nonconvex) problem with projected gradient, using either SDP or ASDP 
+        problem with projected gradient/coord descent, using either SDP or ASDP 
         to initialize. 
     The default is to use mvr for non-group knockoffs, and to use the group-SDP
     for grouped knockoffs. In both cases we use the ASDP if p > 1000.
