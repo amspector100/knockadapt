@@ -1,6 +1,6 @@
 import numpy as np
 from . import utilities
-from . import nonconvex_sdp as mcv
+from . import mrc
 from .knockoffs import gaussian_knockoffs
 from . import metro
 from . import knockoff_stats as kstats 
@@ -143,6 +143,8 @@ class KnockoffFilter:
 		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
 		if self.debias and self.G is not None:
 			self.Ginv = utilities.chol2inv(self.G)
+		else:
+			self.Ginv = None
 
 		return knockoffs
 

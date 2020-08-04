@@ -556,45 +556,64 @@ def compute_S_matrix(
     :param **kwargs: kwargs to one of the downstream
     functions.
     """
+    # If S in kwargs, just return S (important
+    # for chaining methods in metro sampling)
+    kwargs = kwargs.copy()
+    if 'S' in kwargs:
+        if kwargs['S'] is not None:
+            return kwargs['S']
+        else:
+            kwargs.pop('S')
+
+    # Initial params
     p = Sigma.shape[0]
     if method is not None:
         method = str(method).lower()
     method = parse_method(method, groups, p)
+
+    # Scale to correlation matrix
+    scale = np.sqrt(np.diag(Sigma))
+    scale_matrix = np.outer(scale, scale)
+    Sigma = Sigma / scale_matrix
+
     # Currently cd solvers cannot do group knockoffs
     # (this is todo)
     if groups is not None:
         if not np.all(groups == np.arange(1, p + 1, 1)):
             solver = 'psgd'
     if (method == 'mvr' or method == 'maxent') and solver == 'psgd':
-        return mrc.solve_mrc_psgd(
+        S = mrc.solve_mrc_psgd(
             Sigma=Sigma, groups=groups, **kwargs
         )
     elif method == 'mvr':
-        return mrc.solve_mvr(
+        S = mrc.solve_mvr(
             Sigma=Sigma, **kwargs
         )
     elif method == 'mrc':
-        return mrc.solve_maxent(
+        S = mrc.solve_maxent(
             Sigma=Sigma, **kwargs
         )
     elif method == "sdp":
-        return solve_group_SDP(
+        S = solve_group_SDP(
             Sigma,
             groups,
             **kwargs,
         )
     elif method == "asdp":
-        return solve_group_ASDP(
+        S = solve_group_ASDP(
             Sigma,
             groups,
             **kwargs,
         )
-    elif method == "equicorrelated":
-        return equicorrelated_block_matrix(
+    elif method == "equicorrelated" or method == 'eq':
+        S = equicorrelated_block_matrix(
             Sigma, groups, **kwargs
         )
     else:
         raise ValueError(f"Unrecognized method {method}")
+
+    # Rescale and return
+    return S * scale_matrix
 
 def gaussian_knockoffs(
     X,

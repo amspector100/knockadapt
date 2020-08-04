@@ -144,7 +144,12 @@ class TestSDP(CheckSMatrix):
 
         # S matrix
         trivial_groups = np.arange(0, p, 1) + 1
-        S_triv = knockoffs.solve_group_SDP(corr_matrix, trivial_groups)
+        S_triv = knockoffs.compute_S_matrix(
+            Sigma=corr_matrix,
+            groups=trivial_groups,
+            method='sdp',
+            verbose=True,
+        )
         np.testing.assert_array_almost_equal(
             S_triv, np.eye(p), decimal = 2,
             err_msg = 'solve_group_SDP does not produce optimal S matrix (daibarber graphs)'
@@ -153,9 +158,12 @@ class TestSDP(CheckSMatrix):
 
         # Repeat for gaussian_knockoffs method
         _, S_triv2 = knockoffs.gaussian_knockoffs(
-            X = X, Sigma = corr_matrix, groups = trivial_groups, 
-            return_S = True, verbose = False,
-            method = 'sdp'
+            X=X,
+            Sigma=corr_matrix,
+            groups=trivial_groups, 
+            return_S=True,
+            verbose=False,
+            method='sdp',
         )
         np.testing.assert_array_almost_equal(
             S_triv2, np.eye(p), decimal = 2, 
@@ -208,6 +216,18 @@ class TestSDP(CheckSMatrix):
             err_msg = 'solve_SDP does not produce optimal S matrix (equicorrelated graph)'
         )
 
+        # Repeat for scaled cov matrix
+        scale = 5
+        V = scale*V
+        S = knockoffs.compute_S_matrix(
+            Sigma=V, method='sdp', verbose=True
+        )
+        expected = (2 - 2*rho) * np.eye(p)
+        np.testing.assert_almost_equal(
+            S/scale, expected, decimal = 2,
+            err_msg = 'compute_S_matrix does not produce optimal S matrix for scaled equicorr graph'
+        )
+
     def test_sdp_tolerance(self):
 
         # Get graph
@@ -219,9 +239,10 @@ class TestSDP(CheckSMatrix):
 
         # Solve SDP
         for tol in [1e-3, 0.01, 0.02]:
-            S = knockoffs.solve_group_SDP(
+            S = knockoffs.compute_S_matrix(
                 Sigma=V, 
-                groups=groups, 
+                groups=groups,
+                method='sdp', 
                 objective="pnorm",  
                 num_iter=10,
                 tol=tol
@@ -229,7 +250,7 @@ class TestSDP(CheckSMatrix):
             G = np.hstack([np.vstack([V, V-S]), np.vstack([V-S, V])])
             mineig = np.linalg.eig(G)[0].min()
             self.assertTrue(
-                tol - mineig < 1e3,
+                tol - mineig > -1*tol/10,
                 f'sdp solver fails to control minimum eigenvalues: tol is {tol}, val is {mineig}'
             )
             self.check_S_properties(V, S, groups)
@@ -244,7 +265,6 @@ class TestSDP(CheckSMatrix):
         V = utilities.chol2inv(Q)
         groups = np.concatenate([np.zeros(10) + j for j in range(5)]) + 1
         groups = groups.astype('int32')
-
 
         # Helper function
         def SDP_solver():

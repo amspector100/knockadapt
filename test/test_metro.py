@@ -9,7 +9,7 @@ from .context import knockadapt
 from knockadapt import utilities
 from knockadapt import graphs
 from knockadapt import metro, tree_processing
-from knockadapt.nonconvex_sdp import fk_precision_trace
+from knockadapt.mrc import mvr_loss
 import time
 
 class TestMetroProposal(unittest.TestCase):
@@ -137,7 +137,7 @@ class TestMetroSample(unittest.TestCase):
 		p = 8
 		X,_,_,Q,V = graphs.sample_data(method='AR1', n=n, p=p)
 		_, S = knockadapt.knockoffs.gaussian_knockoffs(
-			X=X, Sigma=V, method='mcv', return_S=True
+			X=X, Sigma=V, method='mvr', return_S=True
 		)
 
 		# Graph structure + junction tree
@@ -197,7 +197,7 @@ class TestMetroSample(unittest.TestCase):
 			gamma=1, group_size=p
 		)
 		_, S = knockadapt.knockoffs.gaussian_knockoffs(
-			X=X, Sigma=V, method='mcv', return_S=True
+			X=X, Sigma=V, method='mvr', return_S=True
 		)
 
 		# Network graph
@@ -746,7 +746,7 @@ class TestEICV(unittest.TestCase):
 		p = 5
 		X,_,_,Q,V = graphs.sample_data(method='AR1', rho=0.3, n=n, p=p)
 		_, S = knockadapt.knockoffs.gaussian_knockoffs(
-			X=X, Sigma=V, method='mcv', return_S=True
+			X=X, Sigma=V, method='mvr', return_S=True
 		)
 
 		# Graph structure + junction tree
@@ -779,9 +779,9 @@ class TestEICV(unittest.TestCase):
 
 		# Check EICV approx equal FK precision trace
 		EICV = metro_sampler.estimate_EICV(B=5)
-		expected = fk_precision_trace(Sigma=V, S=S, invSigma=Q)
+		expected = mvr_loss(Sigma=V, S=S) / 2
 		self.assertTrue(
-			np.abs(EICV - expected) < 1e-2, 
+			np.abs(EICV - expected) < 3e-2, 
 			f"For gaussian case, estimated EICV ({EICV}) != ground truth {expected}"
 		)
 		
@@ -861,20 +861,20 @@ class TestEICV(unittest.TestCase):
 		tsampler.sample_knockoffs()
 		EICV_SDP = tsampler.estimate_EICV()
 
-		# Sample for MCV matrix
-		S_MCV = (1-rho)*np.eye(p)
+		# Sample for mvr matrix
+		S_mvr = (1-rho)*np.eye(p)
 		tsampler = metro.BlockTSampler(
 			X=X,
 			V=V,
 			df_t=df_t,
-			S=S_MCV,
+			S=S_mvr,
 			metro_verbose=True
 		)
 		tsampler.sample_knockoffs()
-		EICV_MCV = tsampler.estimate_EICV()
+		EICV_mvr = tsampler.estimate_EICV()
 		self.assertTrue(
-			EICV_MCV < EICV_SDP,
-			f"Unexpectedly SDP EICV ({EICV_SDP}) performs better for block T (vs {EICV_MCV})"
+			EICV_mvr < EICV_SDP,
+			f"Unexpectedly SDP EICV ({EICV_SDP}) performs better for block T (vs {EICV_mvr})"
 		)
 
 	def test_ising_eicv(self):
@@ -910,7 +910,7 @@ class TestEICV(unittest.TestCase):
 			V=V,
 			Q=Q,
 			max_width=6,
-			method='equicorrelated',
+			method='mvr',
 		)
 		metro_sampler.sample_knockoffs()
 		EICV = metro_sampler.estimate_EICV()
@@ -923,7 +923,7 @@ class TestEICV(unittest.TestCase):
 			V=V,
 			Q=Q,
 			max_width=2,
-			method='equicorrelated',
+			method='mvr',
 		)
 		metro_sampler2.sample_knockoffs()
 		EICV2 = metro_sampler2.estimate_EICV()

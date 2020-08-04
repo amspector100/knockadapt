@@ -111,9 +111,8 @@ class MetropolizedKnockoffSampler():
 		lf. See page 34 of the paper.
 		:param gamma: A tuning parameter to increase / decrease the acceptance
 		ratio. See appendix F.2.
-		:param kwargs: kwargs to pass to a gaussian_knockoffs constructor.
-		This is used to create the S matrix which is then used for the
-		covariance-guided proposals.
+		:param kwargs: kwargs to pass to the compute_S_matrix method.
+		This is used to create the covariance-guided proposals.
 		:param buckets: If not None, a list of discrete values that X 
 		can take. Covariance-guided proposals will be rounded to these
 		values. This must be a K-length vector.
@@ -307,16 +306,13 @@ class MetropolizedKnockoffSampler():
 	def create_proposal_params(self, **kwargs):
 		"""
 		Constructs the covariance-guided proposal. 
-		:param kwargs: kwargs for gaussian_knockoffs
+		:param kwargs: kwargs for compute_S_matrix
 		method, which finds the optimal S matrix.
 		"""
 
 		# Find the optimal S matrix
-		_, self.S = knockoffs.gaussian_knockoffs(
-			X=self.X,
+		self.S = knockoffs.compute_S_matrix(
 			Sigma=self.V,
-			invSigma=self.Q,
-			return_S=True,
 			**kwargs
 		)
 		self.G = np.concatenate(
@@ -1375,13 +1371,6 @@ class IsingKnockoffSampler():
 			kwargs.pop('S')
 		if 'invSigma' in kwargs:
 			kwargs.pop('invSigma')
-		# else:
-		# 	_, self.S = knockoffs.gaussian_knockoffs(
-		# 		X=X[0:10],
-		# 		Sigma=V,
-		# 		return_S=True,
-		# 		**kwargs
-		# 	)
 
 		# Dummy order / inv_order variables for consistency
 		self.order = np.arange(self.p)
