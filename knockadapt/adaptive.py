@@ -327,8 +327,6 @@ class GroupKnockoffEval:
         # Defaults for knockoff_kwargs
         if "verbose" not in self.knockoff_kwargs:
             self.knockoff_kwargs["verbose"] = False
-        if "sdp_verbose" not in self.knockoff_kwargs:
-            self.knockoff_kwargs["sdp_verbose"] = False
 
     def combine_S_kwargs(self, new_kwargs):
         """ Combines default knockoff kwargs with new ones (new ones 

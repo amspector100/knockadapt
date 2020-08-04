@@ -104,7 +104,7 @@ class TestGroupKnockoffEval(unittest.TestCase):
 		to_add = {'S':1, 'verbose':True}
 		new_kwargs = self.gkval.combine_S_kwargs(to_add)
 		self.assertEqual(
-			new_kwargs, {'S':1, 'verbose':True, 'sdp_verbose':False},
+			new_kwargs, {'S':1, 'verbose':True},
 			msg = 'GroupKnockoffEval does not properly handle new kwargs'
 		)
 
