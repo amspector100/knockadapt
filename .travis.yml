@@ -12,6 +12,7 @@ addons:
   apt:
     update: true
 install:
+  - pip install cython
   - pip install -r requirements.txt # Requirements.txt
   - pip install ".[test]" . # install package + test dependencies
 script: 
