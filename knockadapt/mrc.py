@@ -82,27 +82,27 @@ def solve_mvr(
 	for i in range(num_iter):
 		np.random.shuffle(inds)
 		for j in inds:
-            # 1. Compute coefficients cn and cd
-            ej = np.zeros(p) # jth basis element
-            ej[j] = 1
-            # 1a. Compute cd 
-            vd = sp.linalg.solve_triangular(a=L, b=ej, lower=True)
-            cd = np.power(vd, 2).sum()
-            # 1b. Compute vn
-            vn = sp.linalg.solve_triangular(a=L.T, b=vd, lower=False)
-            cn = -1*np.power(vn, 2).sum()
+			# 1. Compute coefficients cn and cd
+			ej = np.zeros(p) # jth basis element
+			ej[j] = 1
+			# 1a. Compute cd 
+			vd = sp.linalg.solve_triangular(a=L, b=ej, lower=True)
+			cd = np.power(vd, 2).sum()
+			# 1b. Compute vn
+			vn = sp.linalg.solve_triangular(a=L.T, b=vd, lower=False)
+			cn = -1*np.power(vn, 2).sum()
 
-            # 2. Construct quadratic equation
-            # We want to minimize 1/(sj + delta) - (delta * cn)/(1 - delta * cd)
-            coef2 = -1*cn - np.power(cd, 2)
-            coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
-            coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
-            options = np.roots(np.array([coef2,coef1,coef0]))
+			# 2. Construct quadratic equation
+			# We want to minimize 1/(sj + delta) - (delta * cn)/(1 - delta * cd)
+			coef2 = -1*cn - np.power(cd, 2)
+			coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
+			coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
+			options = np.roots(np.array([coef2,coef1,coef0]))
 
-            # 3. Eliminate complex solutions
-            options = np.array([
-                delta for delta in options if delta > -1*S[j,j] and np.imag(delta)==0
-            ])
+			# 3. Eliminate complex solutions
+			options = np.array([
+				delta for delta in options if delta > -1*S[j,j] and np.imag(delta)==0
+			])
 			
 			# TODO: Check solns do not violate PSD-ness
 			# (maybe something about ensuring the right sign of (1 - delta * cd)?)
@@ -180,10 +180,7 @@ def solve_maxent(
 	for i in range(num_iter):
 		np.random.shuffle(inds)
 		for j in inds:
-			leave_one_out = [x for x in inds if x != j]
 			diff = 2*V - S
-			Qjc = diff[leave_one_out][:, leave_one_out]
-			Vjc = V[leave_one_out][:, leave_one_out]
 			
 			# Solve cholesky equation
 			tildey = 2*V[j].copy()
