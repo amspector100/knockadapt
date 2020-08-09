@@ -756,6 +756,7 @@ def gaussian_knockoffs(
     min_eig1 = np.linalg.eigh(2 * Sigma - S)[0].min()
     if verbose:
         print(f"Minimum eigenvalue of 2Sigma - S is {min_eig1}")
+        print(f"Minimum eigenvalue of S is {np.linalg.eigh(S)[0].min()}")
     if min_eig1 < -1e-6:
         raise np.linalg.LinAlgError(
             f"Minimum eigenvalue of 2Sigma - S is {min_eig1}, meaning FDR control violations are extremely likely"
