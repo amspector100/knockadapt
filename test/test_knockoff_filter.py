@@ -93,7 +93,6 @@ class TestFdrControl(unittest.TestCase):
 					'S':S, 
 					'invSigma':invSigma_arg,
 					'verbose':False,
-					'max_epochs':100,
 					'eps':0.05,
 				}
 				if 'df_t' in kwargs:
