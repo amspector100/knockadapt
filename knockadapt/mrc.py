@@ -82,32 +82,27 @@ def solve_mvr(
 	for i in range(num_iter):
 		np.random.shuffle(inds)
 		for j in inds:
-			# 1. Compute inverse of 2*V - S using cholesky matrix L.
-			# This is currently a bottleneck and it may not be necessary.
-			Linv, _ = sp.linalg.lapack.dtrtri(
-				L, overwrite_c=False, lower=True, unitdiag=False
-			)
-			LTinv, _ = sp.linalg.lapack.dtrtri(
-				L.T, overwrite_c=False, lower=False, unitdiag=False
-			)
-			diffinv = np.dot(LTinv, Linv)
-			
-			# 2. Compute optimal deltaj (update to sjstar)
-			# 2a. Compute parameters for first order conditions
-			cn = -1*np.diag(np.outer(diffinv[j], diffinv[j])).sum()
-			cd = diffinv[j, j]
+            # 1. Compute coefficients cn and cd
+            ej = np.zeros(p) # jth basis element
+            ej[j] = 1
+            # 1a. Compute cd 
+            vd = sp.linalg.solve_triangular(a=L, b=ej, lower=True)
+            cd = np.power(vd, 2).sum()
+            # 1b. Compute vn
+            vn = sp.linalg.solve_triangular(a=L.T, b=vd, lower=False)
+            cn = -1*np.power(vn, 2).sum()
 
-			# 2b. Construct quadratic equation
-			# We want to minimize 1/(sj + delta) - (delta * cn)/(1 - delta * cd)
-			coef2 = -1*cn - np.power(cd, 2)
-			coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
-			coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
-			options = np.roots(np.array([coef2,coef1,coef0]))
+            # 2. Construct quadratic equation
+            # We want to minimize 1/(sj + delta) - (delta * cn)/(1 - delta * cd)
+            coef2 = -1*cn - np.power(cd, 2)
+            coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
+            coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
+            options = np.roots(np.array([coef2,coef1,coef0]))
 
-			# 2c. Eliminate complex solutions
-			options = np.array([
-				delta for delta in options if delta > -1*S[j,j] and np.imag(delta)==0
-			])
+            # 3. Eliminate complex solutions
+            options = np.array([
+                delta for delta in options if delta > -1*S[j,j] and np.imag(delta)==0
+            ])
 			
 			# TODO: Check solns do not violate PSD-ness
 			# (maybe something about ensuring the right sign of (1 - delta * cd)?)
