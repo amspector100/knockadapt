@@ -27,18 +27,6 @@ from . import tree_processing
 import warnings
 from tqdm import tqdm
 
-def frobenius_error(
-	V, Q
-):
-	"""
-	Calculates ||VQ - I||_{frobenius}^2 / p
-	to check if V is truly an inverse of Q.
-	This is a fancy way of saying: mean squared error. 
-	"""
-	resid = np.dot(V, Q) - np.eye(V.shape[0])
-	error = np.power(resid, 2).mean()
-	return error
-
 def gaussian_log_likelihood(
 	X, mu, var
 ):
