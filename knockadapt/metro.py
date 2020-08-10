@@ -322,19 +322,23 @@ class MetropolizedKnockoffSampler():
 		)
 		self.invG = None # We don't compute this unless we have to later
 
+		# Check for PSD-ness
+		minSeig = np.min(np.diag(self.S))
+		min2VSeig = np.linalg.eigh(2*self.V - self.S)[0].min()
+		if minSeig < 0:
+			raise np.linalg.LinAlgError(f"Minimum eigenvalue of S is {minSeig}")
+		if min2VSeig < 0:
+			raise np.linalg.LinAlgError(f"Minimum eigenvalue of 2 Sigma - S is {min2VSeig}")
 		if self.metro_verbose:
-			print(f"Minimum eigenvalue of S is {np.min(np.diag(self.S))}")
-			print(f"Minimum eigenvalue 2V-S is {np.linalg.eigh(2*self.V - self.S)[0].min()}")
+			print(f"Minimum eigenvalue of S is {minSeig}")
+			print(f"Minimum eigenvalue 2V-S is {min2VSeig}")
 
 		# Efficiently calculate p inverses of subsets 
 		# of feature-knockoff covariance matrix.
-		# Variable names follow the notation in 
-		# Appendix D of https://arxiv.org/pdf/1903.00434.pdf.
-		# To save memory, we do not store all of these matrices,
-		# but rather delete them as we go.
-		self.invSigma = self.Q.copy()
-
+		# This uses Cholesky decompositions for numerical
+		# stability
 		# Cholesky decomposition of Sigma
+		self.invSigma = self.Q.copy()
 		self.L = np.linalg.cholesky(self.V)
 
 		# Suppose X sim N(mu, Sigma) and we have proposals X_{1:j-1}star
@@ -355,7 +359,6 @@ class MetropolizedKnockoffSampler():
 
 		# Loop through and compute
 		# j corresponds to the jth knockoff variable
-		# So 
 		for j in j_iter:
 
 			# G up to and excluding knockoff j
@@ -387,13 +390,13 @@ class MetropolizedKnockoffSampler():
 					axis=0
 				)
 
-				# Check for numerical instabilities
-				diff = Gprej - np.dot(self.L, self.L.T)
-				max_error = np.max(np.abs(diff))
-				if max_error > 1e-5:
-					# Correct 
-					print(f"Maximum error is {max_error}, recomputing L")
-					self.L = np.linalg.cholesky(Gprej)
+			# Check for numerical instabilities
+			diff = Gprej - np.dot(self.L, self.L.T)
+			max_error = np.max(np.abs(diff))
+			if max_error > 1e-5:
+				# Correct 
+				print(f"Maximum error is {max_error}, recomputing L for p={self.p}, j={j}")
+				self.L = np.linalg.cholesky(Gprej)
 
 			# 2. Compute conditional variance
 			# This subset of G includes knockoff j
@@ -404,7 +407,7 @@ class MetropolizedKnockoffSampler():
 			# Cholesky trick: Sigma[j,j] - ||c||_2^2
 			# is the conditional variance
 			c = sp.linalg.solve_triangular(
-				a=self.L, b=gammainclj, lower=True
+				a=self.L, b=gammainclj, lower=True, overwrite_b=False
 			)
 			self.cond_vars[j] = marg_var - np.dot(c, c)
 
@@ -416,7 +419,7 @@ class MetropolizedKnockoffSampler():
 
 			# Mean transform
 			mean_transform = sp.linalg.solve_triangular(
-				a=self.L.T, b=c, lower=False
+				a=self.L.T, b=c, lower=False, overwrite_b=False
 			).reshape(1, -1)
 			self.mean_transforms.append(mean_transform)
 

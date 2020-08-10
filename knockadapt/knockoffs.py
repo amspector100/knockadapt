@@ -90,19 +90,25 @@ def equicorrelated_block_matrix(Sigma, groups, tol=1e-5, verbose=False, num_iter
 
     # Get eigenvalues and decomposition
     p = Sigma.shape[0]
-    gamma = calc_min_group_eigenvalue(Sigma, groups, tol=tol, verbose=verbose)
+    if groups is None:
+        groups = np.arange(1, p+1, 1)
+    if np.all(groups == np.arange(1, p+1, 1)):
+        gamma = min(2*np.linalg.eigh(Sigma)[0].min(), 1)
+        S = gamma * np.eye(p)
+    else:
+        gamma = calc_min_group_eigenvalue(Sigma, groups, tol=tol, verbose=verbose)
 
-    # Start to fill up S
-    S = np.zeros((p, p))
-    for j in np.unique(groups):
+        # Start to fill up S
+        S = np.zeros((p, p))
+        for j in np.unique(groups):
 
-        # Select subset of cov matrix
-        inds = np.where(groups == j)[0]
-        full_inds = np.ix_(inds, inds)
-        group_sigma = Sigma[full_inds]
+            # Select subset of cov matrix
+            inds = np.where(groups == j)[0]
+            full_inds = np.ix_(inds, inds)
+            group_sigma = Sigma[full_inds]
 
-        # fill up S
-        S[full_inds] = gamma * group_sigma
+            # fill up S
+            S[full_inds] = gamma * group_sigma
 
     # Scale to make this PSD using binary search
     S, _ = scale_until_PSD(Sigma, S, tol, num_iter)
