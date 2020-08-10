@@ -94,7 +94,7 @@ class KnockoffFilter:
 			)
 			knockoffs = self.knockoff_sampler.sample_knockoffs()
 
-			# It is impossible to extract S analytically 
+			# It is difficult to extract S analytically 
 			# here because there are different S's for
 			# different parts of the data
 			S = None
@@ -133,18 +133,16 @@ class KnockoffFilter:
 				],
 				axis=1,
 			)
+			# Only case we don't invert Ginv is when G has been
+			# explicitly constructed to be low rank
+			if not self._sdp_degen:
+				self.Ginv = utilities.chol2inv(self.G)
+			else:
+				self.Ginv = None
 		else:
-			self.G = None
-			self.hatG, self.Ginv = utilities.estimate_covariance(
+			self.G, self.Ginv = utilities.estimate_covariance(
 				np.concatenate([self.X, self.knockoffs], axis=1)
 			)
-
-
-		# Possibly invert joint feature-knockoff cov matrix for debiasing lasso
-		if self.debias and self.G is not None:
-			self.Ginv = utilities.chol2inv(self.G)
-		else:
-			self.Ginv = None
 
 		return knockoffs
 

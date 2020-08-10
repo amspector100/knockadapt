@@ -437,7 +437,7 @@ class TestKnockoffFilter(TestFdrControl):
 			X=X, 
 			y=y, 
 			Sigma=Sigma, 
-			knockoff_kwargs={'S':S, 'verbose':False},
+			knockoff_kwargs={'S':0.9999*S, 'verbose':False},
 		)
 		colsum = X + mxfilter.knockoffs
 		colsum_nunique = np.unique(colsum).shape[0]
