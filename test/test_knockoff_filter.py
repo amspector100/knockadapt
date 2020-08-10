@@ -93,7 +93,6 @@ class TestFdrControl(unittest.TestCase):
 					'S':S, 
 					'invSigma':invSigma_arg,
 					'verbose':False,
-					'eps':0.05,
 				}
 				if 'df_t' in kwargs:
 					knockoff_kwargs['df_t'] = kwargs['df_t']

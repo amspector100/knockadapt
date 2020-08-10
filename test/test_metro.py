@@ -572,7 +572,7 @@ class TestIsing(unittest.TestCase):
 			mu=mu,
 			V=V,
 			Q=Q,
-			max_width=4,
+			max_width=5,
 			method='equicorrelated',
 		)
 

@@ -328,6 +328,9 @@ class MetropolizedKnockoffSampler():
 		# Cholesky decomposition of Sigma
 		self.invSigma = self.Q.copy()
 		self.L = np.linalg.cholesky(self.V)
+		initial_error = np.max(np.abs(
+			self.V - np.dot(self.L, self.L.T
+		)))
 
 		# Suppose X sim N(mu, Sigma) and we have proposals X_{1:j-1}star
 		# Then the conditional mean of the proposal Xjstar 
@@ -381,9 +384,9 @@ class MetropolizedKnockoffSampler():
 			# Check for numerical instabilities
 			diff = Gprej - np.dot(self.L, self.L.T)
 			max_error = np.max(np.abs(diff))
-			if max_error > 1e-5:
+			if max_error > 10*initial_error:
 				# Correct 
-				print(f"Maximum error is {max_error}, recomputing L for p={self.p}, j={j}")
+				print(f"Maximum error is {max_error} > 10x init error, recomputing L for p={self.p}, j={j}")
 				self.L = np.linalg.cholesky(Gprej)
 
 			# 2. Compute conditional variance
@@ -1482,8 +1485,8 @@ class IsingKnockoffSampler():
 					**kwargs
 				)
 				if sampler.width > max_width:
-					raise ValueError(
-						f"Divide/conquer failed, sampler for {p_inds} has width {sampler.width} > max_width {max_width}"
+					warnings.warn(
+						f"Treewidth heuristic inaccurate during divide/conquer, sampler for {p_inds} has width {sampler.width} > max_width {max_width}"
 					)
 
 				self.samplers[key].append((n_inds, p_inds, sampler))
