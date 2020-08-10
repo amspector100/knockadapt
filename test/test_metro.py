@@ -50,15 +50,6 @@ class TestMetroProposal(unittest.TestCase):
 			S=np.eye(p),
 		)
 
-		# Test that invSigma is as it should be
-		G = metro_sampler.G
-		for j in [p-1]:
-			Gjinv = np.linalg.inv(G[0:p+j, 0:p+j])
-			np.testing.assert_almost_equal(
-				Gjinv, metro_sampler.invSigma, decimal=3,
-				err_msg=f'Metro sampler fails to correctly calculate {j}th invSigma'
-			)
-
 		# Test that proposal likelihood is correct
 		mu = np.zeros(2*p)
 		mvn = stats.multivariate_normal(
@@ -99,6 +90,7 @@ class TestMetroProposal(unittest.TestCase):
 				prev_proposals=prev_proposals
 			)
 			prev_proposals = Xstar[:, 0:j+1]
+
 
 	def test_compatibility_error(self):
 		""" Ensures metro class errors when you pass a non-compatible

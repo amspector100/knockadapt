@@ -334,6 +334,9 @@ class MetropolizedKnockoffSampler():
 		# but rather delete them as we go.
 		self.invSigma = self.Q.copy()
 
+		# Cholesky decomposition of Sigma
+		self.L = np.linalg.cholesky(self.V)
+
 		# Suppose X sim N(mu, Sigma) and we have proposals X_{1:j-1}star
 		# Then the conditional mean of the proposal Xjstar 
 		# is muj + mean_transform @ [X - mu, X_{1:j-1}^* - mu_{1:j-1}]
@@ -351,72 +354,70 @@ class MetropolizedKnockoffSampler():
 			j_iter = range(0, self.p)
 
 		# Loop through and compute
+		# j corresponds to the jth knockoff variable
+		# So 
 		for j in j_iter:
+
+			# G up to and excluding knockoff j
+			Gprej = self.G[0:self.p+j, 0:self.p+j]
+			gammaprej = Gprej[-1, 0:-1] # marginal corrs btwn knockoff j + others
+			sigma2prej = Gprej[-1, -1]
 
 			# 1. Compute inverse Sigma
 			if j > 0:
-				# Extract extra components
-				gammaj = self.G[self.p+j-1, 0:self.p+j-1]
-				sigma2j = self.G[self.p+j-1, self.p+j-1]
 
-				# Recursion for upper-left block
-				invSigma_gamma_j = np.dot(self.invSigma, gammaj)
-				denomj = np.dot(gammaj, invSigma_gamma_j) - sigma2j
-				numerj = np.outer(invSigma_gamma_j, invSigma_gamma_j.T)
-				upper_left_block = self.invSigma - numerj / denomj
+				# At this point, we want L to be the cholesky 
+				# factor of Gprej, but it is the cholesky factor
+				# of Gprej{j-1}. Therefore we perform a rank-1
+				# update.
+				# The c below is computed previously:
+				# c = sp.linalg.solve_triangular(
+				# 	a=self.L, b=gammaprej, lower=True
+				# )
+				d = np.sqrt(sigma2prej - np.dot(c,c))
 
-				# Lower-left (and upper-right) block
-				lower_left = invSigma_gamma_j / denomj
-
-				# Bottom-right block
-				bottom_right = -1 / denomj
-
-				# Combine
-				upper_half = np.concatenate(
-					[upper_left_block, lower_left.reshape(-1,1)],
+				# Concatenate new row [c,d] to L
+				new_row = np.concatenate([c, np.array([d])]).reshape(1, -1)
+				self.L = np.concatenate(
+					[self.L, np.zeros((self.p+j-1, 1))],
 					axis=1
 				)
-				lower_half = np.concatenate(
-					[lower_left.reshape(1,-1), bottom_right.reshape(1, 1)],
-					axis=1
+				self.L = np.concatenate(
+					[self.L, new_row], 
+					axis=0
 				)
 
-				# Set the new inverse sigma: delete the old one
-				# to save memory
-				self.invSigma = np.concatenate([upper_half,lower_half], axis=0)
- 
-				# Test for numerical stability - every now and then,
-				# we may take an inversion to improve accuracy
-				Sigma = self.G[0:self.p+j, 0:self.p+j]
-				fro_error = frobenius_error(Sigma, self.invSigma)
-				if fro_error > 1e-4:
-					print(f"Frobenius error is super high for j={j}, {fro_error}")
-					self.invSigma = np.linalg.inv(Sigma)
-					fro_error2 = frobenius_error(Sigma, self.invSigma)
+				# Check for numerical instabilities
+				diff = Gprej - np.dot(self.L, self.L.T)
+				max_error = np.max(np.abs(diff))
+				if max_error > 1e-5:
+					# Correct 
+					print(f"Maximum error is {max_error}, recomputing L")
+					self.L = np.linalg.cholesky(Gprej)
 
-			# 2. Now compute conditional mean and variance
-			# Helpful bits
-			Gamma12_j = self.G[0:self.p+j, self.p+j]
+			# 2. Compute conditional variance
+			# This subset of G includes knockoff j
+			Ginclj = self.G[0:self.p+j+1, 0:self.p+j+1]
+			gammainclj = Ginclj[-1, 0:-1] # marginal corrs btwn knockoff j + others
+			marg_var = Ginclj[-1, -1]
 
-			# Conditional variance
-			self.cond_vars[j] = self.G[self.p+j, self.p+j]#.copy()
-			self.cond_vars[j] -= np.dot(
-				Gamma12_j, np.dot(self.invSigma, Gamma12_j),
+			# Cholesky trick: Sigma[j,j] - ||c||_2^2
+			# is the conditional variance
+			c = sp.linalg.solve_triangular(
+				a=self.L, b=gammainclj, lower=True
 			)
+			self.cond_vars[j] = marg_var - np.dot(c, c)
 
-			# Check the cond variance makes sense
-			# Recall that invSigma has dim p + j - 1
-			# for knockoff at index p + j, which is why
-			# this marg var is correct.
-			marg_var = self.G[self.p+j, self.p+j]
-			#margvar2 = self.G[self.p+j, self.p+j]
+			# Sanity check
 			if self.cond_vars[j] < 0:
 				raise ValueError(f"Cond_vars[{j}] = {self.cond_vars[j]} < 0")
 			elif self.cond_vars[j] > marg_var:
 				raise ValueError(f"Cond_vars[{j}] = {self.cond_vars[j]} > marginal variance {marg_var}")
 
 			# Mean transform
-			mean_transform = np.dot(Gamma12_j, self.invSigma).reshape(1, -1)
+			mean_transform = sp.linalg.solve_triangular(
+				a=self.L.T, b=c, lower=False
+			).reshape(1, -1)
 			self.mean_transforms.append(mean_transform)
 
 	def fetch_proposal_params(self, X, prev_proposals):
