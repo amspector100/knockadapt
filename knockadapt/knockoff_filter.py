@@ -237,6 +237,7 @@ class KnockoffFilter:
 			else:
 				tol = 1e-2
 			Sigma, _ = utilities.estimate_covariance(X, tol, shrinkage)
+		feature_stat_kwargs = feature_stat_kwargs.copy()
 
 		# Save objects
 		self.X = X
@@ -290,6 +291,8 @@ class KnockoffFilter:
 				feature_stat_kwargs['debias'] = True
 
 		# Feature statistics
+		print(f"FEATURE STAT KWARGS")
+		print(feature_stat_kwargs)
 		feature_stat.fit(
 			X=X, knockoffs=knockoffs, y=y, groups=groups, **feature_stat_kwargs
 		)

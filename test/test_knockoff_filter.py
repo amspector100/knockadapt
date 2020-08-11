@@ -3,6 +3,7 @@ import numpy as np
 from scipy import stats
 import unittest
 from .context import knockadapt
+from .context import file_directory
 
 from knockadapt import utilities
 from knockadapt import graphs
@@ -344,7 +345,6 @@ class TestKnockoffFilter(TestFdrControl):
 	def test_ising_control(self):
 
 		# Need to pull in specially-estimated Sigma
-		from .context import file_directory
 		p = 49
 		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
 		self.check_fdr_control(
@@ -360,7 +360,6 @@ class TestKnockoffFilter(TestFdrControl):
 		""" Makes sure Ising works in combination with debiased lasso """
 
 		# Need to pull in specially-estimated Sigma
-		from .context import file_directory
 		p = 49
 		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
 		self.check_fdr_control(
