@@ -146,36 +146,6 @@ class KnockoffFilter:
 
 		return knockoffs
 
-	def compute_quality_metrics(self, **kwargs):
-		"""
-		Computes:
-		(a) feature-knockoff correlations
-		(b) expected conditional variance values
-		for features and knockoffs. 
-		Note that (b) is quite computationally expensive.
-		:param **kwargs: Keyword arguments for EICV.
-		returns: feature-knockoff correlations, ecv values,
-		both as p-length numpy arrays.
-		"""
-
-		# Empirical feature / knockoff correlations
-		# Used to construct MAC.
-		p = self.Sigma.shape[0]
-		self.hatG = np.corrcoef(self.X.T, self.knockoffs.T)
-		self.fkcorrs = np.diag(self.hatG[0:p, p:])
-
-		# Calculate ECVs.
-		# For gaussians, this requires almost no computation.
-		if self.knockoff_type == 'gaussian':
-			if self.Ginv is None:
-				self.Ginv = utilities.chol2inv(self.G)
-			self.ECVS = 1 / np.diag(self.Ginv[0:p][:, 0:p])
-		# For metro, this can be quite slow
-		else:
-			self.knockoff_sampler.estimate_EICV(**kwargs)
-			self.ECVS = self.knockoff_sampler.ECVS
-		return self.fkcorrs, self.ECVS
-
 	def make_selections(self, W, fdr):
 		"""" Calculate data dependent threshhold and selections """
 		T = kstats.data_dependent_threshhold(W=W, fdr=fdr)

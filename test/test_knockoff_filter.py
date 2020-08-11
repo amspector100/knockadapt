@@ -130,52 +130,6 @@ class TestFdrControl(unittest.TestCase):
 class TestKnockoffFilter(TestFdrControl):
 	""" Tests knockoff filter (mostly MX, some FX tests) """
 
-	@pytest.mark.quick
-	def test_quality_metrics(self):
-
-		# Fake gaussian data
-		np.random.seed(110)
-		n = 500000
-		p = 5
-		rho = 0.5
-		S = 0.9*np.eye(p)
-		X, y, _, _, V = graphs.sample_data(
-			method='daibarber2016', rho=rho, gamma=1, n=n, p=p,
-		)
-
-		# Quality metrics
-		mxfilter = KnockoffFilter()
-		mxfilter.Sigma = V
-		mxfilter.forward(
-			X=X,
-			y=y,
-			mu=np.zeros(p),
-			Sigma=V,
-			groups=None,
-			knockoff_kwargs={'S':S},
-		)
-		corrs, ecvs = mxfilter.compute_quality_metrics()
-
-		# Since these are gaussian knockoffs, they should
-		# align with S
-		true_mac = np.abs(1-np.diag(S)).mean()
-		est_mac = np.abs(corrs).mean()
-		self.assertTrue(
-			np.abs(true_mac - est_mac) < 0.001,
-			msg = f"Knockoff filter incorrectly computes gaussian MAC ({est_mac} vs {true_mac})" 
-		)
-
-		# Compute LMCV again with different S
-		Ginv = np.linalg.inv(np.concatenate([
-			np.concatenate([V, V-S]),
-			np.concatenate([V-S, V])
-		], axis=1))
-		true_ECVs = 1 / np.diag(Ginv[0:p][:, 0:p])
-		np.testing.assert_almost_equal(
-			ecvs, true_ECVs, decimal=6,
-			err_msg = f"Knockoff filter incorrectly computes gaussian ECVS"
-		)
-
 	def test_gnull_control(self):
 		""" Test FDR control under global null """
 
