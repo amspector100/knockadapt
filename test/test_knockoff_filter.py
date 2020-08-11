@@ -23,6 +23,8 @@ class TestFdrControl(unittest.TestCase):
 		):
 
 		np.random.seed(110)
+		filter_kwargs = filter_kwargs.copy()
+		kwargs = kwargs.copy()
 
 		# Create and name DGP
 		X0, _, beta, _, Sigma = graphs.sample_data(
@@ -206,7 +208,7 @@ class TestKnockoffFilter(TestFdrControl):
 
 		# Scenario 1: AR1 a = 1, b = 1, 
 		self.check_fdr_control(
-			n=300, p=100, method='AR1', sparsity=0.2, y_dist ='binomial', reps=15,		)
+			n=300, p=100, method='AR1', sparsity=0.2, y_dist ='binomial', reps=15,)
 
 		# Scenario 2: Erdos Renyi
 		self.check_fdr_control(

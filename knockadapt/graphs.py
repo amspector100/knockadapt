@@ -12,6 +12,8 @@ import scipy.spatial.distance as ssd
 # Graphing
 import matplotlib.pyplot as plt
 
+DEFAULT_DF_T = 3
+
 def Wishart(d=100, p=100, tol=1e-2):
     """
     Let W be a random d x p matrix with i.i.d. Gaussian
@@ -384,7 +386,7 @@ def sample_response(X, beta, cond_mean='linear', y_dist="gaussian"):
 def sample_ar1t(
     rhos,
     n=50,
-    df_t=5, 
+    df_t=DEFAULT_DF_T, 
 ):
     """
     Samples t variables according to a Markov chain.
@@ -431,7 +433,7 @@ def sample_block_tmvn(
     blocks,
     block_sqrts=None,
     n=50,
-    df_t=3,
+    df_t=DEFAULT_DF_T,
 ):
     """
     Samples a block-diagonal multivariate t from a set of 
@@ -611,7 +613,7 @@ def sample_data(
     groups=None,
     x_dist="gaussian",
     y_dist="gaussian",
-    df_t=3,
+    df_t=DEFAULT_DF_T,
     cond_mean='linear',
     sign_prob=0.5,
     corr_signals=False,
