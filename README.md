@@ -25,21 +25,12 @@ To run cprofilev, copy and paste the test to proftest/* and then run
 
 ## To do
 
-### Metro Computation
-
-1. See footnote h on page 25. Maybe condition on the knockoffs, not 
-Xjstar. This will make the within-knockoff correlations more similar
-maybe?
-
 ### Knockoff Generation
 
 1. Gaussian knockoff generator should be class based
 2. There should be an overarching "sample knockoffs"
 function where you can put the type of knockoffs
 you want to sample in as an input argument.
-3. There should be an overarching "compute S" function,
-ESPECIALLY for the MCV. The class-based stuff is beautiful
-but inconvenient.
 
 ### FX Knockoff Support
 
@@ -52,32 +43,9 @@ but inconvenient.
 
 ### MCV Computation
 
-This can be waayy sped up. Currently block_diag 
-uses almost as much time as the backprop for medium p.  
-Create a file in the proftest file and then profile.
-
-Solution: like for SDP, we should just have a version
-which runs faster when there are no groups.
-Examples:
-- torch.diag() should run must faster than block_diag_+sparse
-- Easier to store the blocks as a vector and then square them 
-(instead of expensive dotting of p x p matrices)
+1. Gradient-based method can be sped up
+2. Add value for rec_prop
 
 ### Graphs
 
 1. DGP class? instead of returning like 6 things?
-
-### Abstratification
-
-1. Adaptive module should have a class which has
-sample_split, double_dipping procedure, so they're 
-
-### Naming conventions
-
-- Basically follow the knockoff package in R (which is beautiful)
-
-
-### Adaptive to-do
-
-1. Finish test_eval_knockoff_instance and all tests below this
-2. Possibly move power calculation to its own function? so we can test it separately?

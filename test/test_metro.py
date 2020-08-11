@@ -1,8 +1,10 @@
+import time
 import os
 import pytest
 import numpy as np
 import networkx as nx
 from scipy import stats
+import statsmodels.stats.multitest
 import unittest
 from .context import knockadapt
 
@@ -10,7 +12,6 @@ from knockadapt import utilities
 from knockadapt import graphs
 from knockadapt import metro, tree_processing
 from knockadapt.mrc import mvr_loss
-import time
 
 class TestMetroProposal(unittest.TestCase):
 
@@ -117,6 +118,68 @@ class TestMetroProposal(unittest.TestCase):
 			ValueError, "Precision matrix Q is not compatible",
 			incorrect_undir_graph
 		)
+
+class CheckXkValidity(unittest.TestCase):
+	"""
+	Helper class which runs some KS tests
+	between features / knockoffs.
+	"""
+	def many_ks_tests(self, sample1s, sample2s):
+		"""
+		Samples1s, Sample2s = list of arrays
+		Gets p values by running ks tests and then
+		does a multiple testing correction.
+		"""
+		# KS tests
+		pvals = []
+		for s, sk in zip(sample1s,sample2s):
+			result = stats.ks_2samp(s, sk)
+			pvals.append(result.pvalue)
+		pvals = np.array(pvals)
+
+		# BH multiple correction
+		adj_pvals = statsmodels.stats.multitest.multipletests(
+			pvals, method='fdr_bh', alpha=0.01,
+		)
+		adj_pvals = adj_pvals[1]
+		return pvals, adj_pvals
+
+	def check_xk_validity(self, X, Xk, testname):
+		n = X.shape[0]
+		p = X.shape[1]
+
+		# Marginal KS tests
+		marg_pvals, marg_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j] for j in range(p)],
+			sample2s=[Xk[:,j] for j in range(p)]
+		)
+		min_adj_pval = marg_adj_pvals.min() 
+		if min_adj_pval < 0.01:
+			raise ValueError(
+				f"For testname={testname}, MARGINAL ks tests reject with min_adj_pval={min_adj_pval}"
+			)
+
+		# Pairwise KS tests
+		pair_pvals, pair_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j]*X[:, j+1] for j in range(p-1)],
+			sample2s=[Xk[:,j]*Xk[:,j+1] for j in range(p-1)],
+		)
+		min_adj_pval = pair_adj_pvals.min() 
+		if min_adj_pval < 0.01:
+			raise ValueError(
+				f"For testname={testname}, PAIRED ks tests reject with min_adj_pval={min_adj_pval}"
+			)
+
+		# Pair-swapped KS tests
+		pswap_pvals, pswap_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j]*Xk[:,j+1] for j in range(p-1)],
+			sample2s=[Xk[:,j]*X[:, j+1] for j in range(p-1)],
+		)
+		min_adj_pval = pswap_adj_pvals.min() 
+		if min_adj_pval < 0.01:
+			raise ValueError(
+				f"For testname={testname}, PAIR SWAPPED ks tests reject with min_adj_pval={min_adj_pval}"
+			)
 
 class TestMetroSample(unittest.TestCase):
 
@@ -240,7 +303,7 @@ class TestMetroSample(unittest.TestCase):
 			err_msg=f"For equi gaussian design, metro does not match theoretical matrix"
 		)
 
-class TestARTK(unittest.TestCase):
+class TestARTK(CheckXkValidity):
 
 	def test_t_log_likelihood(self):
 
@@ -339,9 +402,9 @@ class TestARTK(unittest.TestCase):
 		np.random.seed(110)
 		n = 1000000
 		p = 5
-		df_t = 5
+		df_t = 3
 		X,_,_,Q,V = knockadapt.graphs.sample_data(
-			n=n, p=p, method='AR1', rho=0.3, x_dist='ar1t'
+			n=n, p=p, method='AR1', rho=0.3, x_dist='ar1t', df_t=df_t
 		)
 		S = np.eye(p)
 
@@ -386,8 +449,13 @@ class TestARTK(unittest.TestCase):
 			err_msg=f"For ARTK sampler, fourth moment of Xk does not match theoretical fourth moment" 
 		)
 
+		# Run a ton of KS tests
+		self.check_xk_validity(
+			X, Xk, testname='ARTK'
+		)
 
-class TestBlockT(unittest.TestCase):
+
+class TestBlockT(CheckXkValidity):
 
 	def test_tmvn_log_likelihood(self):
 
@@ -475,7 +543,13 @@ class TestBlockT(unittest.TestCase):
 			err_msg=f"For block T sampler, fourth moment of Xk does not match theoretical fourth moment" 
 		)
 
-class TestIsing(unittest.TestCase):
+		# Run a ton of KS tests
+		self.check_xk_validity(
+			X, Xk, testname='BLOCKT'
+		)
+
+
+class TestIsing(CheckXkValidity):
 
 	def test_divconquer_likelihoods(self):
 
@@ -641,6 +715,11 @@ class TestIsing(unittest.TestCase):
 		np.testing.assert_almost_equal(
 			X4th / 10, Xk4th / 10, decimal=1,
 			err_msg=f"For Ising sampler, fourth moment of Xk does not match theoretical fourth moment" 
+		)
+
+		# Run a ton of KS tests
+		self.check_xk_validity(
+			X, Xk, testname='SMALL_ISING',
 		)
 
 if __name__ == '__main__':
