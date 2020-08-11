@@ -291,8 +291,6 @@ class KnockoffFilter:
 				feature_stat_kwargs['debias'] = True
 
 		# Feature statistics
-		print(f"FEATURE STAT KWARGS")
-		print(feature_stat_kwargs)
 		feature_stat.fit(
 			X=X, knockoffs=knockoffs, y=y, groups=groups, **feature_stat_kwargs
 		)

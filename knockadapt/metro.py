@@ -487,7 +487,14 @@ class MetropolizedKnockoffSampler():
 		cond_mean += self.cached_mean_proposals[j]
 		return cond_mean,self.cond_vars[j]
 
-	def q_ll(self, Xjstar, X, prev_proposals):
+	def q_ll(
+			self,
+			Xjstar,
+			X,
+			prev_proposals,
+			cond_mean=None,
+			cond_var=None
+		):
 		"""
 		Calculates the log-likelihood of a proposal Xjstar given X 
 		and the previous proposals.
@@ -496,12 +503,34 @@ class MetropolizedKnockoffSampler():
 		:param prev_proposals: n x (j - 1) numpy array of previous
 		proposals. If None, assumes j = 0.
 		"""
-		cond_mean, cond_var = self.fetch_proposal_params(
-			X=X, prev_proposals=prev_proposals
-		)
-		return gaussian_log_likelihood(Xjstar, cond_mean.reshape(-1), cond_var)
+		if cond_mean is None or cond_var is None:
+			cond_mean, cond_var = self.fetch_proposal_params(
+				X=X, prev_proposals=prev_proposals
+			)
+		# Continuous case
+		if self.buckets is None:
+			return gaussian_log_likelihood(Xjstar, cond_mean.reshape(-1), cond_var)
+		else:
+			bucket_probs = gaussian_log_likelihood(
+				X=self.buckets.reshape(1, -1),
+				mu=cond_mean.reshape(-1, 1),
+				var=cond_var,
+			)
+			bucket_probs = np.exp(bucket_probs.astype(np.float32))
+			bucket_probs = bucket_probs / bucket_probs.sum(axis=-1, keepdims=True)
+			flags = Xjstar.reshape(-1,1) == self.buckets.reshape(1,-1)
+			out = np.log(bucket_probs[flags])
+			#print(out.shape)
+			#print(np.unique(Xjstar), self.buckets)
+			return out
 
-	def sample_proposals(self, X, prev_proposals):
+	def sample_proposals(
+		self,
+		X,
+		prev_proposals,
+		cond_mean=None,
+		cond_var=None,
+		):
 		"""
 		Samples 
 		:param Xjstar: n-length numpy array of values to evaluate.
@@ -509,18 +538,29 @@ class MetropolizedKnockoffSampler():
 		:param prev_proposals: n x (j - 1) numpy array of previous
 		proposals. If None, assumes j = 0.
 		"""
+		# These will be compatible as long as Sigma is
+		if cond_mean is None or cond_var is None:
+			cond_mean, cond_var = self.fetch_proposal_params(
+				X=X, prev_proposals=prev_proposals
+			)
+		# Continuous sampling
+		if self.buckets is None:
+			proposal = np.sqrt(cond_var)*np.random.randn(self.n, 1) + cond_mean
 
-		# Sample from gaussian
-		cond_mean, cond_var = self.fetch_proposal_params(
-			X=X, prev_proposals=prev_proposals
-		)
-		proposal = np.sqrt(cond_var)*np.random.randn(self.n, 1) + cond_mean
-		
-		# Possibly do a nearest-neighbor bucketization
+		# Discrete sampling
 		if self.buckets is not None:
-			dists = np.abs(proposal - self.buckets.reshape(1, 1, -1))
-			indices = dists.argmin(axis=-1)
-			proposal = self.buckets[indices]
+			# Cumulative probability buckets
+			bucket_probs = gaussian_log_likelihood(
+				X=self.buckets, mu=cond_mean, var=cond_var,
+			)
+			bucket_probs = np.exp(bucket_probs.astype(np.float32))
+			bucket_probs = bucket_probs / bucket_probs.sum(axis=-1, keepdims=True)
+			cuml_bucket_probs = bucket_probs.cumsum(axis=-1)
+			
+			# Sample independently n times from buckets
+			unifs = np.random.uniform(size=(self.n, 1))
+			inds = np.argmin(cuml_bucket_probs < unifs, axis=-1)
+			proposal = self.buckets[inds]
 
 		return proposal.reshape(-1)
 
@@ -570,27 +610,46 @@ class MetropolizedKnockoffSampler():
 			x_flags=x_flags,
 			j=j,
 		)
-
-		# q2 is:
-		# Pr(Xjstar = xjstar | X = Xtemp, tildeX_{1:j-1}, Xstar_{1:j-1})
-		log_q2 = gaussian_log_likelihood(
-			X=self.X_prop[:, j],
-			mu=cond_mean2.reshape(-1),
-			var=cond_var,
-		)
-
 		# Adjust cond_mean for q1
 		diff = self.X_prop[:, j] - Xtemp[:, j]
 		adjustment = self.mean_transforms[j][:, j]*(diff)
 		cond_mean1 = cond_mean2.reshape(-1) + adjustment 
 
-		# q1 is:
-		# Pr(Xjstar = Xtemp[j] | Xj = xjstar, X_{-j} = X_temp_{-j}, tildeX_{1:j-1}, Xstar_{1:j-1})
-		log_q1 = gaussian_log_likelihood(
-			X=Xtemp[:, j],
-			mu=cond_mean1.reshape(-1),
-			var=cond_var,
-		)
+		### Continuous case
+		if self.buckets is None:
+			# q2 is:
+			# Pr(Xjstar = xjstar | X = Xtemp, tildeX_{1:j-1}, Xstar_{1:j-1})
+			log_q2 = gaussian_log_likelihood(
+				X=self.X_prop[:, j],
+				mu=cond_mean2.reshape(-1),
+				var=cond_var,
+			)
+
+			# q1 is:
+			# Pr(Xjstar = Xtemp[j] | Xj = xjstar, X_{-j} = X_temp_{-j}, tildeX_{1:j-1}, Xstar_{1:j-1})
+			log_q1 = gaussian_log_likelihood(
+				X=Xtemp[:, j],
+				mu=cond_mean1.reshape(-1),
+				var=cond_var,
+			)
+		else:
+			# Terms are same as before
+			log_q2 = self.q_ll(
+				Xjstar=self.X_prop[:, j],
+				X=None,
+				prev_proposals=None,
+				cond_mean=cond_mean2,
+				cond_var=cond_var,
+			)
+			log_q1 = self.q_ll(
+				Xjstar=Xtemp[:, j],
+				X=None,
+				prev_proposals=None,
+				cond_mean=cond_mean1,
+				cond_var=cond_var,
+			)
+
+
 
 		return log_q1, log_q2, Xtemp
 
@@ -954,8 +1013,16 @@ class MetropolizedKnockoffSampler():
 		)
 
 		# Sample B new proposals for j
-		new_Xprop_j = np.random.randn(self.n, B)
-		new_Xprop_j = np.sqrt(cond_var)*new_Xprop_j + cond_mean.reshape(-1, 1)
+		new_Xprop_j = np.zeros((self.n, B))
+		new_Xprop_j[:] = np.nan
+		for b in range(B):
+			proposals = self.sample_proposals(
+				X=None,
+				prev_proposals=None,
+				cond_mean=cond_mean,
+				cond_var=cond_var,
+			)
+			new_Xprop_j[:, b] = proposals
 
 		# Step 2: Compute acceptance probabilities for vars j and beyond
 		# to do importance sampling

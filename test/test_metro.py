@@ -726,7 +726,7 @@ class TestEICV(unittest.TestCase):
 			err_msg=f"F_dict is not consistent before / after estimating EICV"
 		)
 
-
+	@pytest.mark.slow
 	def test_gaussian_ecv(self):
 		"""
 		Checks that gaussian eicv matches theoretical eicv
@@ -765,15 +765,15 @@ class TestEICV(unittest.TestCase):
 		for j in range(p):
 			ECV, _, _ = metro_sampler.estimate_single_ECV(j=j, B=5)
 			self.assertTrue(
-				np.abs(1 / ECV - metro_sampler.invG[j, j]) < 1e-2,
-				f"For gaussian case, j={j}, 1 / ECV (1 / {ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
+				np.abs(1 / ECV - metro_sampler.invG[j, j]) < 5e-2,
+				f"For gaussian case, j={j}, 1 / ECV ({1 / ECV}) disagrees with ground truth {metro_sampler.invG[j,j]} "
 			)
 
 		# Check EICV approx equal FK precision trace
 		EICV = metro_sampler.estimate_EICV(B=5)
 		expected = mvr_loss(Sigma=V, S=S) / 2
 		self.assertTrue(
-			np.abs(EICV - expected) < 3e-2, 
+			np.abs(EICV - expected) < 5e-2, 
 			f"For gaussian case, estimated EICV ({EICV}) != ground truth {expected}"
 		)
 		

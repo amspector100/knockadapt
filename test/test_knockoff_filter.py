@@ -176,9 +176,6 @@ class TestKnockoffFilter(TestFdrControl):
 			err_msg = f"Knockoff filter incorrectly computes gaussian ECVS"
 		)
 
-		# Fake non-gaussian data
-
-
 	def test_gnull_control(self):
 		""" Test FDR control under global null """
 
