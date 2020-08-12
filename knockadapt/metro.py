@@ -14,6 +14,7 @@ import sys
 import copy
 import numpy as np
 import scipy as sp
+import scipy.special
 import itertools
 from functools import reduce
 from scipy import stats
@@ -516,10 +517,11 @@ class MetropolizedKnockoffSampler():
 				mu=cond_mean.reshape(-1, 1),
 				var=cond_var,
 			)
-			bucket_probs = np.exp(bucket_probs.astype(np.float32))
-			bucket_probs = bucket_probs / bucket_probs.sum(axis=-1, keepdims=True)
+			bucket_log_probs = scipy.special.log_softmax(
+				bucket_probs.astype(np.float32), axis=-1
+			)
 			flags = Xjstar.reshape(-1,1) == self.buckets.reshape(1,-1)
-			out = np.log(bucket_probs[flags])
+			out = bucket_log_probs[flags]
 			#print(out.shape)
 			#print(np.unique(Xjstar), self.buckets)
 			return out

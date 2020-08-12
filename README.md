@@ -31,6 +31,8 @@ To run cprofilev, copy and paste the test to proftest/* and then run
 2. There should be an overarching "sample knockoffs"
 function where you can put the type of knockoffs
 you want to sample in as an input argument.
+3. It would be cool if we moved the KS test code and used
+it as a method to validate the knockoffs.
 
 ### FX Knockoff Support
 
