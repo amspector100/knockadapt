@@ -459,8 +459,22 @@ class TestMRCSolvers(CheckSMatrix):
             self.check_S_properties(Sigma, opt_S, groups)
             np.testing.assert_almost_equal(
                 opt_S, expected, decimal=2,
-                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, PSDSolver returns {opt_S}, expected {expected}'
+                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, MVR PSDSolver returns {opt_S}, expected {expected}'
             )
+
+            # Coord descent solver
+            opt_S = mrc.solve_mvr(
+                Sigma=Sigma,
+                rej_rate=true_rec_prop,
+                tol=1e-5,
+                verbose=True,
+            )
+            self.check_S_properties(Sigma, opt_S, groups)
+            np.testing.assert_almost_equal(
+                opt_S, expected, decimal=2,
+                err_msg=f'For equicorrelated cov rho={rho} rec_prop={true_rec_prop}, MVR CD solver returns {opt_S}, expected {expected}'
+            )
+
 
 
     def test_complex_solns(self):

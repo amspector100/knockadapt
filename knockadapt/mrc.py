@@ -55,6 +55,7 @@ def solve_mvr(
 	verbose=False, 
 	num_iter=10,
 	smoothing=0, 
+	rej_rate=0,
 	converge_tol=1
 ):
 	"""
@@ -63,6 +64,8 @@ def solve_mvr(
 	:param Sigma: p x p covariance matrix
 	:param tol: Minimum eigenvalue of 2Sigma - S and S
 	:param num_iter: Number of coordinate descent iterations
+	:param rej_rate: Expected proportion of rejections for knockoffs under the
+	metropolized knockoff sampling framework.
 	:param verbose: if true, will give progress reports
 	:param smoothing: computes smoothed mvr loss
 	"""
@@ -73,10 +76,15 @@ def solve_mvr(
 	p = V.shape[0]
 	inds = np.arange(p)
 	loss = np.inf
+	acc_rate = 1 - rej_rate
+	# Takes a bit longer for rej_rate adjusted to converge
+	if acc_rate < 1:
+		converge_tol = 1e-2 
 
 	# Initialize values
 	decayed_improvement = 10
-	S = np.linalg.eigh(V)[0].min() * np.eye(p)
+	min_eig = np.linalg.eigh(V)[0].min()
+	S = min_eig * np.eye(p)
 	L = np.linalg.cholesky(2*V - S + smoothing * np.eye(p))
 
 	for i in range(num_iter):
@@ -97,24 +105,39 @@ def solve_mvr(
 			coef2 = -1*cn - np.power(cd, 2)
 			coef1 = 2*(-1*cn*(S[j,j]+smoothing) + cd)
 			coef0 = -1*cn*(S[j,j]+smoothing)**2 - 1
-			options = np.roots(np.array([coef2,coef1,coef0]))
+			orig_options = np.roots(np.array([coef2,coef1,coef0]))
 
 			# 3. Eliminate complex solutions
 			options = np.array([
-				delta for delta in options if delta > -1*S[j,j] and np.imag(delta)==0
+				delta for delta in orig_options if np.imag(delta)==0
 			])
-			
-			# TODO: Check solns do not violate PSD-ness
-			# (maybe something about ensuring the right sign of (1 - delta * cd)?)
+			# Eliminate solutions which violate PSD-ness
+			upper_bound = 1 / cd
+			lower_bound = -1*S[j,j]
+			options = np.array([
+				delta for delta in options if delta < upper_bound and delta > lower_bound
+			])
 			if options.shape[0] == 0:
-				raise RuntimeError(f"All quadratic solutions were negative or imaginary")
+				raise RuntimeError(f"All quadratic solutions ({orig_options}) were infeasible or imaginary")
 
+			# 4. If multiple solutions left (unlikely), pick the smaller one
 			losses = 1/(S[j,j] + options) - (options * cn)/(1 - options*cd)
 			if losses[0] == losses.min():
 				delta = options[0]
 			else:
-				delta = options[1]        
+				delta = options[1]
 			
+			# 5. Account for rejections
+			if acc_rate < 1:
+				extra_space = min(min_eig, 0.02)/(i+2) # Helps deal with coord desc
+				opt_postrej_value = S[j,j] + delta
+				opt_prerej_value = opt_postrej_value / (acc_rate)
+				opt_prerej_value = min(
+					S[j,j]+upper_bound-extra_space,
+					max(opt_prerej_value, extra_space)
+				)
+				delta = opt_prerej_value - S[j,j]
+
 			# Update S and L
 			x = np.zeros(p)
 			x[j] = np.sqrt(np.abs(delta))
@@ -128,7 +151,7 @@ def solve_mvr(
 
 		# Check for convergence
 		prev_loss = loss
-		loss = mvr_loss(V, S, smoothing=smoothing)
+		loss = mvr_loss(V, acc_rate*S, smoothing=smoothing)
 		if i != 0:
 			decayed_improvement = decayed_improvement / 10 + 9*(prev_loss - loss) / 10
 		if verbose:
@@ -217,6 +240,7 @@ def solve_maxent(
 		if decayed_improvement < converge_tol:
 			if verbose:
 				print(f"Converged after iteration {i} with loss={loss}")
+			print(np.diag(S).mean())
 			break
 
 	# Ensure validity of solution
