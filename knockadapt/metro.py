@@ -555,8 +555,9 @@ class MetropolizedKnockoffSampler():
 			bucket_probs = gaussian_log_likelihood(
 				X=self.buckets, mu=cond_mean, var=cond_var,
 			)
-			bucket_probs = np.exp(bucket_probs.astype(np.float32))
-			bucket_probs = bucket_probs / bucket_probs.sum(axis=-1, keepdims=True)
+			bucket_probs = scipy.special.softmax(
+				bucket_probs.astype(np.float32), axis=-1
+			)
 			cuml_bucket_probs = bucket_probs.cumsum(axis=-1)
 			
 			# Sample independently n times from buckets
