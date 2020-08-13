@@ -571,7 +571,7 @@ class TestSampleData(unittest.TestCase):
 		)
 		# Test consistency of Q
 		X2,_,_,Q2,V2 = graphs.sample_data(
-			n=n, p=p, Q=Q, method=3, x_dist='gibbs', y_dist='binomial'
+			n=n, p=p, gibbs_graph=Q, method=3, x_dist='gibbs', y_dist='binomial'
 		)
 		np.testing.assert_array_almost_equal(
 			Q, Q2, decimal=5,

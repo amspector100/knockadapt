@@ -68,7 +68,7 @@ class TestFdrControl(unittest.TestCase):
 			# Sample data reps times
 			for j in range(reps):
 				np.random.seed(j)
-				X, y, _, _, _ = graphs.sample_data(
+				X, y, _, Q, _ = graphs.sample_data(
 					corr_matrix=Sigma,
 					beta=beta,
 					**kwargs
@@ -99,6 +99,10 @@ class TestFdrControl(unittest.TestCase):
 				}
 				if 'df_t' in kwargs:
 					knockoff_kwargs['df_t'] = kwargs['df_t']
+				if 'x_dist' in kwargs:
+					if kwargs['x_dist'] == 'gibbs':
+						gibbs_graph = Q
+						knockoff_kwargs['gibbs_graph'] = gibbs_graph
 
 				selections = knockoff_filter.forward(
 					X=X, 

@@ -506,7 +506,7 @@ def Q2cliques(Q):
     return clique_dict
 
 def sample_gibbs(
-        n, p, Q=None, method='ising', temp=1, num_iter=15, K=20, max_val=2.5,
+        n, p, gibbs_graph=None, method='ising', temp=1, num_iter=15, K=20, max_val=2.5,
     ):
     """ Samples from a Gibbs measure on a square grid
     using a Gibbs sampler."""
@@ -527,8 +527,9 @@ def sample_gibbs(
 
     # Construct cliques
     clique_dict = {i:[] for i in range(p)}
-    if Q is None:
-        Q = np.zeros((p, p)) # The UGM
+    if gibbs_graph is None:
+        print(f"Generating new gibbs_graph parameter, method={method}...")
+        gibbs_graph = np.zeros((p, p)) # The UGM
         for i1 in range(p):
             # For ising model
             if method=='ising':
@@ -538,15 +539,15 @@ def sample_gibbs(
                     if i2 != -1:
                         clique_dict[i1].append((i1, i2))
                         sign = 1 - 2*np.random.binomial(1, 0.5)
-                        Q[i1, i2] = temp * sign
-                        Q[i2, i1] = temp * sign
+                        gibbs_graph[i1, i2] = temp * sign
+                        gibbs_graph[i2, i1] = temp * sign
                 for wadd in [-1, 1]:
                     i2 = coords2num(lc, wc + wadd, gridwidth=gridwidth)
                     if i2 != -1:
                         clique_dict[i1].append((i1, i2))
                         sign = 1 - 2*np.random.binomial(1, 0.5)
-                        Q[i1, i2] = temp * sign
-                        Q[i2, i1] = temp * sign
+                        gibbs_graph[i1, i2] = temp * sign
+                        gibbs_graph[i2, i1] = temp * sign
             # Otherwise method must be an integer:
             # we randomly connect this variable method others
             else:
@@ -556,14 +557,15 @@ def sample_gibbs(
                     clique_dict[i1].append((i1, i2))
                     clique_dict[i2].append((i2, i1))
                     sign = 1 - 2*np.random.binomial(1, 0.5)
-                    Q[i1, i2] = temp * sign
-                    Q[i2, i1] = temp * sign
+                    gibbs_graph[i1, i2] = temp * sign
+                    gibbs_graph[i2, i1] = temp * sign
         # Get rid of duplicates
         for i in range(p):
             clique_dict[i] = list(set(clique_dict[i]))
     # Construct cliques from Q
     else:
-        clique_dict = Q2cliques(Q)
+        print(f"Using old gibbs_graph parameter, method={method}...")
+        clique_dict = Q2cliques(gibbs_graph)
 
     # Initialize
     X = np.random.randn(n, p, 1)
@@ -582,7 +584,7 @@ def sample_gibbs(
                 X1 = buckets.reshape(1, -1)
                 X2 = X[:, clique[-1]].reshape(-1, 1)
                 marginals += log_potential(
-                    X1=X1, X2=X2, temp=Q[j, clique[-1]]
+                    X1=X1, X2=X2, temp=gibbs_graph[j, clique[-1]]
                 )
 
             # Resample distribution of this value of X
@@ -597,7 +599,7 @@ def sample_gibbs(
             Xnew = buckets[np.argmax(unifs <= marginals, axis=-1)]
             X[:, j] = Xnew
 
-    return X, Q
+    return X, gibbs_graph
 
 def sample_data(
     p=100,
@@ -617,6 +619,7 @@ def sample_data(
     cond_mean='linear',
     sign_prob=0.5,
     corr_signals=False,
+    gibbs_graph=None,
     **kwargs,
 ):
     """ Creates a random covariance matrix using method
@@ -641,7 +644,8 @@ def sample_data(
     :param kwargs: kwargs to the graph generator (e.g. AR1 kwargs).
     returns: X, y, beta, Q, corr_matrix
     Note that Q will be a precision matrix unless x_dist=='ising' 
-    or 'gibbs': in this case, Q will be the UGM structure of the graph.
+    or 'gibbs': in this case, Q will be the UGM structure of the graph
+    (corresponding to the gibbs_graph parameter).
     """
 
     # Defaults
@@ -651,13 +655,16 @@ def sample_data(
     # Ising / Gibbs Sampling
     if x_dist == 'gibbs':
         # Sample X, Q
-        X, Q = sample_gibbs(n=n, p=p, Q=Q, method=method, **kwargs)
+        X, gibbs_graph = sample_gibbs(
+            n=n, p=p, gibbs_graph=gibbs_graph, method=method, **kwargs
+        )
 
         # This is admittedly not a correlation matrix
         if corr_matrix is None:
             corr_matrix, _ = utilities.estimate_covariance(
                 X, tol=1e-6, shrinkage=None
             )
+        Q = gibbs_graph
 
     # Create Graph
     if Q is None and corr_matrix is None:

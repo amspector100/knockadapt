@@ -81,14 +81,13 @@ class KnockoffFilter:
 			# Extract S
 			S = self.knockoff_sampler.S
 		elif self.knockoff_type == 'ising':
-			# Sample
-			Q = np.linalg.inv(self.Sigma)
-			undir_graph = np.abs(Q) > 1e-5
+			if 'gibbs_graph' not in self.knockoff_kwargs:
+				raise IndexError(
+					f"For ising knockoffs, must provide gibbs graph as knockoff_kwarg"
+				)
 			self.knockoff_sampler = metro.IsingKnockoffSampler(
 				X=self.X,
 				V=self.Sigma,
-				Q=Q,
-				undir_graph=undir_graph,
 				mu=self.mu,
 				**self.knockoff_kwargs
 			)

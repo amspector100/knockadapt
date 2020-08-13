@@ -19,6 +19,7 @@ import itertools
 from functools import reduce
 from scipy import stats
 from . import utilities, knockoffs, graphs
+import statsmodels.stats.multitest
 
 # Network and UGM tools
 import networkx as nx
@@ -49,8 +50,71 @@ def t_log_likelihood(
 	result = -1 * result * (df_t + 1) / 2
 	return result	
 
+class KnockoffGenerator():
 
-class MetropolizedKnockoffSampler():
+	def __init__(self):
+
+		raise NotImplementedError()
+
+	def many_ks_tests(self, sample1s, sample2s):
+		"""
+		Samples1s, Sample2s = list of arrays
+		Gets p values by running ks tests and then
+		does a multiple testing correction.
+		"""
+		# KS tests
+		pvals = []
+		for s, sk in zip(sample1s,sample2s):
+			result = stats.ks_2samp(s, sk)
+			pvals.append(result.pvalue)
+		pvals = np.array(pvals)
+
+		# BH multiple correction
+		adj_pvals = statsmodels.stats.multitest.multipletests(
+			pvals, method='fdr_bh', alpha=0.01,
+		)
+		adj_pvals = adj_pvals[1]
+		return pvals, adj_pvals
+
+	def check_xk_validity(self, X, Xk, testname, alpha=0.001):
+		n = X.shape[0]
+		p = X.shape[1]
+
+		# Marginal KS tests
+		marg_pvals, marg_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j] for j in range(p)],
+			sample2s=[Xk[:,j] for j in range(p)]
+		)
+		min_adj_pval = marg_adj_pvals.min() 
+		if min_adj_pval < alpha:
+			raise ValueError(
+				f"For testname={testname}, MARGINAL ks tests reject with min_adj_pval={min_adj_pval}"
+			)
+
+		# Pairwise KS tests
+		pair_pvals, pair_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j]*X[:, j+1] for j in range(p-1)],
+			sample2s=[Xk[:,j]*Xk[:,j+1] for j in range(p-1)],
+		)
+		min_adj_pval = pair_adj_pvals.min() 
+		if min_adj_pval < alpha:
+			raise ValueError(
+				f"For testname={testname}, PAIRED ks tests reject with min_adj_pval={min_adj_pval}"
+			)
+
+		# Pair-swapped KS tests
+		pswap_pvals, pswap_adj_pvals = self.many_ks_tests(
+			sample1s=[X[:, j]*Xk[:,j+1] for j in range(p-1)],
+			sample2s=[Xk[:,j]*X[:, j+1] for j in range(p-1)],
+		)
+		min_adj_pval = pswap_adj_pvals.min() 
+		if min_adj_pval < alpha:
+			raise ValueError(
+				f"For testname={testname}, PAIR SWAPPED ks tests reject with min_adj_pval={min_adj_pval}"
+			)
+
+
+class MetropolizedKnockoffSampler(KnockoffGenerator):
 
 	def __init__(
 			self,
@@ -955,6 +1019,9 @@ class MetropolizedKnockoffSampler():
 			del self.cached_mean_obs_eq_obs
 			del self.cached_mean_obs_eq_prop
 
+		# KS tests on self.X and self.Xk
+
+
 		# Return re-sorted 
 		return self.Xk[:, self.inv_order]
 
@@ -1084,7 +1151,7 @@ def t_mvn_loglike(X, invScale, mu=None, df_t=3):
 	exponent = -1*(df_t + p) / 2
 	return exponent*log_quad 
 
-class BlockTSampler():
+class BlockTSampler(KnockoffGenerator):
 
 	def __init__(
 		self,
@@ -1179,12 +1246,12 @@ class BlockTSampler():
 		return self.Xk
 
 
-class IsingKnockoffSampler():
+class IsingKnockoffSampler(KnockoffGenerator):
 
 	def __init__(
 		self,
 		X,
-		undir_graph,
+		gibbs_graph,
 		V,
 		Q=None,
 		mu=None,
@@ -1200,6 +1267,8 @@ class IsingKnockoffSampler():
 		self.n = X.shape[0]
 		self.p = X.shape[1]
 		self.X = X
+		self.V = V
+		self.gibbs_graph = gibbs_graph
 		self.gridwidth = int(np.sqrt(self.p))
 		if self.gridwidth**2 != self.p:
 			raise ValueError(f"p {self.p} must be a square number for ising grid")
@@ -1228,9 +1297,9 @@ class IsingKnockoffSampler():
 		self.log_potentials = []
 		for i in range(self.p):
 			for j in range(i):
-				if undir_graph[i,j] != 0:
+				if gibbs_graph[i,j] != 0:
 					self.cliques.append((i,j))
-					temp = undir_graph[i,j]
+					temp = gibbs_graph[i,j]
 					self.log_potentials.append(make_ising_logpotential(temp, i, j))
 
 		# Maps variables to cliques they're part of
@@ -1324,7 +1393,7 @@ class IsingKnockoffSampler():
 					X=X[n_inds][:, p_inds],
 					mu=mu[p_inds],
 					V=Vcond,
-					undir_graph=undir_graph[p_inds][:,p_inds],
+					undir_graph=gibbs_graph[p_inds][:,p_inds] != 0,
 					cliques=div_group_dict['cliques'],
 					log_potentials=div_group_dict['lps'],
 					buckets=self.buckets,
@@ -1399,6 +1468,11 @@ class IsingKnockoffSampler():
 			self.Xk[n_inds] = Xkblock
 			self.acceptances[n_inds] = accblock
 			self.final_acc_probs[n_inds] = probblock
+
+		# Test validity
+		self.check_xk_validity(
+			self.X, self.Xk, testname='IsingSampler', alpha=1e-5
+		)
 
 		return self.Xk
 

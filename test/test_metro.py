@@ -119,68 +119,6 @@ class TestMetroProposal(unittest.TestCase):
 			incorrect_undir_graph
 		)
 
-class CheckXkValidity(unittest.TestCase):
-	"""
-	Helper class which runs some KS tests
-	between features / knockoffs.
-	"""
-	def many_ks_tests(self, sample1s, sample2s):
-		"""
-		Samples1s, Sample2s = list of arrays
-		Gets p values by running ks tests and then
-		does a multiple testing correction.
-		"""
-		# KS tests
-		pvals = []
-		for s, sk in zip(sample1s,sample2s):
-			result = stats.ks_2samp(s, sk)
-			pvals.append(result.pvalue)
-		pvals = np.array(pvals)
-
-		# BH multiple correction
-		adj_pvals = statsmodels.stats.multitest.multipletests(
-			pvals, method='fdr_bh', alpha=0.01,
-		)
-		adj_pvals = adj_pvals[1]
-		return pvals, adj_pvals
-
-	def check_xk_validity(self, X, Xk, testname):
-		n = X.shape[0]
-		p = X.shape[1]
-
-		# Marginal KS tests
-		marg_pvals, marg_adj_pvals = self.many_ks_tests(
-			sample1s=[X[:, j] for j in range(p)],
-			sample2s=[Xk[:,j] for j in range(p)]
-		)
-		min_adj_pval = marg_adj_pvals.min() 
-		if min_adj_pval < 0.01:
-			raise ValueError(
-				f"For testname={testname}, MARGINAL ks tests reject with min_adj_pval={min_adj_pval}"
-			)
-
-		# Pairwise KS tests
-		pair_pvals, pair_adj_pvals = self.many_ks_tests(
-			sample1s=[X[:, j]*X[:, j+1] for j in range(p-1)],
-			sample2s=[Xk[:,j]*Xk[:,j+1] for j in range(p-1)],
-		)
-		min_adj_pval = pair_adj_pvals.min() 
-		if min_adj_pval < 0.01:
-			raise ValueError(
-				f"For testname={testname}, PAIRED ks tests reject with min_adj_pval={min_adj_pval}"
-			)
-
-		# Pair-swapped KS tests
-		pswap_pvals, pswap_adj_pvals = self.many_ks_tests(
-			sample1s=[X[:, j]*Xk[:,j+1] for j in range(p-1)],
-			sample2s=[Xk[:,j]*X[:, j+1] for j in range(p-1)],
-		)
-		min_adj_pval = pswap_adj_pvals.min() 
-		if min_adj_pval < 0.01:
-			raise ValueError(
-				f"For testname={testname}, PAIR SWAPPED ks tests reject with min_adj_pval={min_adj_pval}"
-			)
-
 class TestMetroSample(unittest.TestCase):
 
 
@@ -303,7 +241,7 @@ class TestMetroSample(unittest.TestCase):
 			err_msg=f"For equi gaussian design, metro does not match theoretical matrix"
 		)
 
-class TestARTK(CheckXkValidity):
+class TestARTK(unittest.TestCase):
 
 	def test_t_log_likelihood(self):
 
@@ -450,12 +388,12 @@ class TestARTK(CheckXkValidity):
 		)
 
 		# Run a ton of KS tests
-		self.check_xk_validity(
+		tsampler.check_xk_validity(
 			X, Xk, testname='ARTK'
 		)
 
 
-class TestBlockT(CheckXkValidity):
+class TestBlockT(unittest.TestCase):
 
 	def test_tmvn_log_likelihood(self):
 
@@ -544,12 +482,12 @@ class TestBlockT(CheckXkValidity):
 		)
 
 		# Run a ton of KS tests
-		self.check_xk_validity(
+		tsampler.check_xk_validity(
 			X, Xk, testname='BLOCKT'
 		)
 
 
-class TestIsing(CheckXkValidity):
+class TestIsing(unittest.TestCase):
 
 	def test_divconquer_likelihoods(self):
 
@@ -559,13 +497,13 @@ class TestIsing(CheckXkValidity):
 		n = 10
 		p = 625
 		mu = np.zeros(p)
-		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+		X,_,_,gibbs_graph,_ = knockadapt.graphs.sample_data(
 			n=n, 
 			p=p,
 			method='ising',
 			x_dist='gibbs',
 		)
-		np.fill_diagonal(undir_graph, 1)
+		np.fill_diagonal(gibbs_graph, 1)
 
 		# Read V
 		file_directory = os.path.dirname(os.path.abspath(__file__))
@@ -574,7 +512,7 @@ class TestIsing(CheckXkValidity):
 		# Initialize sampler
 		metro_sampler = metro.IsingKnockoffSampler(
 			X=X,
-			undir_graph=undir_graph,
+			gibbs_graph=gibbs_graph,
 			mu=mu,
 			V=V,
 			max_width=2,
@@ -621,19 +559,19 @@ class TestIsing(CheckXkValidity):
 		n = 100
 		p = 625
 		mu = np.zeros(p)
-		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+		X,_,_,gibbs_graph,_ = knockadapt.graphs.sample_data(
 			n=n, 
 			p=p,
 			method='ising',
 			x_dist='gibbs',
 		)
-		np.fill_diagonal(undir_graph, 1)
+		np.fill_diagonal(gibbs_graph, 1)
 
 		# We load custom cov/q matrices for this
 		file_directory = os.path.dirname(os.path.abspath(__file__))
 		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
 		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
-		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		max_nonedge = np.max(np.abs(Q[gibbs_graph == 0]))
 		self.assertTrue(
 			max_nonedge < 1e-5,
 			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
@@ -642,7 +580,7 @@ class TestIsing(CheckXkValidity):
 		# Initialize sampler
 		metro_sampler = metro.IsingKnockoffSampler(
 			X=X,
-			undir_graph=undir_graph,
+			gibbs_graph=gibbs_graph,
 			mu=mu,
 			V=V,
 			Q=Q,
@@ -661,19 +599,19 @@ class TestIsing(CheckXkValidity):
 		n = 100000
 		p = 9
 		mu = np.zeros(p)
-		X,_,_,undir_graph,_ = knockadapt.graphs.sample_data(
+		X,_,_,gibbs_graph,_ = knockadapt.graphs.sample_data(
 			n=n, 
 			p=p,
 			method='ising',
 			x_dist='gibbs',
 		)
-		np.fill_diagonal(undir_graph, 1)
+		np.fill_diagonal(gibbs_graph, 1)
 
 		# We load custom cov/q matrices for this
 		file_directory = os.path.dirname(os.path.abspath(__file__))
 		V = np.loadtxt(f'{file_directory}/test_covs/vout{p}.txt')
 		Q = np.loadtxt(f'{file_directory}/test_covs/qout{p}.txt')
-		max_nonedge = np.max(np.abs(Q[undir_graph == 0]))
+		max_nonedge = np.max(np.abs(Q[gibbs_graph == 0]))
 		self.assertTrue(
 			max_nonedge < 1e-5,
 			f"Estimated precision for ising{p} has max_nonedge {max_nonedge} >= 1e-5"
@@ -682,7 +620,7 @@ class TestIsing(CheckXkValidity):
 		# Initialize sampler
 		metro_sampler = metro.IsingKnockoffSampler(
 			X=X,
-			undir_graph=undir_graph,
+			gibbs_graph=gibbs_graph,
 			mu=mu,
 			V=V,
 			Q=Q,
@@ -718,7 +656,7 @@ class TestIsing(CheckXkValidity):
 		)
 
 		# Run a ton of KS tests
-		self.check_xk_validity(
+		metro_sampler.check_xk_validity(
 			X, Xk, testname='SMALL_ISING',
 		)
 
