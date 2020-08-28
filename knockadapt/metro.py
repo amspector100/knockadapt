@@ -54,7 +54,7 @@ class KnockoffGenerator():
 
 	def __init__(self):
 
-		raise NotImplementedError()
+		pass
 
 	def many_ks_tests(self, sample1s, sample2s):
 		"""
@@ -315,7 +315,6 @@ class MetropolizedKnockoffSampler(KnockoffGenerator):
 
 		# If we have access to cliques, we can just compute log-potentials
 		else:
-			# print(f"I am looping through cliques now")
 			cliques = self.clique_dict[j]
 			ld_ratio = np.zeros(self.n)
 

@@ -240,7 +240,6 @@ def solve_maxent(
 		if decayed_improvement < converge_tol:
 			if verbose:
 				print(f"Converged after iteration {i} with loss={loss}")
-			print(np.diag(S).mean())
 			break
 
 	# Ensure validity of solution
