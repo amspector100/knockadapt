@@ -573,6 +573,31 @@ class TestMRCSolvers(CheckSMatrix):
                 msg=f"For {method}, PSGD solver has higher loss {psgd_loss} v. sdp {init_loss}"
             )
 
+    def test_equi_ciknock_solution(self):
+        """
+        Check ciknockoff solution
+        """
+        p = 500
+        rho = 0.6
+        # 1. Block equicorrelated
+        _,_,_,_,Vblock = knockadapt.graphs.sample_data(
+            p=p, method='daibarber2016', gamma=0, rho=rho, group_size=2
+        )
+        S_CI = mrc.solve_ciknock(Vblock)
+        np.testing.assert_almost_equal(
+            S_CI, (1-rho**2)*np.eye(p), 2, "S_CI is incorrect for block-equicorrelated with blocksize 2"
+        )
+        # 2. Equicorelated
+        _,_,_,_,V = knockadapt.graphs.sample_data(
+            p=p, method='daibarber2016', gamma=1, rho=rho
+        )
+        S_CI = mrc.solve_ciknock(V)
+        np.testing.assert_almost_equal(
+            S_CI, (1-rho)*np.eye(p), 2, "S_CI is incorrect for equicorrelated"
+        )
+
+
+
 
 class CheckValidKnockoffs(unittest.TestCase):
 

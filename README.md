@@ -18,7 +18,7 @@ This is currently under heavy development (it's in the early stages): docs/tests
 the exact test_method, you get the idea.
 - To run a test with profiling, try ``python3 -m pytest {path} --profile``. This should generate a set of .prof files in prof/. Then you can run snakeviz filename.prof to visualize the output.
 There are also more flags/options for outputs in the command line command.
-- However, this isn't reallyyy recommended - cprofilev is much better.
+- Alternatively, cprofilev is much better.
 To run cprofilev, copy and paste the test to proftest/* and then run 
 ``python3 -m cprofilev proftest/test_name.py``.
 
