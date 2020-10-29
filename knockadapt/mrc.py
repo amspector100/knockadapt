@@ -167,6 +167,21 @@ def solve_mvr(
 	)
 	return S
 
+def solve_CI(
+	Sigma, 
+	tol=1e-5,
+	num_iter=10,
+):
+	# Compute vanilla S_CI 
+	S = 1/(np.diag(np.linalg.inv(Sigma)))
+	S = np.diag(S)
+	# Ensure validity of solution
+	S = utilities.shift_until_PSD(S, tol=tol)
+	S, _ = utilities.scale_until_PSD(
+		V, S, tol=tol, num_iter=num_iter
+	)
+	return S
+
 def solve_maxent(
 	Sigma,
 	tol=1e-5,
