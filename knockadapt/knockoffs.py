@@ -555,7 +555,7 @@ def compute_S_matrix(
     :param groups: groups for group knockoffs
     :param method: Method for constructing
     S-matrix. One of mvr, maxent, sdp, asdp,
-    equicorrelated.
+    equicorrelated, ci/ciknock.
     :param solver: Method for solving mrc knockoffs.
     One of 'cd' (coordinate descent) or 'psgd'
     (projected gradient descent).
@@ -610,6 +610,10 @@ def compute_S_matrix(
             Sigma,
             groups,
             **kwargs,
+        )
+    elif method == 'ciknock' or method == 'ci':
+        S = mrc.solve_ciknock(
+            Sigma, **kwargs
         )
     elif method == "equicorrelated" or method == 'eq':
         S = equicorrelated_block_matrix(
