@@ -148,6 +148,24 @@ def ErdosRenyi(p=300, delta=0.2, lower=0.1, upper=1, tol=1e-1):
 
     return V
 
+def FactorModel(
+    p=500,
+    rank=2,
+    ):
+    """
+    Generates Sigma from a factor model.
+    :param p: Dimensionality
+    :param rank: rank of factor model
+    Similar to Askari et al. 2020 (FANOK: Knockoffs in Linear Time).
+    """
+    diag_entries = np.random.uniform(0, 1, size=p)
+    noise = np.random.randn(p, rank)/np.sqrt(rank)
+    V = np.diag(diag_entries) + np.dot(noise, noise.T)
+    V = utilities.cov2corr(V)
+    Q = utilities.chol2inv(V)
+    return V, Q
+
+
 def PartialCorr(
     p=300,
     rho=0.3,
@@ -678,6 +696,8 @@ def sample_data(
             Q = chol2inv(corr_matrix)
         elif method == 'partialcorr':
             corr_matrix, Q = PartialCorr(p=p, **kwargs)
+        elif method == 'factor':
+            corr_matrix, Q = FactorModel(p=p, **kwargs)
         elif method == "daibarber2016":
             _, _, beta, Q, corr_matrix, _ = daibarber2016_graph(
                 p=p,

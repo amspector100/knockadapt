@@ -247,6 +247,20 @@ class TestSampleData(unittest.TestCase):
 			f"Partial corr pairwise_corr {pairwise_corr} deviates from expectation {expected} for rho={rho}"
 		)
 
+	def test_factor_sample(self):
+
+		p = 50
+		rank = 3
+		np.random.seed(100)
+		_,_,_,_,V = graphs.sample_data(
+			p=p, method='factor', rank=rank
+		)
+		diag_diff = np.mean(np.abs(np.diag(V) - 1))
+		self.assertTrue(
+			diag_diff < 1e-4, 
+			f'Factor corr_matrix={V} for rank={rank} is not a correlation matrix'
+		)
+		mineig = np.linalg.eigh(V)[0].min()
 
 	def test_daibarber2016_sample(self):
 
