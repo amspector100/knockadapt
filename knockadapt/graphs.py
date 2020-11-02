@@ -313,6 +313,9 @@ def create_sparse_coefficients(
             beta = np.array([coeff_size] * num_nonzero + [0] * (p - num_nonzero))
             np.random.shuffle(beta)
 
+    beta_nonzeros = beta != 0
+    num_nonzero = beta_nonzeros.sum()
+
     # Now draw random signs
     if iid_signs:
         signs = 1 - 2 * stats.bernoulli.rvs(sign_prob, size=p)
@@ -321,12 +324,10 @@ def create_sparse_coefficients(
         num_pos = int(np.floor(num_nonzero * sign_prob))
         signs = np.concatenate([np.ones((num_pos)), -1*np.ones((num_nonzero - num_pos))])
         np.random.shuffle(signs)
-        beta[beta!=0] = beta[beta!=0]*signs
+        beta[beta_nonzeros] = beta[beta_nonzeros]*signs
 
     # Possibly change the absolute values of beta
     if coeff_dist is not None:
-        beta_nonzeros = beta != 0
-        num_nonzero = beta_nonzeros.sum()
         if str(coeff_dist).lower() == "normal":
             beta = (beta + np.random.randn(p)) * beta_nonzeros
         elif str(coeff_dist).lower() == "uniform":
