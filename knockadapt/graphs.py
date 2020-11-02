@@ -189,6 +189,7 @@ def daibarber2016_graph(
     coeff_size=3.5,
     coeff_dist=None,
     sign_prob=0.5,
+    iid_signs=True,
     corr_signals=False,
     beta=None,
     mu=None,
@@ -235,6 +236,7 @@ def daibarber2016_graph(
             coeff_size=coeff_size,
             groups=groups,
             sign_prob=sign_prob,
+            iid_signs=iid_signs,
             coeff_dist=coeff_dist,
             corr_signals=corr_signals,
             n=n
@@ -256,6 +258,7 @@ def create_sparse_coefficients(
     coeff_size=1,
     coeff_dist=None,
     sign_prob=0.5,
+    iid_signs=True,
     corr_signals=False,
     n=None,
 ):
@@ -274,7 +277,9 @@ def create_sparse_coefficients(
     have a nonzero coefficient.
     :type groups: np.ndarray
     :param sign_prob: The probability that each nonzero coefficient
-    will be positive. (Signs are assigned independently.)
+    will be positive. 
+    :param iid_signs: If True, the signs of the coeffs are assigned independently.
+    Else, exactly sign_prob*sparsity*p coefficients will be positive.
     :param coeff_dist: Three options:
         - If None, all coefficients have absolute value 
     coeff_size.
@@ -309,7 +314,14 @@ def create_sparse_coefficients(
             np.random.shuffle(beta)
 
     # Now draw random signs
-    signs = 1 - 2 * stats.bernoulli.rvs(sign_prob, size=p)
+    if iid_signs:
+        signs = 1 - 2 * stats.bernoulli.rvs(sign_prob, size=p)
+        beta = beta * signs
+    else:
+        num_pos = int(np.floor(num_nonzero * sign_prob))
+        signs = np.concatenate([np.ones((num_pos)), -1*np.ones((num_nonzero - num_pos))])
+        np.random.shuffle(signs)
+        beta[beta!=0] = beta[beta!=0]*signs
 
     # Possibly change the absolute values of beta
     if coeff_dist is not None:
@@ -322,13 +334,15 @@ def create_sparse_coefficients(
         elif str(coeff_dist).lower() == 'dsliu2020':
             if num_nonzero != 50:
                 raise ValueError(
-                    f"To replicate dsliu2020 paper, need num_nonzero ({num_nonzero})=50")
+                    f"To replicate dsliu2020 paper, need num_nonzero ({num_nonzero})=50"
+                )
             variance = 10 * np.sqrt(np.log(p) / n)
             beta = (beta_nonzeros * np.sqrt(variance) * np.random.randn(p))
         elif str(coeff_dist).lower() == 'gmliu2019':
             if num_nonzero != 60:
                 raise ValueError(
-                    f"To replicate gmliu2019 paper, need num_nonzero ({num_nonzero})=60")
+                    f"To replicate gmliu2019 paper, need num_nonzero ({num_nonzero})=60"
+                )
             variance = 20 / np.sqrt(n)
             beta = (beta_nonzeros * np.sqrt(variance) * np.random.randn(p))
         elif str(coeff_dist).lower() == "none":
@@ -338,7 +352,6 @@ def create_sparse_coefficients(
                 f"coeff_dist ({coeff_dist}) must be 'none', 'normal', or 'uniform'"
             )
 
-    beta = beta * signs
     return beta
 
 
@@ -636,6 +649,7 @@ def sample_data(
     df_t=DEFAULT_DF_T,
     cond_mean='linear',
     sign_prob=0.5,
+    iid_signs=True,
     corr_signals=False,
     gibbs_graph=None,
     **kwargs,
@@ -706,6 +720,7 @@ def sample_data(
                 coeff_dist=coeff_dist,
                 sparsity=sparsity,
                 sign_prob=sign_prob,
+                iid_signs=iid_signs,
                 corr_signals=corr_signals,
                 beta=beta,
                 **kwargs,
@@ -744,6 +759,7 @@ def sample_data(
             coeff_size=coeff_size,
             groups=groups,
             sign_prob=sign_prob,
+            iid_signs=iid_signs,
             coeff_dist=coeff_dist,
             corr_signals=corr_signals,
             n=n,

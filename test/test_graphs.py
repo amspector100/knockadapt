@@ -197,15 +197,27 @@ class TestSampleData(unittest.TestCase):
 		p = 100
 		for sign_prob in [0, 1]:
 			_, _, beta, _, _ = graphs.sample_data(
-				p = p, sparsity = 1, coeff_size=1,
-				sign_prob = sign_prob
+				p=p, sparsity=1, sign_prob=sign_prob, coeff_dist='uniform'
 			)
-			sum_beta = beta.sum()
-			expected = p*(1 - 2*sign_prob)
+			num_pos = (beta > 0).sum()
+			expected = p*(1-sign_prob)
 			self.assertTrue(
-				sum_beta == expected,
+				num_pos == expected,
 				msg = f"sign_prob ({sign_prob}) fails to correctly control sign of beta"
 			)
+
+		# Test for non-iid sampling
+		sparsity = 0.1
+		for sign_prob in [0.1, 0.3, 0.5, 0.7, 0.9]:
+			_,_,beta,_,_ = graphs.sample_data(
+				p=p, sparsity=sparsity, sign_prob=sign_prob, iid_signs=False, coeff_dist='uniform'
+			)
+			num_pos = (beta > 0).sum()
+			expected = np.floor(sign_prob*np.floor(sparsity*p))
+			self.assertTrue(
+				num_pos == expected,
+				msg = f"For non-iid sampling, num_pos ({num_pos}) != expected ({expected})"
+			)	
 
 	def test_beta_corr_signals(self):
 
